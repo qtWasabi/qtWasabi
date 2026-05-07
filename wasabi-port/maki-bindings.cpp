@@ -205,14 +205,25 @@ extern "C" scriptVar wq_stop(maki_cmd *, int, ScriptObject *) { return makeVoid(
 // GuiObject / Group / Layer / Layout / Container — geometry stubs.
 // Real widget integration in M13e.
 
+// Qt-side bridge accessors — see src/SkinRuntimeBridge.cpp.
+extern "C" {
+    void *wq_widget_findById(const wchar_t *id);
+    void  wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value);
+    const wchar_t *wq_widget_getAttr(void *handle, const wchar_t *name);
+    int   wq_widget_getAttrInt(void *handle, const wchar_t *name);
+}
+
 extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
-                                    scriptVar /*id*/) {
-    return makeObject(nullptr);     // null — script handles via if-check
+                                    scriptVar id) {
+    if (id.type != SCRIPT_STRING || !id.data.sdata)
+        return makeObject(nullptr);
+    void *handle = wq_widget_findById(id.data.sdata);
+    return makeObject(static_cast<ScriptObject *>(handle));
 }
 
 extern "C" scriptVar wq_getObject(maki_cmd *, int, ScriptObject *,
-                                   scriptVar) {
-    return makeObject(nullptr);
+                                   scriptVar id) {
+    return wq_findObject(nullptr, 0, nullptr, id);
 }
 
 extern "C" scriptVar wq_setVisible(maki_cmd *, int, ScriptObject *, scriptVar) {
@@ -223,13 +234,21 @@ extern "C" scriptVar wq_getVisible(maki_cmd *, int, ScriptObject *) {
     return makeBoolean(1);
 }
 
-extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *,
-                                     scriptVar /*name*/, scriptVar /*value*/) {
+extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
+                                     scriptVar name, scriptVar value) {
+    if (!o) return makeVoid();
+    if (name.type != SCRIPT_STRING || !name.data.sdata) return makeVoid();
+    const wchar_t *val = (value.type == SCRIPT_STRING && value.data.sdata)
+                            ? value.data.sdata : L"";
+    wq_widget_setAttr(o, name.data.sdata, val);
     return makeVoid();
 }
 
-extern "C" scriptVar wq_getXmlParam(maki_cmd *, int, ScriptObject *, scriptVar) {
-    return makeString(L"");
+extern "C" scriptVar wq_getXmlParam(maki_cmd *, int, ScriptObject *o,
+                                     scriptVar name) {
+    if (!o || name.type != SCRIPT_STRING || !name.data.sdata)
+        return makeString(L"");
+    return makeString(wq_widget_getAttr(o, name.data.sdata));
 }
 
 extern "C" scriptVar wq_setAlpha(maki_cmd *, int, ScriptObject *, scriptVar) {
@@ -240,12 +259,34 @@ extern "C" scriptVar wq_getAlpha(maki_cmd *, int, ScriptObject *) {
     return makeInt(255);
 }
 
-extern "C" scriptVar wq_getAutoWidth(maki_cmd *, int, ScriptObject *)  { return makeInt(0); }
-extern "C" scriptVar wq_getAutoHeight(maki_cmd *, int, ScriptObject *) { return makeInt(0); }
-extern "C" scriptVar wq_getWidth(maki_cmd *, int, ScriptObject *)      { return makeInt(0); }
-extern "C" scriptVar wq_getHeight(maki_cmd *, int, ScriptObject *)     { return makeInt(0); }
-extern "C" scriptVar wq_getLeft(maki_cmd *, int, ScriptObject *)       { return makeInt(0); }
-extern "C" scriptVar wq_getTop(maki_cmd *, int, ScriptObject *)        { return makeInt(0); }
+extern "C" scriptVar wq_getAutoWidth(maki_cmd *, int, ScriptObject *o)  {
+    // Wasabi convention: text widgets return their measured rendered
+    // text width.  For non-text widgets, falls back to declared `w`.
+    // M13e returns the resolved `w` attribute as a first approximation;
+    // text-specific measurement lands when we route into TextPainter.
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"w"));
+}
+extern "C" scriptVar wq_getAutoHeight(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"h"));
+}
+extern "C" scriptVar wq_getWidth(maki_cmd *, int, ScriptObject *o)      {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"w"));
+}
+extern "C" scriptVar wq_getHeight(maki_cmd *, int, ScriptObject *o)     {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"h"));
+}
+extern "C" scriptVar wq_getLeft(maki_cmd *, int, ScriptObject *o)       {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"x"));
+}
+extern "C" scriptVar wq_getTop(maki_cmd *, int, ScriptObject *o)        {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"y"));
+}
 
 extern "C" scriptVar wq_clientToScreenX(maki_cmd *, int, ScriptObject *, scriptVar x) { return x; }
 extern "C" scriptVar wq_clientToScreenY(maki_cmd *, int, ScriptObject *, scriptVar y) { return y; }

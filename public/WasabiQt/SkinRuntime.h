@@ -51,6 +51,15 @@ public:
     // setXmlParam / findObject / getAutoWidth / etc.
     int dispatchOnScriptLoaded();
 
+    // After onScriptLoaded, fire System.onSetXuiParam(name, value)
+    // for every non-standard attribute on a frame instantiation
+    // (e.g. <Wasabi:MainFrame:NoStatus padtitleleft="10"/>).  Real
+    // Wasabi delivers these to the embedded group's scripts at
+    // instantiation; without them, titlebar.m's resizeObjects
+    // never runs.  Broadcasts to every loaded script — scripts
+    // that don't have an onSetXuiParam handler ignore the event.
+    int dispatchXuiParams(const Layout::ResolvedWidget &root);
+
     // Number of scripts the VM currently holds.  Includes scripts
     // that loaded but had errors during onScriptLoaded.
     int scriptCount() const;

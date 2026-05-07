@@ -45,6 +45,14 @@ void registerScriptSystemObject(int scriptId, void *systemObjectHandle);
 // Returns the DLF id used, or -1 if no matching entry.
 int  fireEventByName(int scriptId, const wchar_t *functionName);
 
+// Fire System.onSetXuiParam(name, value) on `scriptId`'s SystemObject.
+// In real Wasabi these are delivered to the script of an embedded
+// group when its host frame instantiates with non-standard XUI tag
+// attributes (`<Wasabi:MainFrame:NoStatus padtitleleft="10" .../>`).
+// Returns true if a handler was found.
+bool fireOnSetXuiParam(int scriptId,
+                       const wchar_t *name, const wchar_t *value);
+
 // Diagnostic: list the DLF names registered for `scriptId` (one per
 // line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);

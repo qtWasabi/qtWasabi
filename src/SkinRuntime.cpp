@@ -13,7 +13,15 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QSet>
 #include <QString>
+
+// Bridge entry points implemented in src/SkinRuntimeBridge.cpp.
+namespace WasabiQt {
+void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
+                              void *scriptObjectHandle);
+void clearWidgetRegistry();
+}
 
 namespace WasabiQt {
 
@@ -45,6 +53,7 @@ struct SkinRuntime::Impl {
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
         widgetObjects.clear();
         scriptPaths.clear();
+        clearWidgetRegistry();
     }
 };
 
@@ -56,8 +65,13 @@ void SkinRuntime::reset() { m_d->destroyAll(); }
 namespace {
 void registerWidgets(Layout::ResolvedWidget &w,
                      QHash<QString, void *> &out) {
-    if (!w.id.isEmpty() && !out.contains(w.id))
-        out.insert(w.id, Maki::createWidgetScriptObject(&w));
+    if (!w.id.isEmpty() && !out.contains(w.id)) {
+        void *handle = Maki::createWidgetScriptObject(&w);
+        out.insert(w.id, handle);
+        // Make the handle reachable by id to the maki-bindings.cpp
+        // accessors via the Qt-side bridge registry.
+        registerWidgetForScripts(w.id, &w, handle);
+    }
     for (auto &c : w.children) registerWidgets(c, out);
 }
 }  // namespace
@@ -119,6 +133,85 @@ int SkinRuntime::dispatchOnScriptLoaded() {
     for (int sid : m_d->loadedScripts) {
         const int dlfId = Maki::fireEventByName(sid, L"onScriptLoaded");
         if (dlfId >= 0) ++fired;
+    }
+    return fired;
+}
+
+namespace {
+// Attributes that are part of the standard widget surface (geometry,
+// id, visibility, etc.) — NOT XUI params delivered as events.
+bool isStandardAttr(const QString &k) {
+    static const QSet<QString> kStandard = {
+        QStringLiteral("id"), QStringLiteral("instanceid"),
+        QStringLiteral("xuitag"), QStringLiteral("embed_xui"),
+        QStringLiteral("content"),
+        QStringLiteral("x"), QStringLiteral("y"),
+        QStringLiteral("w"), QStringLiteral("h"),
+        QStringLiteral("relatx"), QStringLiteral("relaty"),
+        QStringLiteral("relatw"), QStringLiteral("relath"),
+        QStringLiteral("visible"), QStringLiteral("ghost"),
+        QStringLiteral("alpha"), QStringLiteral("activealpha"),
+        QStringLiteral("inactivealpha"),
+        QStringLiteral("image"), QStringLiteral("downimage"),
+        QStringLiteral("hoverimage"), QStringLiteral("activeimage"),
+        QStringLiteral("font"), QStringLiteral("fontsize"),
+        QStringLiteral("color"), QStringLiteral("align"),
+        QStringLiteral("valign"), QStringLiteral("default"),
+        QStringLiteral("display"), QStringLiteral("text"),
+        QStringLiteral("forceuppercase"), QStringLiteral("bold"),
+        QStringLiteral("italic"), QStringLiteral("antialias"),
+        QStringLiteral("shadow"), QStringLiteral("shadowx"),
+        QStringLiteral("shadowy"), QStringLiteral("shadowcolor"),
+        QStringLiteral("tooltip"), QStringLiteral("action"),
+        QStringLiteral("param"), QStringLiteral("rectrgn"),
+        QStringLiteral("sysregion"), QStringLiteral("resize"),
+        QStringLiteral("move"), QStringLiteral("file"),
+        QStringLiteral("name"), QStringLiteral("gammagroup"),
+        QStringLiteral("droptarget"), QStringLiteral("snapadjustbottom"),
+        QStringLiteral("linkwidth"), QStringLiteral("minimum_w"),
+        QStringLiteral("minimum_h"), QStringLiteral("default_x"),
+        QStringLiteral("default_y"), QStringLiteral("default_w"),
+        QStringLiteral("default_h"), QStringLiteral("default_visible"),
+        QStringLiteral("nomenu"), QStringLiteral("autowidthsource"),
+        QStringLiteral("charwidth"), QStringLiteral("charheight"),
+        QStringLiteral("hspacing"), QStringLiteral("vspacing"),
+        QStringLiteral("ticker"), QStringLiteral("rightclickaction"),
+        QStringLiteral("dblclickaction"), QStringLiteral("dblclickAction"),
+        QStringLiteral("leftpadding"), QStringLiteral("rightpadding"),
+        QStringLiteral("showlen"), QStringLiteral("autoscroll"),
+        QStringLiteral("activealpha2"), QStringLiteral("group"),
+        QStringLiteral("target"),
+    };
+    return kStandard.contains(k);
+}
+
+void collectXuiParams(const Layout::ResolvedWidget &w,
+                      QList<QPair<QString, QString>> &out) {
+    // Frame instantiations are recognised by xuitag-aliased tags
+    // (wasabi_*frame_*).  Every non-standard attr on them is an
+    // XUI param that the embedded group's script should receive.
+    if (w.tag.startsWith(QStringLiteral("wasabi_")) &&
+        w.tag.contains(QStringLiteral("frame"))) {
+        for (auto it = w.attrs.constBegin(); it != w.attrs.constEnd(); ++it) {
+            if (!isStandardAttr(it.key()))
+                out.append({it.key(), it.value()});
+        }
+    }
+    for (const auto &c : w.children) collectXuiParams(c, out);
+}
+}  // namespace
+
+int SkinRuntime::dispatchXuiParams(const Layout::ResolvedWidget &root) {
+    QList<QPair<QString, QString>> params;
+    collectXuiParams(root, params);
+    int fired = 0;
+    for (const auto &kv : params) {
+        const std::wstring nm = kv.first.toStdWString();
+        const std::wstring val = kv.second.toStdWString();
+        for (int sid : m_d->loadedScripts) {
+            if (Maki::fireOnSetXuiParam(sid, nm.c_str(), val.c_str()))
+                ++fired;
+        }
     }
     return fired;
 }

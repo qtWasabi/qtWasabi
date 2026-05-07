@@ -61,6 +61,41 @@ int fireEventByName(int scriptId, const wchar_t *functionName) {
     return -1;
 }
 
+bool fireOnSetXuiParam(int scriptId,
+                       const wchar_t *name, const wchar_t *value) {
+    if (!name || !value) return false;
+    // Find the onSetXuiParam DLF entry.
+    int dlfid = -1; int nparams = 2;
+    const int base = VCPU::dlfBase(scriptId);
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (e->functionName &&
+            wcscmp(e->functionName, L"onSetXuiParam") == 0) {
+            dlfid   = e->DLFid;
+            nparams = e->nparams;
+            break;
+        }
+    }
+    if (dlfid < 0) return false;
+
+    SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
+    if (!so) return false;
+
+    // Push name + value as scriptVar string args (right-to-left;
+    // upstream pops in reverse so we push value first then name).
+    scriptVar nm{}; nm.type = SCRIPT_STRING; nm.data.sdata = name;
+    scriptVar vl{}; vl.type = SCRIPT_STRING; vl.data.sdata = value;
+    VCPU::push(vl);
+    VCPU::push(nm);
+
+    scriptVar v{};
+    v.type = SCRIPT_OBJECT;
+    v.data.odata = so->getScriptObject();
+    VCPU::executeEvent(v, dlfid, /*np*/ nparams, scriptId);
+    return true;
+}
+
 int dumpDlfNames(int scriptId, char *out, int outCap) {
     if (!out || outCap <= 0) return 0;
     out[0] = 0;
