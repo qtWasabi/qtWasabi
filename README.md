@@ -103,6 +103,87 @@ git history**. The build expects the user to supply their own
 `WASABI_SRC_DIR` pointing at an extracted opensourced-source tree, the
 same way console emulators expect a user-supplied BIOS.
 
+## What is BFC?
+
+BFC = **B**eex **F**oundation **C**lasses, Nullsoft's homegrown C++
+foundation library. Written ~2000–2002 because the C++ STL wasn't
+reliably portable across the compilers Wasabi had to target (MSVC 6,
+GCC 2.x, CodeWarrior, Borland). It is literally Wasabi's stdlib —
+every Wasabi class transitively pulls BFC.
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  Maki VM + script bindings + Wasabi widget classes               │
+│  (vcpu.cpp, scriptmgr, container, button, slider, ...)           │
+│                          USES                                    │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  BFC                    (Wasabi's stdlib + framework)      │  │
+│  │  ┌──────────────┬──────────────┬──────────────────────┐    │  │
+│  │  │ containers   │ GUID +       │ object lifetime      │    │  │
+│  │  │ ptrlist tlist│ dispatch     │ node depend          │    │  │
+│  │  │ stack memblk │ nsguid       │ (parent-child trees) │    │  │
+│  │  │ freelist     │ dispatch.h   │ depview              │    │  │
+│  │  ├──────────────┼──────────────┼──────────────────────┤    │  │
+│  │  │ threading    │ strings      │ MISC                 │    │  │
+│  │  │ thread       │ wasabi_std   │ assert error         │    │  │
+│  │  │ critsec      │ string/      │ foreach pair         │    │  │
+│  │  │ reentry      │              │ math rect            │    │  │
+│  │  ├──────────────┴──────────────┴──────────────────────┤    │  │
+│  │  │ platform/      types.h, win32.h, linux.h, osx.h    │    │  │
+│  │  ├──────────────┬──────────────┬──────────────────────┤    │  │
+│  │  │ std_file ✗   │ std_keyboard ✗│ std_wnd ✗ loadlib ✗ │ ←  │  │
+│  │  │ (port me)    │ (port me)    │ (port me / X11 stub) │    │  │
+│  │  └──────────────┴──────────────┴──────────────────────┘    │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ (BFC sits on)
+                   stdint, pthread, dlfcn, libc
+```
+
+**Two distinct layers** matter to us:
+
+1. **Foundation** (top-half: containers, GUIDs, dispatch, node-tree,
+   threading, strings, math) — POSIX-clean ~3000 LOC. This is what
+   the Maki VM and script-binding registry depend on. Compiles on
+   Linux/macOS without modification.
+
+2. **Platform** (bottom-half, marked ✗: `std_file`, `std_keyboard`,
+   `std_wnd`, `loadlib`) — the unfinished part. Win32 done, macOS
+   partly, Linux X11 abandoned circa 2008. WasabiQT does **not**
+   use these — file I/O goes through Qt's `QFile`, keyboard through
+   `QKeyEvent`, window through `QtWindowAdapter`, plugins through
+   `QLibrary`. The compile shim header tells BFC's transitively-
+   included `std_file.h` etc. that yes, the symbols are declared
+   somewhere — but the VM never actually calls them, so the linker
+   never has to find an implementation.
+
+### How Wasabi uses BFC's GUID + dispatch
+
+This is the part that surprises people coming from modern C++. Every
+Wasabi class derives from `Dispatchable` and overrides:
+
+```cpp
+virtual void *dependent_getInterface(const GUID *classid) {
+    HANDLEGETINTERFACE(MyClass);          // matches my own class GUID
+    HANDLEGETINTERFACE(MyParentClass);    // matches my parent class
+    return SUPER::dependent_getInterface(classid);
+}
+```
+
+When Maki script does `obj.setVisible(0)`, the VM looks up
+`obj`'s `setVisible` method by **GUID-keyed dispatch table**: it
+asks the C++ object "are you a `GuiObject` (GUID
+`4ee3e199-c636-4bec-...`)?" via `dependent_getInterface`, then calls
+the registered method on that interface. This is how Wasabi did
+COM-ish polymorphism without actually being COM. Every script
+binding uses it.
+
+Our `script-bridge/` shims are exactly this: a thin
+`Dispatchable`-derived adapter per Qt-native widget that answers
+`dependent_getInterface(guid_GuiObject)` with itself, so the VM
+can call its bindings against our widget. ~10 LOC per binding.
+
 ## What we use from the opensourced source
 
 Only this irreducible subset compiles into the WasabiQT library:
