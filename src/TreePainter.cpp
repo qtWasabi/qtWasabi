@@ -66,7 +66,7 @@ struct PaintCtx {
 };
 
 void paintRecursive(QPainter *p, const ResolvedWidget &node,
-                    BitmapRegistry &reg, const QSize &canvas) {
+                    PaintCtx &ctx, const QSize &canvas) {
     if (node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
 
