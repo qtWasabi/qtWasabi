@@ -52,8 +52,10 @@ add_executable(tree_paint_test tree_paint_test.cpp)
 target_link_libraries(tree_paint_test PRIVATE
     wasabiqt
     Qt6::Test
-    Qt6::Gui)
+    Qt6::Widgets)
 add_test(NAME tree_paint COMMAND tree_paint_test)
+set_tests_properties(tree_paint PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # M8 — SkinView QWidget smoke test (QApplication + grab()).
 add_executable(skinview_test skinview_test.cpp)
@@ -70,5 +72,7 @@ add_executable(text_paint_test text_paint_test.cpp)
 target_link_libraries(text_paint_test PRIVATE
     wasabiqt
     Qt6::Test
-    Qt6::Gui)
+    Qt6::Widgets)
 add_test(NAME text_paint COMMAND text_paint_test)
+set_tests_properties(text_paint PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
