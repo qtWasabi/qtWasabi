@@ -66,7 +66,7 @@ struct PaintCtx {
 };
 
 void paintRecursive(QPainter *p, const ResolvedWidget &node,
-                    BitmapRegistry &reg, const QSize &canvas) {
+                    PaintCtx &ctx, const QSize &canvas) {
     if (node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
 
@@ -84,45 +84,9 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
-    if (t == QStringLiteral("text") || t == QStringLiteral("songticker")) {
-        // <songticker> paints like <text> with no scrolling; the
-        // displayed string comes through the resolver as
-        // "songtitle" / "songinfo" or whatever the embedder wires up.
-        QHash<QString, QString> a = node.attrs;
-        if (t == QStringLiteral("songticker") &&
-            a.value(QStringLiteral("display")).isEmpty()) {
-            a.insert(QStringLiteral("display"),
-                     QStringLiteral("songtitle"));
-        }
-        TextPainter::paintText(p, *ctx.font, *ctx.bmp, a, canvas,
-                               ctx.resolver);
-        return;
-    }
-
-    if (t == QStringLiteral("vis")) {
-        // Stub spectrum analyzer: paint a few vertical bars in the
-        // declared band colours so the visualisation area shows
-        // *something* until M11+ wires up real audio data.
-        const QRect r = resolveRect(node.attrs, canvas);
-        if (r.width() > 0 && r.height() > 0) {
-            QColor band(255, 255, 255);
-            const QString c1 = node.attrs.value(QStringLiteral("colorband1"));
-            if (c1.contains(QChar(','))) {
-                const auto parts = c1.split(QChar(','));
-                if (parts.size() == 3)
-                    band = QColor(parts[0].toInt(), parts[1].toInt(),
-                                  parts[2].toInt());
-            }
-            const int barCount = 16;
-            const int barW = r.width() / barCount;
-            for (int i = 0; i < barCount; ++i) {
-                // Pseudo-random heights.
-                const int h = 4 + ((i * 17 + 3) % (r.height() - 4));
-                p->fillRect(r.x() + i * barW + 1,
-                            r.y() + (r.height() - h),
-                            barW - 1, h, band);
-            }
-        }
+    if (t == QStringLiteral("text")) {
+        TextPainter::paintText(p, *ctx.font, *ctx.bmp, node.attrs,
+                               canvas, ctx.resolver);
         return;
     }
 
