@@ -44,11 +44,9 @@ if(WASABIQT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# Examples — minimal embedder showing how to host a skin.
-option(WASABIQT_BUILD_EXAMPLES "Build WasabiQT examples" ON)
-if(WASABIQT_BUILD_EXAMPLES)
-    add_subdirectory(examples/minimal_player)
-endif()
+# Reference embedder: github.com/kleberbaum/winamp-linux  (separate
+# repo, links against this lib via find_package(WasabiQT)).  No
+# in-tree example player — winamp-linux IS the example.
 
 # ── Install ─────────────────────────────────────────────────────────
 

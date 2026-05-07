@@ -6,9 +6,19 @@ find_dependency(Qt6 6.6 COMPONENTS Core Gui Widgets)
 
 include("${CMAKE_CURRENT_LIST_DIR}/WasabiQTTargets.cmake")
 
-# Convenience: WasabiQT::WasabiQT is the shared lib, WasabiQT::Static
-# is the static archive.  Embedders pick whichever fits their
-# distribution model:
+# Re-publish the friendly alias names downstream consumers expect.
+# CMake doesn't export ALIAS targets through install(EXPORT), so we
+# create them again here against the real exported targets.
+if(TARGET WasabiQT::wasabiqt AND NOT TARGET WasabiQT::WasabiQT)
+    add_library(WasabiQT::WasabiQT INTERFACE IMPORTED)
+    target_link_libraries(WasabiQT::WasabiQT INTERFACE WasabiQT::wasabiqt)
+endif()
+if(TARGET WasabiQT::wasabiqt_static AND NOT TARGET WasabiQT::Static)
+    add_library(WasabiQT::Static INTERFACE IMPORTED)
+    target_link_libraries(WasabiQT::Static INTERFACE WasabiQT::wasabiqt_static)
+endif()
+
+# Embedders pick whichever fits their distribution model:
 #
 #   target_link_libraries(my_player PRIVATE WasabiQT::WasabiQT)
 #       — runtime dep on libwasabiqt.so (system / RPM install)

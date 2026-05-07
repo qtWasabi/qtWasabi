@@ -14,6 +14,11 @@ set(WASABIQT_SOURCES
     HostAdapter.cpp
     SkinLoader.cpp
     Bootstrap.cpp
+    # Q_OBJECT public headers — listed so AUTOMOC generates their
+    # moc_*.cpp files inside this target (otherwise downstream link
+    # complains about missing vtables for Skin etc.)
+    ${CMAKE_SOURCE_DIR}/public/WasabiQt/Skin.h
+    ${WASABIQT_QT6_SOURCES}
 )
 
 # ── shared library ─────────────────────────────────────────────
@@ -32,6 +37,7 @@ foreach(_target wasabiqt wasabiqt_static)
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
+            ${WASABIQT_QT6_INCLUDE_DIR}
             ${WASABI_SRC_DIR}
             ${WASABI_SRC_DIR}/Wasabi)
 
@@ -39,9 +45,7 @@ foreach(_target wasabiqt wasabiqt_static)
         PUBLIC
             Qt6::Core
             Qt6::Gui
-            Qt6::Widgets
-        PRIVATE
-            wasabiqt_qt6)
+            Qt6::Widgets)
 
     target_compile_features(${_target} PUBLIC cxx_std_20)
 endforeach()

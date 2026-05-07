@@ -334,7 +334,19 @@ skin.load("/path/to/winamp_modern.wal");
 mainWindow->setCentralWidget(skin.widget());
 ```
 
-See `examples/minimal_player/main.cpp` for a complete stub host.
+### Reference embedder
+
+The canonical example of a real player using WasabiQT is
+**[github.com/kleberbaum/winamp-linux](https://github.com/kleberbaum/winamp-linux)** —
+a Qt6 Winamp clone targeting Linux/macOS/Windows.  Its
+`src/winampwasabihost.{h,cpp}` is a fully-implemented
+`WasabiQt::Host`, and its CMake build does
+`find_package(WasabiQT REQUIRED)` + links `WasabiQT::WasabiQT`.
+
+That's the integration test for WasabiQT itself: if winamp-linux
+loads a Winamp Modern skin correctly, WasabiQT works.  No
+maintained in-tree stub player — adding one would diverge from
+the only real consumer.
 
 ### Which path for your specific use cases
 

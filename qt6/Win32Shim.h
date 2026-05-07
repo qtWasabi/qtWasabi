@@ -77,6 +77,16 @@ struct RECT  { LONG left, top, right, bottom; };
 struct POINT { LONG x, y; };
 struct SIZE  { LONG cx, cy; };
 
+using COLORREF = uint32_t;          // Win32: 0x00BBGGRR
+
+#  ifndef RGB
+#    define RGB(r, g, b) (COLORREF)(((BYTE)(r)) | ((BYTE)(g) << 8) | ((BYTE)(b) << 16))
+#  endif
+
+#  define GetRValue(c) (BYTE)((c)        & 0xFF)
+#  define GetGValue(c) (BYTE)(((c) >>  8) & 0xFF)
+#  define GetBValue(c) (BYTE)(((c) >> 16) & 0xFF)
+
 #  ifndef TRUE
 #    define TRUE  1
 #    define FALSE 0
