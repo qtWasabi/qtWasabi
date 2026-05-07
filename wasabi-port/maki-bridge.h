@@ -28,6 +28,22 @@ void removeScript(int scriptId);
 // Number of currently-loaded scripts (debug telemetry).
 int  scriptCount();
 
+// Try to run the script's onScriptLoaded handler.  Walks the
+// script's event table looking for an entry whose DLF function
+// name matches; if found, dispatches into VCPU::runCode at the
+// matching offset.  Returns true if the handler was found AND
+// completed without setting an internal VM error flag.
+//
+// `widgetObjectHandle` is a WidgetScriptObject* that gets pushed
+// on the operand stack as the receiver `this` for the handler.
+// Pass nullptr to skip — the handler will still find any pre-bound
+// var[0] (SystemObject).
+bool runOnScriptLoaded(int scriptId, void *widgetObjectHandle);
+
+// List the function names in `scriptId`'s DLF table.  Diagnostics.
+// Returns up to `maxNames` names into `out`; returns count.
+int  dumpDlfNames(int scriptId, char *out, int outCap);
+
 // ── WidgetScriptObject ──────────────────────────────────────────
 // Opaque handle to a ScriptObject instance backed by a Qt-side
 // widget pointer.  The VM dispatches against this handle without

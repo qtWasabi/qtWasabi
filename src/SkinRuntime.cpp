@@ -75,6 +75,15 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         }
         m_d->loadedScripts.append(sid);
         m_d->scriptPaths.append(relPath);
+
+        // 3) Try to fire onScriptLoaded.  Currently a no-op stub —
+        // M13b will wire real DLF resolution against the opensourced
+        // event-table format.  Logged so progress is visible.
+        const bool ran = Maki::runOnScriptLoaded(sid, nullptr);
+        if (!ran && relPath.endsWith(QStringLiteral("titlebar.maki"))) {
+            qInfo() << "SkinRuntime: onScriptLoaded stub for" << relPath
+                    << "— widget state still driven by static rules";
+        }
     }
 
     return m_d->loadedScripts.size();
