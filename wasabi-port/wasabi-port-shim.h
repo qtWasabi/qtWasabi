@@ -118,18 +118,6 @@ inline void DebugStringW(const wchar_t *s) {
 #  define NULLSOFT_BFC_PRECOMP_H 1
 #  define _STD_WIN_H 1                      // wasabi_std_wnd.h guard
 
-// ── wasabicfg.h override ─────────────────────────────────────────
-//
-// Wasabi's wasabicfg.h enables WASABI_COMPILE_WND which transitively
-// pulls X11/Xpm + GTK headers from bfc/platform/linux.h.  Our Qt-
-// native widget layer doesn't need that — we want only SCRIPT and the
-// supporting subsystems.  Pre-set the include guard with a stripped
-// set of feature flags.
-#  define NULLSOFT_WASABICFG_H 1
-#  define WASABI_COMPILE_SCRIPT
-#  define WASABI_COMPILE_CONFIG
-#  define WASABINOMAINAPI
-
 // ── locale + wide-char ───────────────────────────────────────────
 // wasabi_std.h uses Win32's _locale_t and locale-aware wide-char
 // converters without including the right POSIX headers.  Wasabi
