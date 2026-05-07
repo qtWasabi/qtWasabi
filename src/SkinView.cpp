@@ -16,6 +16,12 @@ SkinView::SkinView(QWidget *parent) : QWidget(parent) {
 
 SkinView::~SkinView() = default;
 
+void SkinView::setActiveGammaset(const QString &name) {
+    m_gammasets.setActiveGammaset(name);
+    m_registry.setGammasetRegistry(&m_gammasets);  // clears tint cache
+    update();
+}
+
 bool SkinView::load(const SkinXml::Document &doc,
                     const QString &containerId,
                     const QString &layoutId,
@@ -24,6 +30,8 @@ bool SkinView::load(const SkinXml::Document &doc,
         return false;
     m_registry.loadFromDocument(doc);
     m_fonts.loadFromDocument(doc);
+    m_gammasets.loadFromDocument(doc);
+    m_registry.setGammasetRegistry(&m_gammasets);
 
     // Native size: prefer explicit w/h, fall back to minimum_w/h.
     auto attrInt = [&](const QString &k, int def = 0) {

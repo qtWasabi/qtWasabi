@@ -2,6 +2,7 @@
 // Copyright (c) 2026 Florian Kleber
 
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/GammasetRegistry.h>
 #include <WasabiQt/SkinXml.h>
 
 #include <QDir>
@@ -36,8 +37,14 @@ int BitmapRegistry::loadFromDocument(const SkinXml::Document &doc) {
     m_skinDir = doc.skinDir;
     m_defs.clear();
     m_imgCache.clear();
+    m_subCache.clear();
     collectBitmaps(doc.root, m_defs);
     return m_defs.size();
+}
+
+void BitmapRegistry::setGammasetRegistry(GammasetRegistry *gs) {
+    m_gammasets = gs;
+    m_subCache.clear();   // existing tinted images become stale
 }
 
 const BitmapDef *BitmapRegistry::find(const QString &id) const {
@@ -48,6 +55,19 @@ const BitmapDef *BitmapRegistry::find(const QString &id) const {
 QImage BitmapRegistry::imageFor(const QString &id) {
     auto it = m_defs.constFind(id);
     if (it == m_defs.constEnd()) return {};
+    if (m_gammasets) {
+        // Tinted-sub-rect cache so we don't repeat the per-pixel
+        // transform on every paint.
+        auto sIt = m_subCache.constFind(id);
+        if (sIt != m_subCache.constEnd()) return sIt.value();
+        QImage out = imageFor(it.value());
+        if (!out.isNull() && !it.value().gammagroup.isEmpty()) {
+            const auto t = m_gammasets->transformFor(it.value().gammagroup);
+            GammasetRegistry::applyToImage(out, t);
+        }
+        m_subCache.insert(id, out);
+        return out;
+    }
     return imageFor(it.value());
 }
 
