@@ -52,3 +52,4 @@ qrc_*.cpp
 # Test outputs
 /tests/output/
 /tests/diffs/
+/tests/visual/actual/
