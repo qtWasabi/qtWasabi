@@ -21,8 +21,18 @@
 #include <bfc/tlist.h>
 #include <bfc/nsguid.h>
 
+// linux.h's min/max macros stomp on STL templates; undef before
+// pulling unordered_map.
+#ifdef min
+#  undef min
+#endif
+#ifdef max
+#  undef max
+#endif
+
 #include <cstdarg>
 #include <cstdio>
+#include <unordered_map>
 #include <cstring>
 #include <cstdlib>
 #include <cwchar>
@@ -72,8 +82,27 @@ int ScriptObjectManager::isNumericType(int t) {
             t == SCRIPT_DOUBLE || t == SCRIPT_BOOLEAN) ? 1 : 0;
 }
 int  ScriptObjectManager::typeCheck(VCPUscriptVar *, int)        { return 1; }
-SystemObject *ScriptObjectManager::getSystemObject(int)              { return nullptr; }
-SystemObject *ScriptObjectManager::getSystemObjectByScriptId(int)    { return nullptr; }
+// Per-script SystemObject — set up by SkinRuntime via the public
+// `Maki::registerSystemObject(scriptId, ScriptObject*)` shim before
+// each addScript().  Upstream's addScript reads this back and binds
+// it as var[0], which is the load-bearing line in the whole "scripts
+// can find handlers" chain (see vcpu.cpp line 452-457).
+namespace { std::unordered_map<int, SystemObject *> g_perScriptSystem; }
+
+namespace WasabiQt::Maki {
+void registerSystemObject(int scriptId, SystemObject *o) {
+    if (!o) g_perScriptSystem.erase(scriptId);
+    else    g_perScriptSystem[scriptId] = o;
+}
+}  // namespace
+
+SystemObject *ScriptObjectManager::getSystemObject(int id) {
+    auto it = g_perScriptSystem.find(id);
+    return it == g_perScriptSystem.end() ? nullptr : it->second;
+}
+SystemObject *ScriptObjectManager::getSystemObjectByScriptId(int id) {
+    return getSystemObject(id);
+}
 void ScriptObjectManager::mid(wchar_t *dest, const wchar_t *str, int s, int l) {
     if (!dest) return;
     if (!str) { dest[0] = 0; return; }

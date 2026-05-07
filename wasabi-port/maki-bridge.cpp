@@ -25,23 +25,64 @@ int scriptCount() {
     return VCPU::numScripts;
 }
 
-bool runOnScriptLoaded(int /*scriptId*/, void * /*widgetObjectHandle*/) {
-    // M13b stub.  Real impl needs to:
-    //   1) iterate the script's eventTable
-    //   2) for each entry, look up the DLF entry's functionName
-    //   3) match against L"onScriptLoaded"
-    //   4) push the receiver scriptVar
-    //   5) call VCPU::runCode(scriptId, e->pointer, /*np*/ 0)
-    // The opensourced VCPU exposes static state but not per-script
-    // accessors for eventTable/dlfTable; we either expose them
-    // via friend/extern access or maintain a parallel cache during
-    // addScript by parsing the .maki blob ourselves.
-    return false;
+// The link-stubs file owns the scriptId → SystemObject map.
+// Forward-declare the public shim here (we're already inside the
+// WasabiQt::Maki namespace block).
+void registerSystemObject(int scriptId, SystemObject *o);
+
+void registerScriptSystemObject(int scriptId, void *systemObjectHandle) {
+    auto *so = static_cast<SystemObject *>(
+        static_cast<ScriptObject *>(systemObjectHandle));
+    registerSystemObject(scriptId, so);
 }
 
-int dumpDlfNames(int /*scriptId*/, char *out, int outCap) {
-    if (outCap > 0) out[0] = 0;
-    return 0;
+int fireEventByName(int scriptId, const wchar_t *functionName) {
+    if (!functionName) return -1;
+    const int base = VCPU::dlfBase(scriptId);
+    // The opensourced DLFentryTable is a flat PtrList — walk from base
+    // until we find an entry whose scriptId matches and whose
+    // functionName matches.
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (e->functionName && wcscmp(e->functionName, functionName) == 0) {
+            // Fire the event against the script's bound SystemObject
+            // (var[0]).  executeEvent handles dispatch through
+            // vcpu_getAssignedVariable + runEvent + runCode.
+            SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
+            if (!so) return -1;
+            scriptVar v{};
+            v.type = SCRIPT_OBJECT;
+            v.data.odata = so->getScriptObject();
+            VCPU::executeEvent(v, e->DLFid, 0, scriptId);
+            return e->DLFid;
+        }
+    }
+    return -1;
+}
+
+int dumpDlfNames(int scriptId, char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int written = 0, count = 0;
+    const int base = VCPU::dlfBase(scriptId);
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (!e->functionName) continue;
+        char buf[128];
+        // wcstombs is fine for ASCII method names (Wasabi's are all ASCII).
+        size_t n = wcstombs(buf, e->functionName, sizeof(buf) - 1);
+        if (n == size_t(-1)) continue;
+        buf[n] = 0;
+        if (written + (int)n + 1 >= outCap) break;
+        memcpy(out + written, buf, n);
+        written += n;
+        out[written++] = '\n';
+        ++count;
+    }
+    out[written] = 0;
+    return count;
 }
 
 }  // namespace WasabiQt::Maki

@@ -23,6 +23,11 @@ struct SkinRuntime::Impl {
     // (`findObject(X) == findObject(X)`).
     QHash<QString, void *> widgetObjects;
 
+    // Per-script SystemObject handles in load order.  Registered with
+    // upstream's SOM::getSystemObjectByScriptId so addScript can bind
+    // each as var[0] of its script.
+    QList<void *> systemObjects;
+
     // Loaded VM script ids, in load order.
     QList<int> loadedScripts;
 
@@ -30,8 +35,13 @@ struct SkinRuntime::Impl {
     QStringList scriptPaths;
 
     void destroyAll() {
-        for (int id : loadedScripts) Maki::removeScript(id);
+        for (int id : loadedScripts) {
+            Maki::registerScriptSystemObject(id, nullptr);
+            Maki::removeScript(id);
+        }
         loadedScripts.clear();
+        for (void *h : systemObjects) Maki::destroyWidgetScriptObject(h);
+        systemObjects.clear();
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
         widgetObjects.clear();
         scriptPaths.clear();
@@ -60,6 +70,7 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
     registerWidgets(root, m_d->widgetObjects);
 
     // 2) Load every <script file=…/> the skin references.
+    int firedCount = 0;
     for (const auto &relPath : doc.scriptFiles) {
         const QString abs = QDir(doc.skinDir).filePath(relPath);
         QFile f(abs);
@@ -68,25 +79,48 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
             continue;
         }
         const QByteArray blob = f.readAll();
+
+        // Pre-allocate a SystemObject for this script (any
+        // WidgetScriptObject suffices — the opensourced addScript only
+        // needs vcpu_addAssignedVariable + getScriptObject to bind
+        // it as var[0]).  We register it under the script id we'll
+        // get back from addScript — but addScript returns the id, so
+        // we need to register AFTER.  Workaround: we use the opensourced
+        // VCPU::numScripts to predict the next id.
+        void *sysObj = Maki::createWidgetScriptObject(nullptr);
+        const int predictedId = Maki::scriptCount();    // next id
+        Maki::registerScriptSystemObject(predictedId, sysObj);
+
         const int sid = Maki::addScript(blob.constData(), blob.size(), 0);
         if (sid < 0) {
             qWarning() << "SkinRuntime: addScript rejected" << relPath;
+            Maki::registerScriptSystemObject(predictedId, nullptr);
+            Maki::destroyWidgetScriptObject(sysObj);
             continue;
+        }
+        if (sid != predictedId) {
+            // Fix up the registration if our prediction was off.
+            Maki::registerScriptSystemObject(predictedId, nullptr);
+            Maki::registerScriptSystemObject(sid, sysObj);
         }
         m_d->loadedScripts.append(sid);
         m_d->scriptPaths.append(relPath);
-
-        // 3) Try to fire onScriptLoaded.  Currently a no-op stub —
-        // M13b will wire real DLF resolution against the opensourced
-        // event-table format.  Logged so progress is visible.
-        const bool ran = Maki::runOnScriptLoaded(sid, nullptr);
-        if (!ran && relPath.endsWith(QStringLiteral("titlebar.maki"))) {
-            qInfo() << "SkinRuntime: onScriptLoaded stub for" << relPath
-                    << "— widget state still driven by static rules";
-        }
+        m_d->systemObjects.append(sysObj);
     }
+    Q_UNUSED(firedCount);
 
+    qInfo() << "SkinRuntime: loaded" << m_d->loadedScripts.size()
+            << "scripts (dispatchOnScriptLoaded() to fire handlers)";
     return m_d->loadedScripts.size();
+}
+
+int SkinRuntime::dispatchOnScriptLoaded() {
+    int fired = 0;
+    for (int sid : m_d->loadedScripts) {
+        const int dlfId = Maki::fireEventByName(sid, L"onScriptLoaded");
+        if (dlfId >= 0) ++fired;
+    }
+    return fired;
 }
 
 int SkinRuntime::scriptCount() const {

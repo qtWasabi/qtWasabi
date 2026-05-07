@@ -37,6 +37,20 @@ public:
     int loadScripts(const SkinXml::Document &doc,
                     Layout::ResolvedWidget &root);
 
+    // Fire the System.onScriptLoaded handler for every loaded script.
+    // Returns the number of scripts where dispatch actually started
+    // (i.e. their DLF table contains an "onScriptLoaded" entry AND
+    // the bound SystemObject has a matching event entry).
+    //
+    // BIG WARNING (M13b): this WILL hit unimplemented stubs partway
+    // through real script execution.  Several SOM / GuiObject / Group
+    // method bodies still return defaults, and the opensourced VM hits
+    // ASSERTs (or worse) once those defaults violate an invariant.
+    // Run with WASABIQT_FATAL_ASSERTS=0 (the default) to log rather
+    // than abort.  Stable use needs M13c — real method bodies for
+    // setXmlParam / findObject / getAutoWidth / etc.
+    int dispatchOnScriptLoaded();
+
     // Number of scripts the VM currently holds.  Includes scripts
     // that loaded but had errors during onScriptLoaded.
     int scriptCount() const;

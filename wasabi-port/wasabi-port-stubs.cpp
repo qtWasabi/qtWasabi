@@ -81,18 +81,28 @@ int WCSNICMP(const wchar_t *a, const wchar_t *b, size_t n) {
 }
 
 // ── assertion handlers ───────────────────────────────────────────
+// Set WASABIQT_FATAL_ASSERTS=1 to abort on first ASSERT (default
+// during dev would crash the test runner).  By default we log and
+// continue — script bytecode hits these on the first stub-returning-
+// default we haven't filled in yet, and we want to see how far things
+// got rather than dying immediately.
+static bool fatal_asserts() {
+    const char *e = ::getenv("WASABIQT_FATAL_ASSERTS");
+    return e && *e == '1';
+}
+
 void _assert_handler(const char *reason, const char *file, int line) {
-    ::fprintf(stderr, "WasabiQT ASSERT: %s   at %s:%d\n",
+    ::fprintf(stderr, "[wasabiqt-assert] %s   at %s:%d\n",
               reason ? reason : "(null)", file, line);
-    ::abort();
+    if (fatal_asserts()) ::abort();
 }
 
 void _assert_handler_str(const char *str, const char *reason,
                          const char *file, int line) {
-    ::fprintf(stderr, "WasabiQT ASSERT: %s — %s   at %s:%d\n",
+    ::fprintf(stderr, "[wasabiqt-assert] %s — %s   at %s:%d\n",
               str    ? str    : "(null)",
               reason ? reason : "(null)", file, line);
-    ::abort();
+    if (fatal_asserts()) ::abort();
 }
 
 // ── wasabi_std.cpp helpers used by string/StringW.cpp ────────────

@@ -28,20 +28,25 @@ void removeScript(int scriptId);
 // Number of currently-loaded scripts (debug telemetry).
 int  scriptCount();
 
-// Try to run the script's onScriptLoaded handler.  Walks the
-// script's event table looking for an entry whose DLF function
-// name matches; if found, dispatches into VCPU::runCode at the
-// matching offset.  Returns true if the handler was found AND
-// completed without setting an internal VM error flag.
+// Register the per-script SystemObject BEFORE calling addScript.
+// Upstream's VCPU::addScript reads SOM::getSystemObjectByScriptId
+// after parsing the .maki blob and binds the returned object as
+// var[0] of the script (see vcpu.cpp line ~457) — without this
+// binding, no event handler ever matches and scripts run nothing.
 //
-// `widgetObjectHandle` is a WidgetScriptObject* that gets pushed
-// on the operand stack as the receiver `this` for the handler.
-// Pass nullptr to skip — the handler will still find any pre-bound
-// var[0] (SystemObject).
-bool runOnScriptLoaded(int scriptId, void *widgetObjectHandle);
+// `systemObjectHandle` must be a WidgetScriptObject created via
+// createWidgetScriptObject(...); it'll be returned through the
+// upstream SOM::getSystemObject family.
+void registerScriptSystemObject(int scriptId, void *systemObjectHandle);
 
-// List the function names in `scriptId`'s DLF table.  Diagnostics.
-// Returns up to `maxNames` names into `out`; returns count.
+// Walk `scriptId`'s DLF table, find the entry with the given UTF-16
+// function name (e.g. L"onScriptLoaded"), and fire it via
+// VCPU::executeEvent against the script's bound SystemObject.
+// Returns the DLF id used, or -1 if no matching entry.
+int  fireEventByName(int scriptId, const wchar_t *functionName);
+
+// Diagnostic: list the DLF names registered for `scriptId` (one per
+// line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);
 
 // ── WidgetScriptObject ──────────────────────────────────────────

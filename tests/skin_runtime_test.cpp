@@ -4,6 +4,8 @@
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/SkinRuntime.h>
 
+#include "../wasabi-port/maki-bridge.h"
+
 #include <QFile>
 #include <QObject>
 #include <QtTest/QtTest>
@@ -37,6 +39,19 @@ private slots:
         QVERIFY(n > 0);
         QVERIFY(runtime.widgetObjectCount() > 50);   // many widgets
         QCOMPARE(runtime.scriptCount(), n);
+
+        // Dump the DLF names of the first script for diagnostics.
+        char buf[8192];
+        const int count = WasabiQt::Maki::dumpDlfNames(0, buf, sizeof(buf));
+        QVERIFY2(count > 0, "script 0 has no DLFs");
+        const QString names = QString::fromUtf8(buf);
+        // Every Modern script that uses System.* has an onScriptLoaded
+        // handler — at least one of them should appear in script 0's
+        // DLF table.  Verifies that addScript actually populated the
+        // DLF entries and our fireEventByName lookup is sound.
+        QVERIFY2(names.contains(QStringLiteral("onScriptLoaded")),
+                 qPrintable(QStringLiteral("missing onScriptLoaded in:\n%1")
+                                .arg(names)));
     }
 };
 
