@@ -49,6 +49,12 @@ if(WASABIQT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
+# Examples — minimal skin viewer that opens a layout in a Qt window.
+option(WASABIQT_BUILD_EXAMPLES "Build WasabiQT example apps" ON)
+if(WASABIQT_BUILD_EXAMPLES)
+    add_subdirectory(examples/wq_view)
+endif()
+
 # Reference embedder: github.com/kleberbaum/winamp-linux  (separate
 # repo, links against this lib via find_package(WasabiQT)).  No
 # in-tree example player — winamp-linux IS the example.
