@@ -103,7 +103,12 @@ bool paintText(QPainter *p,
     // align, antialias.
     QFont qf(fontId);
     const int fontsize = attrInt(attrs, QStringLiteral("fontsize"), 12);
-    qf.setPixelSize(fontsize);
+    // Wasabi `fontsize` is a Win32 lfHeight (character cell height);
+    // Qt's setPixelSize is the EM bounding box.  The two metrics
+    // differ by roughly 4/7 — see libwasabiq Phase 8.5.  Without
+    // this conversion, Arial 14 renders ~1.7x too tall.
+    const int qpx = qMax(1, (fontsize * 4 + 3) / 7);
+    qf.setPixelSize(qpx);
     if (attrBool(attrs, QStringLiteral("bold")))   qf.setBold(true);
     if (attrBool(attrs, QStringLiteral("italic"))) qf.setItalic(true);
 
