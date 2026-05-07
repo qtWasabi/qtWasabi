@@ -1,0 +1,54 @@
+# NEVER commit Winamp opensourced source. WCL-licensed; cannot be redistributed.
+# build.sh fetches it into wasabi-src/ at the repo root for local builds —
+# this directory is forbidden territory for git.
+/wasabi-src/
+/wasabi-src.7z
+*.winamp.tar.gz
+
+# Build artefacts
+/build/
+/build-*/
+/out/
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+
+# RPM build
+/rpmbuild/
+*.rpm
+/packaging/rpm/SOURCES/
+/packaging/rpm/BUILD/
+/packaging/rpm/BUILDROOT/
+/packaging/rpm/RPMS/
+/packaging/rpm/SRPMS/
+
+# macOS bundle
+*.app/
+/packaging/macos/dmg-staging/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Qt MOC
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*.pro.user
+
+# Test outputs
+/tests/output/
+/tests/diffs/
