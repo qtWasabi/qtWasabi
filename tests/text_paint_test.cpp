@@ -97,5 +97,5 @@ private slots:
     }
 };
 
-QTEST_MAIN(TextPaintTest)
+QTEST_GUILESS_MAIN(TextPaintTest)
 #include "text_paint_test.moc"
