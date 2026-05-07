@@ -28,4 +28,17 @@ void removeScript(int scriptId);
 // Number of currently-loaded scripts (debug telemetry).
 int  scriptCount();
 
+// ── WidgetScriptObject ──────────────────────────────────────────
+// Opaque handle to a ScriptObject instance backed by a Qt-side
+// widget pointer.  The VM dispatches against this handle without
+// the caller needing to include the opensourced <api/script/scriptobj.h>.
+//
+// `opaqueWidget` is whatever the embedder wants to store; convention
+// is `Layout::ResolvedWidget *`.  All operations are O(1).
+
+void *createWidgetScriptObject(void *opaqueWidget);
+void  destroyWidgetScriptObject(void *handle);
+void *opaqueOf(void *handle);
+int   scriptIdOf(void *handle);
+
 }  // namespace WasabiQt::Maki

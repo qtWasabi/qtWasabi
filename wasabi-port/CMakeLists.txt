@@ -54,6 +54,10 @@ set(WASABIQT_BFC_SOURCES
     # Sole TU that includes <api/script/vcpu.h> — limits the blast
     # radius of bfc/platform/linux.h's macro pollution.
     ${CMAKE_CURRENT_SOURCE_DIR}/maki-bridge.cpp
+
+    # WidgetScriptObject: ScriptObject subclass backed by an opaque
+    # widget pointer.  Sole TU that #include's <api/script/scriptobj.h>.
+    ${CMAKE_CURRENT_SOURCE_DIR}/widget-script-object.cpp
 )
 
 # Object library — the .o files are pulled into both the shared and the
