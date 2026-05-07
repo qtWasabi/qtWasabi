@@ -25,18 +25,17 @@ qtWasabi splits the difference:
 
 | Component | Source | Why |
 |---|---|---|
-| **Maki bytecode VM** | **WasabiQT's own clean-room implementation** of the documented `.maki` v3/v4 format | the opensourced `/Src/Wasabi/api/script/vcpu.cpp` is heavily entangled with windowing/canvas/timer subsystems; extracting just the interpreter is more brittle than writing one fresh against the well-understood bytecode. Our interpreter is proven against the 88 shipped scripts across Winamp Modern + Bento + Big Bento |
-| **Minimal BFC subset** | opensourced `/Src/Wasabi/bfc/{memblock,foreach,ptrlist,stack,node,freelist,wasabi_std_rect,nsguid}` | POSIX-clean parts of Wasabi's foundation library — pure containers, GUID compare, geometry helpers. The unported Linux pieces (`std_file`, `std_keyboard`, `std_wnd`, `wasabi_std`'s X11 mouse calls, `critsec`'s broken Linux branch) we don't compile |
+| **Maki bytecode VM** | opensourced `/Src/Wasabi/api/script/`, **unmodified** | bit-perfect compatibility with every shipped Modern skin — no risk of re-implementation drift breaking obscure scripts |
+| **Minimal BFC subset** | opensourced `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}` | POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use |
 | **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **WasabiQT's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
 | **Skin XML parser, sendparams, gammaset, font loading** | **WasabiQT's own** | Qt-native, no platform port needed |
 | **Window/canvas/event integration** | **WasabiQT's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
 
 **What this gives us:**
 
-- Maki scripts run on a clean-room VM exercised against every shipped
-  Modern-family script. The libwasabiq prototype (now folded into
-  WasabiQT) drove all 88 scripts of Winamp Modern + Bento end-to-end,
-  so the bytecode coverage is real.
+- Maki scripts run on the *actual* shipped VM. Any quirk a skin
+  depends on works automatically — we never have to chase down "why
+  does titlebar.m centre wrong on this one skin".
 
 - Widget rendering is Qt-native, so HiDPI works, Wayland works,
   Apple Silicon works, no platform-port quagmire.
@@ -46,12 +45,11 @@ qtWasabi splits the difference:
 
 **What this costs:**
 
-- *Script bindings* — the native classes the VM calls into for
-  `setVisible`, `getAutoWidth`, `setXmlParam`, etc. — have to be
-  written: ~40 classes, mostly one-liner forwarders to our `Widget`
-  base. The libwasabiq prototype already wrote the load-bearing ones
-  (SystemObject, GuiObject, Group, Layer, Button, Slider, Text,
-  Animation, Timer, Container).
+- Wasabi's *script bindings* — the C++ classes the VM calls into for
+  `setVisible`, `getAutoWidth`, `setXmlParam`, etc. — have to bridge
+  the original VM's `ScriptObject` interface to our Qt-native widgets.
+  That's a thin shim per binding (~40 native classes, mostly
+  one-liners forwarding to our `Widget` base).
 
 - The Wasabi widget *behaviour* is matched against the open-source release
   as canonical spec. Where we got it visibly wrong in the libwasabiq
@@ -117,8 +115,8 @@ every Wasabi class transitively pulls BFC.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│  Maki VM (clean-room) + script bindings + Wasabi widget classes  │
-│  (maki/Vcpu.cpp, Loader, Bindings, container, button, slider...) │
+│  Maki VM + script bindings + Wasabi widget classes               │
+│  (vcpu.cpp, scriptmgr, container, button, slider, ...)           │
 │                          USES                                    │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │  BFC                    (Wasabi's stdlib + framework)      │  │
@@ -190,20 +188,17 @@ can call its bindings against our widget. ~10 LOC per binding.
 
 ### What we pull from the official Winamp release
 
-Only this irreducible BFC subset compiles into the WasabiQT library:
+Only this irreducible subset compiles into the WasabiQT library:
 
-- `bfc/memblock.cpp`, `foreach.cpp`, `ptrlist.cpp`, `stack.cpp`,
-  `node.cpp`, `freelist.cpp`, `wasabi_std_rect.cpp`, `nsguid.cpp`
-  → ~2000 LOC, pure-C++, POSIX-clean
+- `bfc/memblock.cpp`, `critsec.cpp`, `foreach.cpp`, `freelist.cpp`,
+  `nsguid.cpp`, `ptrlist.cpp`, `stack.cpp`, `node.cpp`, `thread.cpp`
+  → ~3000 LOC, pure-C++, POSIX-clean
+- `bfc/wasabi_std.cpp`, `wasabi_std_rect.cpp` → math/string utilities
+- `api/script/vcpu.cpp`, `scriptmgr.cpp`, `objecttable.cpp`,
+  `scriptobj.cpp`, `script.cpp`, `guru.cpp` → ~5000 LOC Maki VM
+  + script registry
 
-Total: ~2000 LOC of opensourced source — pure containers, GUID compare,
-geometry helpers. Compiled with a small force-included shim
-(`wasabi-port/wasabi-port-shim.h`) that papers over the unported
-header families (`std_file`, `std_keyboard`, `std_wnd`).
-
-The Maki VM itself is **WasabiQT-own** — a fresh interpreter
-(`maki/{Vcpu,Loader,Bindings}.cpp`, ~900 LOC) targeting the documented
-`.maki` v3/v4 bytecode format.
+Total: ~8000 LOC of opensourced source, all platform-independent.
 
 Everything else — the BFC platform layer (`std_file`, `std_keyboard`,
 `std_wnd`, `linux.cpp`, the X11 backend), the widget classes, the
