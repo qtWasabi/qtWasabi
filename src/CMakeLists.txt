@@ -14,6 +14,7 @@ set(WASABIQT_SOURCES
     HostAdapter.cpp
     SkinLoader.cpp
     SkinXml.cpp
+    Layout.cpp
     BitmapRegistry.cpp
     LayerPainter.cpp
     Bootstrap.cpp
