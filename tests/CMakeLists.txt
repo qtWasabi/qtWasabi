@@ -9,7 +9,9 @@ add_executable(titlebar_test titlebar_test.cpp)
 target_link_libraries(titlebar_test PRIVATE
     wasabiqt
     Qt6::Test
-    Qt6::Widgets)
+    Qt6::Gui)
+target_compile_definitions(titlebar_test PRIVATE
+    WASABIQT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME titlebar COMMAND titlebar_test)
 
