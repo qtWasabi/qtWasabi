@@ -118,6 +118,36 @@ inline void DebugStringW(const wchar_t *s) {
 #  define NULLSOFT_BFC_PRECOMP_H 1
 #  define _STD_WIN_H 1                      // wasabi_std_wnd.h guard
 
+// ── Pre-empt upstream guard symbols so the include-stubs/ versions
+//    win even when vcpu.h does `#include "script.h"` (quote-include
+//    that resolves locally to the upstream file).
+#  define __SCRIPT_H 1                       // api/script/script.h
+#  define _SCRIPTOBJI_H 1                    // api/script/scriptobji.h
+#  define _SCRIPT_H 1                        // api/script/scriptmgr.h's guard
+
+// ── wasabicfg.h override ─────────────────────────────────────────
+//
+// Wasabi's wasabicfg.h enables WASABI_COMPILE_WND which then makes
+// bfc/platform/linux.h pull X11/Xpm + GTK headers we don't have or
+// want.  Pre-set the include guard with a stripped feature set: keep
+// SCRIPT (we're vendoring vcpu.cpp/scriptmgr.cpp) and CONFIG, drop
+// the windowing stack — our Qt widget layer takes that over.
+#  define NULLSOFT_WASABICFG_H 1
+#  define WASABI_COMPILE_SCRIPT
+#  define WASABI_COMPILE_CONFIG
+#  define WASABINOMAINAPI
+
+// ── min/max macro pollution from bfc/platform/linux.h ───────────
+// linux.h:91-92 unconditionally `#define min(a,b)` / `#define max(a,b)`,
+// which collides with std::min / std::max as soon as <algorithm> or
+// <ranges> appears.  Wasabi's own headers don't actually use the
+// macros — pre-emptively reserve the identifiers so linux.h's
+// definitions become no-ops.
+#  define WASABI_NO_MINMAX_MACROS 1
+// linux.h does not honour any guard like that, so fall back to
+// undef'ing after the fact.  Done in any TU that includes <algorithm>;
+// the opensourced vcpu.cpp doesn't, but consumers of the shim might.
+
 // ── locale + wide-char ───────────────────────────────────────────
 // wasabi_std.h uses Win32's _locale_t and locale-aware wide-char
 // converters without including the right POSIX headers.  Wasabi
@@ -139,6 +169,21 @@ static inline double _wtof_l(const wchar_t *s, _locale_t)         { return wcsto
 static inline long   _strtol_l(const char *s, char **e, int b, _locale_t) { return strtol(s, e, b); }
 static inline double _strtod_l(const char *s, char **e, _locale_t)        { return strtod(s, e); }
 static inline long long _strtoi64_l(const char *s, char **e, int b, _locale_t) { return strtoll(s, e, b); }
+
+// Win32 has _wcsdup / _strdup / _wsetlocale / vsprintf_s.  POSIX only
+// has the unprefixed forms — alias.
+#  define _wcsdup     wcsdup
+#  define _strdup     strdup
+#  define _wsetlocale wsetlocale_stub
+static inline wchar_t *wsetlocale_stub(int category, const wchar_t *) {
+    setlocale(category, "C");
+    return (wchar_t *)L"C";
+}
+#  include <stdarg.h>
+#  include <stdio.h>
+static inline int vsprintf_s(char *buf, size_t cap, const char *fmt, va_list ap) {
+    return vsnprintf(buf, cap, fmt, ap);
+}
 
 // ── OS handles ───────────────────────────────────────────────────
 //
@@ -176,4 +221,17 @@ typedef HFONT_QT  OSFONTHANDLE;
 // these (with `int` members) when LINUX is defined.  Don't
 // redeclare here.
 
+// ── min/max macro cleanup ────────────────────────────────────────
+// bfc/platform/linux.h:91-92 unconditionally:
+//     #define min(a,b) (((a)<(b))?(a):(b))
+//     #define max(a,b) (((a)>(b))?(a):(b))
+// which collides with std::min / std::max as soon as <algorithm> /
+// <format> appears.  We undefine them after-the-fact via this small
+// header that consumers include AFTER any Wasabi header.  Most TUs
+// don't need this, but the public Maki test does.
+
 #endif  // !_WIN32 && !__APPLE__
+
+// Defined regardless of platform — convenience macro for downstream
+// to include after a Wasabi header to clean up its macro pollution.
+// Usage:  #include <wasabi-port-cleanmacros.h>  // see header.
