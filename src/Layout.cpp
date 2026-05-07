@@ -7,7 +7,6 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
-#include <functional>
 
 namespace WasabiQt::Layout {
 
@@ -46,18 +45,6 @@ void collectGroupdefs(const Element &el, GroupdefIndex &out) {
         }
     }
     for (const auto &c : el.children) collectGroupdefs(c, out);
-}
-
-// `<hideobject target="id1;id2;…"/>` — explicit visibility override
-// applied at expansion time.  Stored as a flat set of widget ids
-// that should resolve to `visible="0"`.
-void collectHideObjects(const Element &el, QSet<QString> &out) {
-    if (el.tag == QStringLiteral("hideobject")) {
-        const QString target = el.attrs.value(QStringLiteral("target"));
-        for (const QString &t : target.split(QChar(';'), Qt::SkipEmptyParts))
-            out.insert(t.trimmed());
-    }
-    for (const auto &c : el.children) collectHideObjects(c, out);
 }
 
 void collectSendparams(const Element &el, SendparamsMap &out) {
@@ -127,10 +114,8 @@ ResolvedWidget makeResolved(const Element &src) {
 class Expander {
 public:
     Expander(const GroupdefIndex &groupdefs,
-             const SendparamsMap &sendparams,
-             const QSet<QString> &hidden)
-        : m_groupdefs(groupdefs), m_sendparams(sendparams),
-          m_hidden(hidden) {}
+             const SendparamsMap &sendparams)
+        : m_groupdefs(groupdefs), m_sendparams(sendparams) {}
 
     void expandChildren(const Element &src, ResolvedWidget &out,
                         const QString &instanceId) {
@@ -183,57 +168,9 @@ private:
             m_inflightInstances.insert(gid);
 
             ResolvedWidget node = makeResolved(el);
-            // Inherit groupdef defaults the instance didn't override.
-            // `<groupdef id="player.normal.display" relatw="1" w="-49">`
-            // means the instance is sized -49 px shy of its container;
-            // without this merge we'd treat instance w/h as 0 and the
-            // child layers would size against the full canvas.
-            for (auto it = def->attrs.constBegin();
-                 it != def->attrs.constEnd(); ++it) {
-                const QString &k = it.key();
-                if (k == QStringLiteral("id") ||
-                    k == QStringLiteral("xuitag") ||
-                    k == QStringLiteral("embed_xui") ||
-                    k == QStringLiteral("instanceid"))
-                    continue;
-                if (!node.attrs.contains(k))
-                    node.attrs.insert(k, it.value());
-            }
             applySendparams(node, instanceId);
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
-
-            // `content="X"` on a frame instantiation says: inject the
-            // groupdef X's children into this frame's content slot.
-            // Wasabi's standardframe.maki normally does this at runtime;
-            // we replicate it statically here so the player chrome
-            // appears even without Maki running.  The `embed_xui`
-            // attribute on the groupdef names a placeholder element
-            // that gets replaced; without one, we just append.
-            const QString content =
-                el.attrs.value(QStringLiteral("content"));
-            if (!content.isEmpty()) {
-                if (const Element *contentDef = m_groupdefs.lookup(content)) {
-                    if (!m_inflightInstances.contains(content)) {
-                        m_inflightInstances.insert(content);
-                        const QString embedTarget =
-                            def->attrs.value(QStringLiteral("embed_xui"));
-                        // Build the content's children into a temp node...
-                        ResolvedWidget contentExp;
-                        expandChildren(*contentDef, contentExp,
-                                       iid.isEmpty() ? instanceId : iid);
-                        // ...then either splice over the embed_xui
-                        // placeholder, or append at the end.
-                        if (!embedTarget.isEmpty()) {
-                            replaceById(node, embedTarget, contentExp.children);
-                        } else {
-                            for (auto &c : contentExp.children)
-                                node.children.append(std::move(c));
-                        }
-                        m_inflightInstances.remove(content);
-                    }
-                }
-            }
 
             m_inflightInstances.remove(gid);
             parent.children.append(std::move(node));
@@ -250,9 +187,6 @@ private:
 
     void applySendparams(ResolvedWidget &w, const QString &instanceId) {
         if (w.id.isEmpty()) return;
-        if (m_hidden.contains(w.id)) {
-            w.attrs.insert(QStringLiteral("visible"), QStringLiteral("0"));
-        }
         // First instance-scoped sendparams (group="instanceid" target=…),
         // then layout-scoped (group="" target=…) — instance-scoped are
         // more specific and shouldn't be overridden by less-specific.
@@ -272,24 +206,8 @@ private:
         }
     }
 
-    // Walk `node`'s tree, find the first descendant with `id == targetId`,
-    // and replace its children with `replacement`.  Used to splice a
-    // frame's `content` groupdef into the `embed_xui` placeholder slot.
-    static bool replaceById(ResolvedWidget &node, const QString &targetId,
-                            QList<ResolvedWidget> &replacement) {
-        for (auto &c : node.children) {
-            if (c.id == targetId) {
-                c.children = std::move(replacement);
-                return true;
-            }
-            if (replaceById(c, targetId, replacement)) return true;
-        }
-        return false;
-    }
-
     const GroupdefIndex &m_groupdefs;
     const SendparamsMap &m_sendparams;
-    const QSet<QString> &m_hidden;
     QSet<QString>        m_inflightInstances;
 };
 
@@ -317,192 +235,11 @@ bool expandLayout(const SkinXml::Document &doc,
     collectGroupdefs(doc.root, groupdefs);
     SendparamsMap sendparams;
     collectSendparams(doc.root, sendparams);
-    QSet<QString> hidden;
-    collectHideObjects(doc.root, hidden);
-    // Wasabi's standardframe.maki / videoavs.maki / pledit.maki etc.
-    // call setVisible(0) on these container groups during onLoad.
-    // Until our Maki bindings actually run those scripts, treat the
-    // groups as default-hidden so static rendering produces a sane
-    // approximation of the in-app render.
-    static const QStringList kScriptHiddenByDefault {
-        QStringLiteral("player.normal.drawer"),
-        QStringLiteral("player.normal.drawer.shadow"),
-        QStringLiteral("AVSGroup"),
-        QStringLiteral("player.normal.video"),
-        QStringLiteral("player.shade.drawer"),
-    };
-    for (const auto &id : kScriptHiddenByDefault) hidden.insert(id);
 
     out = makeResolved(*layout);
-    Expander ex(groupdefs, sendparams, hidden);
+    Expander ex(groupdefs, sendparams);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
-
-    // Static equivalents of well-known Maki scripts run here.  Each
-    // mirrors the geometry/visibility manipulation a script's load-
-    // time handlers would otherwise do.  Removed when M13 ships
-    // real Maki bindings.
-    extern void runKnownScripts(ResolvedWidget &, int);
-    int layoutW = out.attrs.value(QStringLiteral("w")).toInt();
-    if (layoutW <= 0) layoutW = out.attrs.value(QStringLiteral("minimum_w")).toInt();
-    if (layoutW <= 0) layoutW = 354;
-    runKnownScripts(out, layoutW);
-
     return true;
-}
-
-// ──────────────────────────────────────────────────────────────────
-// Static equivalents of well-known Maki scripts.  Each does the
-// minimum geometry/visibility manipulation a script's onScriptLoaded
-// + onResize handlers would otherwise do at runtime.  Removed once
-// real Maki bindings ship in M13.
-
-namespace knownscripts {
-
-ResolvedWidget *findById(ResolvedWidget &w, const QString &id) {
-    if (w.id == id) return &w;
-    for (auto &c : w.children)
-        if (auto *r = findById(c, id)) return r;
-    return nullptr;
-}
-
-ResolvedWidget *findByTag(ResolvedWidget &w, const QString &tag) {
-    if (w.tag == tag) return &w;
-    for (auto &c : w.children)
-        if (auto *r = findByTag(c, tag)) return r;
-    return nullptr;
-}
-
-// Wasabi's titlebar.m runs `resizeObjects()` on script-load + every
-// onResize.  Without scripts, the static streak.left x=0 w=95, text
-// x=100 w=50, streak.right x=155 w=-155 positions are wrong for the
-// rendered text width.  Mirror the script's logic statically.
-//
-// Walks every <Wasabi:TitleBar> instance (xuitag-aliased to
-// `wasabi.titlebar` groupdef), finds its three streak children +
-// title text, and re-positions them based on the enclosing frame's
-// padtitleleft/padtitleright XUI params + the layout's actual width.
-void applyTitlebarResize(ResolvedWidget &titlebar,
-                         int layoutWidth,
-                         int padLeft, int padRight) {
-    auto *streakL = findById(titlebar, QStringLiteral("wasabi.titlebar.streak"));
-    // Two instances exist (left + right) — distinguish by instanceId.
-    ResolvedWidget *streakRight = nullptr;
-    {
-        std::function<void(ResolvedWidget &)> walk = [&](ResolvedWidget &w) {
-            if (w.id == QStringLiteral("wasabi.titlebar.streak")) {
-                if (w.instanceId.endsWith(QStringLiteral(".left"))) {
-                    streakL = &w;
-                } else if (w.instanceId.endsWith(QStringLiteral(".right"))) {
-                    streakRight = &w;
-                }
-            }
-            for (auto &c : w.children) walk(c);
-        };
-        walk(titlebar);
-    }
-    auto *title = findById(titlebar, QStringLiteral("window.titlebar.title"));
-    auto *titleOverlay = findById(titlebar,
-                                  QStringLiteral("window.titlebar.title.overlay"));
-
-    // Approximate text width.  Real titlebar.m calls
-    // center.getAutoWidth() which runs QFontMetrics::horizontalAdvance.
-    // We don't have a QPainter here, so estimate from char count.
-    // ~6px per char at fontsize=14 (after 4/7 ratio).
-    int textWidth = 0;
-    if (title) {
-        const QString defaultText = title->attrs.value(
-            QStringLiteral("default"));
-        const int chars = qMax(1, defaultText.size());
-        const int fontsize = title->attrs.value(
-            QStringLiteral("fontsize")).toInt();
-        const int qpx = qMax(8, (fontsize * 4 + 3) / 7);
-        // Heuristic: ~0.55 * pixel size per char for Arial bold.
-        textWidth = static_cast<int>(chars * qpx * 0.55) + 4;
-    }
-    if (textWidth <= 0) textWidth = 50;
-
-    // resizeObjects: lx = (layout_width - text_width) / 2.  The
-    // titlebar groupdef instance lives inside a frame at x=4 y=0,
-    // and the titlebar is itself 22px shy of the layout edge — but
-    // for the streak math, use the titlebar group's local coord.
-    const int titlebarW = titlebar.attrs.value(
-        QStringLiteral("w")).toInt();
-    const int titlebarRelW = titlebar.attrs.value(
-        QStringLiteral("relatw")).toInt();
-    int innerW = (titlebarRelW != 0) ? layoutWidth + titlebarW : titlebarW;
-    if (innerW <= 0) innerW = layoutWidth - 22;
-
-    const int lx = (innerW - textWidth) / 2;
-
-    if (title) {
-        title->attrs.insert(QStringLiteral("x"), QString::number(lx));
-        title->attrs.insert(QStringLiteral("w"), QString::number(textWidth));
-        title->attrs.remove(QStringLiteral("relatx"));
-        title->attrs.remove(QStringLiteral("relatw"));
-    }
-    if (titleOverlay) {
-        titleOverlay->attrs.insert(QStringLiteral("x"),
-                                    QString::number(lx));
-        titleOverlay->attrs.insert(QStringLiteral("w"),
-                                    QString::number(textWidth));
-    }
-    if (streakL) {
-        streakL->attrs.insert(QStringLiteral("x"), QString::number(padLeft));
-        streakL->attrs.insert(QStringLiteral("w"),
-                               QString::number(lx - padLeft));
-        streakL->attrs.remove(QStringLiteral("relatx"));
-        streakL->attrs.remove(QStringLiteral("relatw"));
-    }
-    if (streakRight) {
-        const int rightX = lx + textWidth + 1;
-        streakRight->attrs.insert(QStringLiteral("x"),
-                                   QString::number(rightX));
-        // streak.right.w = -(lx + textWidth + padright + 2) relatw=1
-        // i.e. relative to titlebar width: -((rightX) + padright + 1)
-        const int rightWNeg = -(rightX + padRight + 1);
-        streakRight->attrs.insert(QStringLiteral("w"),
-                                   QString::number(rightWNeg));
-        streakRight->attrs.insert(QStringLiteral("relatw"),
-                                   QStringLiteral("1"));
-        streakRight->attrs.remove(QStringLiteral("relatx"));
-    }
-}
-
-// Walk the resolved tree, find <Wasabi:TitleBar> instances, run the
-// titlebar resize equivalent against each.
-void applyTo(ResolvedWidget &root, int layoutWidth) {
-    std::function<void(ResolvedWidget &, int, int)> walk =
-        [&](ResolvedWidget &w, int padLeft, int padRight) {
-        // Capture XUI params from frame instantiations as scoped
-        // overrides for nested titlebars.
-        int newPadLeft  = padLeft;
-        int newPadRight = padRight;
-        if (w.attrs.contains(QStringLiteral("padtitleleft"))) {
-            newPadLeft += w.attrs.value(
-                QStringLiteral("padtitleleft")).toInt();
-        }
-        if (w.attrs.contains(QStringLiteral("padtitleright"))) {
-            newPadRight += w.attrs.value(
-                QStringLiteral("padtitleright")).toInt();
-        }
-
-        // The titlebar groupdef has id "wasabi.titlebar" and
-        // xuitag "Wasabi:TitleBar" (normalised: wasabi_titlebar).
-        if (w.tag == QStringLiteral("wasabi_titlebar") ||
-            w.id  == QStringLiteral("wasabi.titlebar")) {
-            applyTitlebarResize(w, layoutWidth, newPadLeft, newPadRight);
-        }
-
-        for (auto &c : w.children)
-            walk(c, newPadLeft, newPadRight);
-    };
-    walk(root, 0, 0);
-}
-
-}  // namespace knownscripts
-
-void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
-    knownscripts::applyTo(root, layoutWidth);
 }
 
 QStringList containerIds(const SkinXml::Document &doc) {
