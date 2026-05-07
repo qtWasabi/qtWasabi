@@ -1,76 +1,121 @@
 # WasabiQT
 
-A Qt-native skin engine **inspired by** Winamp's Wasabi 1 + Wasabi 2,
-built as its own project — not a port, not a fork. API-compatible with
-classic Winamp Modern (`.wal`) skins, but written ground-up against
-modern Qt and modern C++.
+A Qt-native skin-engine harness for Winamp's **Wasabi** widget tree
+and **Maki** bytecode VM. WasabiQT is the modern Qt6+ rendering and
+event glue; the actual VM and widget classes come from the opensourced
+Wasabi source release (Llama Group, 2024), which you supply yourself.
 
-## What it is
+Pronounced "wasabi-cute".
 
-WasabiQT loads Wasabi-format skins (XML widget trees + `.maki`
-bytecode), parses them the way Wasabi does, runs scripts the way the
-original Maki VM does, and renders everything through `QPainter` /
-`QWidget`. The semantics — coordinate conventions, sendparams scopes,
-text-widget metrics, group/instance resolution, alignment quirks — all
-match the documented behaviour of the opensourced Wasabi 1 and Wasabi 2
-sources, because that's the only spec for what shipped skins expect.
+## What's in this repo, what isn't
 
-But the codebase is its own project. The opensourced source is **reference
-material**, not a build target.
+**In this repo:**
+- `qt6/` — modern-Qt rendering and event adapter (our code)
+- `src/` — integration glue, host interface, skin loader entry points (our code)
+- `public/` — small C++ API for embedders (our code)
+- `tests/` — pixel-regression harness against canonical reference renders (our code)
+- `cmake/` — build glue that locates a user-supplied Wasabi source tree
 
-## Why this matters
+**Not in this repo, never will be:**
+- `Src/Wasabi/api/` — the original Wasabi widget classes + Maki VM
+- `Src/Wasabi/bfc/` — Wasabi's foundation framework
+- Anything else from the Winamp source release
 
-The dream is selfish: I want to finally listen to music on my Apple
-M-Series Mac the way I did on Windows in the early 2000s — Winamp
-running natively on **Asahi Linux** and **macOS**. No Wine, no x86
-emulation, no nostalgia-VM in a window. Just the actual skin engine,
-on aarch64 silicon, painted by the same Qt that already gives me a
-beautiful desktop on Asahi.
+You provide that yourself. WasabiQT's CMake configuration takes a
+`WASABI_SRC_DIR` argument (or env var) pointing at your local copy of
+the opensourced `Src/` tree, and builds against it.
 
-The bigger goal: a skin engine that any themeable Winamp clone can
-embed. **Audacious**, **WACUP**, the next thing, and the thing after
+## How to build
+
+```bash
+# 1. Get the opensourced Winamp source release. It's been mirrored on
+#    archive.org since 2024; multiple copies are available. Either
+#    extract it into ~/winamp-src or wherever you prefer.
+#
+# 2. Clone WasabiQT.
+git clone https://github.com/.../WasabiQT
+cd WasabiQT
+
+# 3. Configure pointing at your local Wasabi source tree.
+cmake -B build -DWASABI_SRC_DIR=$HOME/winamp-src/Src
+
+# 4. Build.
+cmake --build build
+```
+
+If `WASABI_SRC_DIR` is unset or points at an incomplete tree, CMake
+fails with a clear message listing the subdirs it needs (`api/script`,
+`api/wnd`, `api/skin/widgets`, `bfc`, `Lib`).
+
+## Why this split
+
+The Wasabi source is licensed under the **Winamp Collaborative License
+v1.0**, which restricts redistribution to the official Winamp maintainers
+— even unmodified copies cannot legally be conveyed by anyone else. So
+WasabiQT can't embed it.
+
+But the source is publicly archived: anyone can download it themselves,
+and the moment they do, they have the right to run it under WCL §3
+("propagate Covered works that you do not Convey"). They then point
+WasabiQT's build at their local copy. The conveyance happens between
+archive.org and them, not via WasabiQT.
+
+This pattern is well-established for legally-restricted but publicly-
+available code: console emulators expecting user-supplied BIOS files,
+old DirectX wrappers expecting an externally-installed SDK, etc.
+WasabiQT itself stays freely distributable while delivering full
+skin-engine compatibility through the original unmodified VM.
+
+## Why use the original VM rather than reimplementing it
+
+Thousands of shipped Modern-era Winamp skins exercise small quirks of
+the original Maki VM and the surrounding widget classes — text-widget
+left insets, padding accumulators, group-instance resolution, alignment
+defaults, sendparams scoping, coordinate-conversion chains. Each is
+documented only in the running code. A clean-room re-implementation
+becomes a years-long bug-hunt.
+
+The original Winamp team, when planning **Wasabi 2** (`Src/replicant/`),
+made the same call: keep the VM and widget classes unchanged, modernise
+only the service plumbing. WasabiQT goes further — modernise the
+*rendering and event* layer to Qt6 — but keeps the VM unchanged for
+exactly the same reason.
+
+## Inspirations
+
+WasabiQT is inspired by, but legally distinct from:
+
+- **Wasabi 1** — the original widget framework and Maki VM. We use it
+  unmodified through the build path described above; we do not ship
+  it.
+- **Wasabi 2** (`Src/replicant/`) — the never-completed cross-platform
+  service rewrite. WasabiQT shares its goal of cross-platform Wasabi
+  with skin-format compatibility intact.
+- **`Src/Wasabi/qt6/QtWindowAdapter` / `QtCanvasAdapter`** (~2015) —
+  the abandoned Qt6 adapter shim. Useful as **reference** for what
+  surface to expose to Wasabi's expectations, but the implementation
+  there targets a 2015-era Qt with several Q_OBJECT / MOC workarounds
+  no longer needed. WasabiQT targets the **latest Qt** (Qt6 today,
+  Qt7+ when it ships) with modern idioms — Wayland-first event paths,
+  HiDPI awareness, native QPainter rendering, no Win32-type pretence
+  in the public API.
+
+## Why this matters to me
+
+The dream is selfish: I want to listen to music on my Apple M-Series
+Mac the way I did on Windows in the early 2000s — Winamp running
+natively on **Asahi Linux** and **macOS**. No Wine, no x86 emulation,
+no nostalgia-VM in a window. Just the actual skin engine, on aarch64
+silicon, painted by the same Qt that already gives me a beautiful
+desktop on Asahi.
+
+Beyond that: WasabiQT is meant to be **embeddable in any themeable
+Winamp clone**. Audacious, WACUP, the next thing, and the thing after
 that. Wasabi was a great UI framework that nobody else could use because
 it shipped welded to one player's runtime. WasabiQT is the small,
-embeddable piece you actually wanted.
-
-## Inspirations, not derivatives
-
-- **Wasabi 1** (`Src/Wasabi/api/`) — the original widget classes
-  (`Group`, `Layer`, `TextFrame`, `Button`, `Slider`, `Animation`,
-  `Timer`, `Container`) and the Maki VM (`Src/Wasabi/api/script/`).
-  Their behaviour is the spec; we match it. Their *code* is reference.
-
-- **Wasabi 2** (`Src/replicant/`) — the never-completed cross-platform
-  rewrite. It reorganised Wasabi's service plumbing without touching
-  the VM or widget contracts. WasabiQT is in that spirit: keep skin
-  compatibility, modernise everything around it.
-
-- **Wasabi 2's `Src/Wasabi/qt6/` adapter** (~2015) — the abandoned
-  `QtWindowAdapter` / `QtCanvasAdapter` shim that bridged Win32 HWND/HDC
-  concepts to QWidget/QPainter. Useful as a **reference** for what to
-  expose, but the implementation targets a 2015-era Qt. WasabiQT
-  targets the latest Qt (Qt6 today, Qt7+ when it ships) and uses modern
-  Qt idioms — no `Q_OBJECT` workarounds, no Win32 type pretence,
-  proper Wayland/HiDPI handling, native event paths.
-
-## Status
-
-Bootstrapping. This repo currently has only the README. Subsequent
-commits will lay down:
-
-```
-public/   — small C++ embedder API (Host interface, Skin loader)
-src/      — engine implementation
-qt6/      — Qt rendering + event adapter (modern-Qt, ground-up)
-tests/    — pixel-regression harness against reference renders
-```
-
-First milestone: render WACUP / Winamp Modern's player titlebar
-end-to-end with all the right things — text centred, streaks padded
-around the sysmenu icon and min/restore/close trio, drawer toggle
-working. The same target an earlier in-tree prototype hit before
-this repo split out, so its test harness and reference image corpus
-transfer directly.
+embeddable piece you actually wanted — a Qt skin engine that doesn't
+care which player owns the playback state, the playlist, or the
+service registry. Implement a small `Host` interface, you have skins.
 
 ## Targets
 
@@ -81,9 +126,18 @@ transfer directly.
 Qt6 abstracts the rest. No platform-specific render code beyond what
 Qt itself does.
 
+## Status
+
+Bootstrapping. The repo currently has only this README. Subsequent
+commits will add the CMake glue, the qt6 adapter (re-derived for
+modern Qt rather than ported from the 2015 stub), the embedder API,
+and a regression harness whose first target is rendering the WACUP /
+Winamp Modern player titlebar correctly through the unmodified VM.
+
 ## License
 
-Inspired by but legally distinct from the Llama Group / Winamp 2024
-source release. WasabiQT is currently a private effort within the
-Winamp-clone ecosystem; licensing is undecided pending downstream
-embedder needs.
+WasabiQT's own code (everything actually in this repo) will be released
+under a permissive open-source licence to be decided before first
+public release. The Wasabi source it links against is **not in this
+repo**; that source carries the Winamp Collaborative License and you
+obtain it separately.
