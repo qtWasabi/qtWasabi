@@ -85,8 +85,8 @@ std::wstring vargstr(const scriptVar &v) {
 // SystemObject
 
 extern "C" scriptVar wq_getRuntimeVersion(maki_cmd *, int, ScriptObject *) {
-    // std.mi's versionCheck: `if (v < 2 || v > 65535) return -1;` —
-    // anything in that range satisfies it.  Match upstream Wasabi 5.x.
+    if (std::getenv("WASABIQT_TRACE_MAKI"))
+        std::fprintf(stderr, "[maki] getRuntimeVersion → 5.0\n");
     return makeDouble(5.0);
 }
 
@@ -229,6 +229,12 @@ extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
     if (id.type != SCRIPT_STRING || !id.data.sdata)
         return makeObject(nullptr);
     void *handle = wq_widget_findById(id.data.sdata);
+    if (std::getenv("WASABIQT_TRACE_MAKI")) {
+        char nb[128] = {0};
+        for (int i = 0; i < 127 && id.data.sdata[i]; ++i)
+            nb[i] = (id.data.sdata[i] < 128) ? char(id.data.sdata[i]) : '?';
+        std::fprintf(stderr, "[maki] findObject(%s) -> %p\n", nb, handle);
+    }
     return makeObject(static_cast<ScriptObject *>(handle));
 }
 
@@ -252,8 +258,16 @@ extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
     const wchar_t *val = (value.type == SCRIPT_STRING && value.data.sdata)
                             ? value.data.sdata : L"";
     if (std::getenv("WASABIQT_TRACE_MAKI")) {
-        std::fprintf(stderr, "[maki] setXmlParam(%ls, %ls)\n",
-                     name.data.sdata, val);
+        // %ls fprintf needs the right locale set, which we don't
+        // touch.  Manual narrow conversion (ASCII-only attr/value
+        // names) keeps the trace safe.
+        char nb[128] = {0}, vb[256] = {0};
+        for (int i = 0; i < 127 && name.data.sdata[i]; ++i)
+            nb[i] = (name.data.sdata[i] < 128)
+                        ? char(name.data.sdata[i]) : '?';
+        for (int i = 0; val && i < 255 && val[i]; ++i)
+            vb[i] = (val[i] < 128) ? char(val[i]) : '?';
+        std::fprintf(stderr, "[maki] setXmlParam(%s, %s)\n", nb, vb);
     }
     wq_widget_setAttr(o, name.data.sdata, val);
     return makeVoid();
@@ -338,13 +352,9 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getParam",                0, (void *)wq_getParam},
         {L"getToken",                3, (void *)wq_getToken},
         {L"stringToInteger",         1, (void *)wq_stringToInteger},
-        // NOTE: titlebar.m uses `StringToInteger` (capital S).  Wasabi
-        // is case-sensitive so they're separate DLF entries.  Adding
-        // a second binding under the capital-S name lets the script
-        // actually parse padtitle{left,right}, but doing so opens up
-        // a deeper cascade of incomplete paths in scripts beyond
-        // titlebar.m.  Left out until M13g hardens those paths.
+        {L"StringToInteger",         1, (void *)wq_stringToInteger},
         {L"integerToString",         1, (void *)wq_integerToString},
+        {L"IntegerToString",         1, (void *)wq_integerToString},
         {L"messageBox",              4, (void *)wq_messageBox},
         {L"navigateUrlBrowser",      1, (void *)wq_navigateUrlBrowser},
         {L"getPrivateInt",           3, (void *)wq_getPrivateInt},

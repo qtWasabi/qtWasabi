@@ -54,29 +54,31 @@ public:
     int   vcpu_getAssignedVariable(int start, int scriptid, int functionId,
                                    int *next, int *globalevententry,
                                    int * /*inheritedevent*/) override {
-        // Walk our assigned variables; for each, walk VCPU::eventsTable
-        // and find the entry matching (varId, scriptId, functionId).
-        // Returns the varId of the first match.  Mirrors upstream
-        // ScriptObjectI::vcpu_getAssignedVariable / getEventForVar.
+        // `start` is a global event-index hint — executeEvent calls us
+        // in a loop, each iteration advancing through events.  Iterate
+        // VCPU::eventsTable from `start`; for each entry, check if its
+        // (varId, scriptId) matches one of our m_assigned pairs AND
+        // its DLFid matches functionId.  Returns the event's varId
+        // and sets *next to the index PAST the matched event so the
+        // next loop iteration finds the next handler.
+        //
+        // This is the load-bearing piece that lets multiple handlers
+        // for the same event (std.mi's onScriptLoaded + the user's
+        // own) all fire instead of just the first.
         if (start < 0) start = 0;
-        int idx = 0;
-        for (const auto &pair : m_assigned) {
-            if (idx < start) { ++idx; continue; }
-            const int varId   = pair.first;
-            const int varSid  = pair.second;
-            if (scriptid != -1 && varSid != scriptid) { ++idx; continue; }
-            const int n = VCPU::eventsTable.getNumItems();
-            for (int i = 0; i < n; ++i) {
-                VCPUeventEntry *ev = VCPU::eventsTable.enumItem(i);
-                if (!ev) continue;
-                if (ev->varId    != varId)  continue;
-                if (ev->scriptId != varSid) continue;
-                if (ev->DLFid    != functionId) continue;
-                if (next) *next = idx + 1;
-                if (globalevententry) *globalevententry = i;
-                return varId;
-            }
-            ++idx;
+        const int n = VCPU::eventsTable.getNumItems();
+        for (int i = start; i < n; ++i) {
+            VCPUeventEntry *ev = VCPU::eventsTable.enumItem(i);
+            if (!ev) continue;
+            if (ev->DLFid != functionId) continue;
+            if (scriptid != -1 && ev->scriptId != scriptid) continue;
+            // Does m_assigned hold this (varId, scriptId) pair?
+            auto it = m_assigned.find(ev->varId);
+            if (it == m_assigned.end() || it->second != ev->scriptId)
+                continue;
+            if (next) *next = i + 1;
+            if (globalevententry) *globalevententry = i;
+            return ev->varId;
         }
         return -1;
     }

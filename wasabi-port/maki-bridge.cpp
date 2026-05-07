@@ -10,6 +10,9 @@
 #include <api/script/vcpu.h>
 #include "maki-bridge.h"
 
+#include <cstdio>
+#include <cstring>
+
 namespace WasabiQt::Maki {
 
 int addScript(const void *blob, int blobSize, int cpuId) {
@@ -92,6 +95,41 @@ bool fireOnSetXuiParam(int scriptId,
     setCurrentScriptId(scriptId);
     VCPU::executeEvent(v, dlfid, /*np*/ nparams, scriptId);
     return true;
+}
+
+int dumpEvents_helper_dummy() { return 0; }
+int dumpEvents(int scriptId, char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int written = 0, count = 0;
+    for (int i = 0; i < VCPU::eventsTable.getNumItems(); ++i) {
+        VCPUeventEntry *ev = VCPU::eventsTable.enumItem(i);
+        if (!ev) continue;
+        if (scriptId >= 0 && ev->scriptId != scriptId) continue;
+        // Find the DLF name
+        const wchar_t *name = L"?";
+        for (int j = 0; j < VCPU::DLFentryTable.getNumItems(); ++j) {
+            auto *d = VCPU::DLFentryTable.enumItem(j);
+            if (d && d->DLFid == ev->DLFid && d->scriptId == ev->scriptId) {
+                if (d->functionName) name = d->functionName;
+                break;
+            }
+        }
+        char nb[64] = {0};
+        for (int k = 0; k < 63 && name[k]; ++k)
+            nb[k] = (name[k] < 128) ? char(name[k]) : '?';
+        char buf[256];
+        int n = ::snprintf(buf, sizeof(buf),
+                            "ev[%d]: var=%d sid=%d dlf=%d off=%d %s\n",
+                            i, ev->varId, ev->scriptId, ev->DLFid,
+                            ev->pointer, nb);
+        if (n < 0 || written + n + 1 >= outCap) break;
+        ::memcpy(out + written, buf, n);
+        written += n;
+        ++count;
+    }
+    out[written] = 0;
+    return count;
 }
 
 int dumpDlfNames(int scriptId, char *out, int outCap) {

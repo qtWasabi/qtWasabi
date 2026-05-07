@@ -41,10 +41,15 @@ QString fromWide(const wchar_t *s) {
 }  // namespace
 
 // Called by SkinRuntime after every successful loadScripts pass.
+// Registers the widget under both its `id` and (when present) its
+// `instanceid` — Wasabi's findObject semantics treat instance names
+// as first-class lookup keys.
 void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
                               void *scriptObjectHandle) {
-    if (id.isEmpty() || !w) return;
-    g_byId.insert(id, {w, scriptObjectHandle});
+    if (!w) return;
+    if (!id.isEmpty()) g_byId.insert(id, {w, scriptObjectHandle});
+    if (!w->instanceId.isEmpty() && w->instanceId != id)
+        g_byId.insert(w->instanceId, {w, scriptObjectHandle});
 }
 
 void clearWidgetRegistry() {

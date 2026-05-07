@@ -58,12 +58,57 @@ void ScriptObjectManager::assignPersistent(scriptVar *v1, scriptVar *v2) { if (v
 void ScriptObjectManager::strflatassign(scriptVar *v, const wchar_t *)        { if (v) v->type = SCRIPT_STRING; }
 void ScriptObjectManager::persistentstrassign(scriptVar *v, const wchar_t *)  { if (v) v->type = SCRIPT_STRING; }
 
-int ScriptObjectManager::compEq (scriptVar *, scriptVar *) { return 0; }
-int ScriptObjectManager::compNeq(scriptVar *, scriptVar *) { return 0; }
-int ScriptObjectManager::compA  (scriptVar *, scriptVar *) { return 0; }
-int ScriptObjectManager::compAe (scriptVar *, scriptVar *) { return 0; }
-int ScriptObjectManager::compB  (scriptVar *, scriptVar *) { return 0; }
-int ScriptObjectManager::compBe (scriptVar *, scriptVar *) { return 0; }
+// Comparison helpers — needed by `if (string == "literal")` and
+// `if (n < 5)` style guards in real scripts.  A returning-zero
+// stub means every guard evaluates false, which silently disables
+// every behaviour predicated on a value check (including
+// titlebar.m's `if (param == "padtitleright")`).
+namespace {
+double asDouble(const scriptVar *v) {
+    if (!v) return 0.0;
+    switch (v->type) {
+        case SCRIPT_INT:     return v->data.idata;
+        case SCRIPT_FLOAT:   return v->data.fdata;
+        case SCRIPT_DOUBLE:  return v->data.ddata;
+        case SCRIPT_BOOLEAN: return v->data.idata ? 1.0 : 0.0;
+        default:             return 0.0;
+    }
+}
+int compareStrings(const wchar_t *a, const wchar_t *b) {
+    if (!a) a = L"";
+    if (!b) b = L"";
+    return wcscmp(a, b);
+}
+}  // namespace
+
+int ScriptObjectManager::compEq(scriptVar *v1, scriptVar *v2) {
+    if (!v1 || !v2) return 0;
+    if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING) {
+        return compareStrings(v1->data.sdata, v2->data.sdata) == 0;
+    }
+    return asDouble(v1) == asDouble(v2);
+}
+int ScriptObjectManager::compNeq(scriptVar *v1, scriptVar *v2) {
+    return !compEq(v1, v2);
+}
+int ScriptObjectManager::compA(scriptVar *v1, scriptVar *v2) {
+    if (!v1 || !v2) return 0;
+    if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING)
+        return compareStrings(v1->data.sdata, v2->data.sdata) > 0;
+    return asDouble(v1) > asDouble(v2);
+}
+int ScriptObjectManager::compAe(scriptVar *v1, scriptVar *v2) {
+    return compA(v1, v2) || compEq(v1, v2);
+}
+int ScriptObjectManager::compB(scriptVar *v1, scriptVar *v2) {
+    if (!v1 || !v2) return 0;
+    if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING)
+        return compareStrings(v1->data.sdata, v2->data.sdata) < 0;
+    return asDouble(v1) < asDouble(v2);
+}
+int ScriptObjectManager::compBe(scriptVar *v1, scriptVar *v2) {
+    return compB(v1, v2) || compEq(v1, v2);
+}
 
 int    ScriptObjectManager::makeInt    (scriptVar *v) { return v ? v->data.idata : 0; }
 float  ScriptObjectManager::makeFloat  (scriptVar *v) { return v ? v->data.fdata : 0.0f; }

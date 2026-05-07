@@ -64,6 +64,10 @@ bool fireOnSetXuiParam(int scriptId,
 // line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);
 
+// Diagnostic: list event-table entries (varId,scriptId,DLFid,ptr)
+// for `scriptId`, plus the DLF name behind each.
+int  dumpEvents(int scriptId, char *out, int outCap);
+
 // ── WidgetScriptObject ──────────────────────────────────────────
 // Opaque handle to a ScriptObject instance backed by a Qt-side
 // widget pointer.  The VM dispatches against this handle without
