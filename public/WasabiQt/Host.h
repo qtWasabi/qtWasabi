@@ -15,6 +15,7 @@
 
 #include <QString>
 #include <QVariant>
+#include <QPoint>
 
 namespace WasabiQt {
 
@@ -74,6 +75,29 @@ public:
     virtual void showPlaylist(bool b)          = 0;
     virtual void showMediaLibrary(bool b)      = 0;
     virtual void openFileDialog()              = 0;
+
+    // ── Window-chrome actions ─────────────────────────────────
+    // Wasabi's standardframe sysmenu routes through these.
+    virtual void showEqualizerPresets(QPoint /*global*/) {}
+    virtual void minimize()    {}
+    virtual void close()       {}
+    virtual void toggleShade() {}
+
+    // ── Live data bindings ────────────────────────────────────
+    // Modern skins use <text display="…"/> to bind dynamic values
+    // (time, songtitle, kbps, khz).  Returns the value to display
+    // for `id`, or a null QString if unbound.
+    virtual QString dataBinding(const QString &id) const { Q_UNUSED(id); return {}; }
+
+    // Currently active skin's display name (e.g. "Winamp Modern").
+    // Maki scripts compare against this in init.
+    virtual QString skinName() const { return {}; }
+
+    // Whether the host's main window has focus.  Used for the
+    // active/inactive titlebar crossfade.  Hosts typically wire
+    // this to QWidget::isActiveWindow() or
+    // QGuiApplication::applicationState() == Qt::ApplicationActive.
+    virtual bool isWindowActive() const { return true; }
 
     // ── Config store ──────────────────────────────────────────
     virtual QVariant getConfig(const QString &guid, const QString &key) const = 0;
