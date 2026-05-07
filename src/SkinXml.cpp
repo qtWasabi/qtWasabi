@@ -185,7 +185,13 @@ struct Parser {
             doc->skinVersion = e.text.trimmed();
         else if (tag == QStringLiteral("script")) {
             const QString f = e.attrs.value(QStringLiteral("file"));
-            if (!f.isEmpty()) doc->scriptFiles << f;
+            if (!f.isEmpty()) {
+                doc->scriptFiles << f;
+                ScriptRef ref;
+                ref.file  = f;
+                ref.param = e.attrs.value(QStringLiteral("param"));
+                doc->scripts << ref;
+            }
         }
         parent.children.append(std::move(e));
         return true;
@@ -248,7 +254,13 @@ struct Parser {
                 doc->skinVersion = e.text.trimmed();
             else if (tag == QStringLiteral("script")) {
                 const QString f = e.attrs.value(QStringLiteral("file"));
-                if (!f.isEmpty()) doc->scriptFiles << f;
+                if (!f.isEmpty()) {
+                    doc->scriptFiles << f;
+                    ScriptRef ref;
+                    ref.file  = f;
+                    ref.param = e.attrs.value(QStringLiteral("param"));
+                    doc->scripts << ref;
+                }
             }
 
             parent.children.append(std::move(e));

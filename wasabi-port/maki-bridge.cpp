@@ -39,22 +39,21 @@ void registerScriptSystemObject(int scriptId, void *systemObjectHandle) {
 int fireEventByName(int scriptId, const wchar_t *functionName) {
     if (!functionName) return -1;
     const int base = VCPU::dlfBase(scriptId);
-    // The opensourced DLFentryTable is a flat PtrList — walk from base
-    // until we find an entry whose scriptId matches and whose
-    // functionName matches.
     for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
         VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
         if (!e || e->scriptId != scriptId) continue;
         if (e->functionName && wcscmp(e->functionName, functionName) == 0) {
-            // Fire the event against the script's bound SystemObject
-            // (var[0]).  executeEvent handles dispatch through
-            // vcpu_getAssignedVariable + runEvent + runCode.
             SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
             if (!so) return -1;
             scriptVar v{};
             v.type = SCRIPT_OBJECT;
             v.data.odata = so->getScriptObject();
+            // Track which script is dispatching so getParam() returns
+            // the right per-script param= string.
+            const int prev = scriptId;        // simple — we don't nest
+            setCurrentScriptId(scriptId);
             VCPU::executeEvent(v, e->DLFid, 0, scriptId);
+            (void)prev;
             return e->DLFid;
         }
     }
@@ -82,8 +81,6 @@ bool fireOnSetXuiParam(int scriptId,
     SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
     if (!so) return false;
 
-    // Push name + value as scriptVar string args (right-to-left;
-    // upstream pops in reverse so we push value first then name).
     scriptVar nm{}; nm.type = SCRIPT_STRING; nm.data.sdata = name;
     scriptVar vl{}; vl.type = SCRIPT_STRING; vl.data.sdata = value;
     VCPU::push(vl);
@@ -92,6 +89,7 @@ bool fireOnSetXuiParam(int scriptId,
     scriptVar v{};
     v.type = SCRIPT_OBJECT;
     v.data.odata = so->getScriptObject();
+    setCurrentScriptId(scriptId);
     VCPU::executeEvent(v, dlfid, /*np*/ nparams, scriptId);
     return true;
 }

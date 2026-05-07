@@ -87,13 +87,29 @@ int  ScriptObjectManager::typeCheck(VCPUscriptVar *, int)        { return 1; }
 // each addScript().  Upstream's addScript reads this back and binds
 // it as var[0], which is the load-bearing line in the whole "scripts
 // can find handlers" chain (see vcpu.cpp line 452-457).
-namespace { std::unordered_map<int, SystemObject *> g_perScriptSystem; }
+namespace {
+    std::unordered_map<int, SystemObject *> g_perScriptSystem;
+    std::unordered_map<int, const wchar_t *> g_perScriptParam;
+    int g_currentScript = -1;
+}
 
 namespace WasabiQt::Maki {
 void registerSystemObject(int scriptId, SystemObject *o) {
     if (!o) g_perScriptSystem.erase(scriptId);
     else    g_perScriptSystem[scriptId] = o;
 }
+
+void registerScriptParam(int scriptId, const wchar_t *param) {
+    if (!param) g_perScriptParam.erase(scriptId);
+    else        g_perScriptParam[scriptId] = param;
+}
+
+const wchar_t *currentScriptParam() {
+    auto it = g_perScriptParam.find(g_currentScript);
+    return it == g_perScriptParam.end() ? L"" : it->second;
+}
+
+void setCurrentScriptId(int scriptId) { g_currentScript = scriptId; }
 }  // namespace
 
 SystemObject *ScriptObjectManager::getSystemObject(int id) {

@@ -39,6 +39,13 @@ int  scriptCount();
 // upstream SOM::getSystemObject family.
 void registerScriptSystemObject(int scriptId, void *systemObjectHandle);
 
+// Set the per-script `param=` string used by getParam() / getToken().
+// Must be valid UTF-16 with lifetime past the script's lifetime —
+// SkinRuntime keeps a backing QString it owns.
+void registerScriptParam(int scriptId, const wchar_t *param);
+const wchar_t *currentScriptParam();
+void setCurrentScriptId(int scriptId);
+
 // Walk `scriptId`'s DLF table, find the entry with the given UTF-16
 // function name (e.g. L"onScriptLoaded"), and fire it via
 // VCPU::executeEvent against the script's bound SystemObject.

@@ -15,6 +15,8 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <string>
+#include <vector>
 
 // Bridge entry points implemented in src/SkinRuntimeBridge.cpp.
 namespace WasabiQt {
@@ -36,6 +38,11 @@ struct SkinRuntime::Impl {
     // each as var[0] of its script.
     QList<void *> systemObjects;
 
+    // Per-script `<script param="…">` strings.  std::wstring so the
+    // wchar_t* exposed to the bindings layer stays valid until
+    // destroyAll() runs.
+    std::vector<std::wstring> scriptParams;
+
     // Loaded VM script ids, in load order.
     QList<int> loadedScripts;
 
@@ -45,9 +52,11 @@ struct SkinRuntime::Impl {
     void destroyAll() {
         for (int id : loadedScripts) {
             Maki::registerScriptSystemObject(id, nullptr);
+            Maki::registerScriptParam(id, nullptr);
             Maki::removeScript(id);
         }
         loadedScripts.clear();
+        scriptParams.clear();
         for (void *h : systemObjects) Maki::destroyWidgetScriptObject(h);
         systemObjects.clear();
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
@@ -83,9 +92,21 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
     // 1) Build the widget-object table.
     registerWidgets(root, m_d->widgetObjects);
 
-    // 2) Load every <script file=…/> the skin references.
+    // 2) Load every <script file=…/> the skin references.  Use the
+    // ScriptRef list (carries both file + param) when present; fall
+    // back to scriptFiles for backward compat.
     int firedCount = 0;
-    for (const auto &relPath : doc.scriptFiles) {
+    QList<SkinXml::ScriptRef> refs = doc.scripts;
+    if (refs.isEmpty()) {
+        for (const auto &p : doc.scriptFiles) {
+            SkinXml::ScriptRef r; r.file = p; refs.append(r);
+        }
+    }
+    // Stash params alive for the runtime's lifetime.
+    m_d->scriptParams.clear();
+    m_d->scriptParams.reserve(refs.size());
+    for (const auto &ref : refs) {
+        const QString &relPath = ref.file;
         const QString abs = QDir(doc.skinDir).filePath(relPath);
         QFile f(abs);
         if (!f.open(QIODevice::ReadOnly)) {
@@ -120,6 +141,12 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         m_d->loadedScripts.append(sid);
         m_d->scriptPaths.append(relPath);
         m_d->systemObjects.append(sysObj);
+
+        // Register the per-script `param=` string with the bindings
+        // layer.  Backed by an std::wstring we own for the runtime's
+        // lifetime — the wchar_t* stays valid until destroyAll().
+        m_d->scriptParams.push_back(ref.param.toStdWString());
+        Maki::registerScriptParam(sid, m_d->scriptParams.back().c_str());
     }
     Q_UNUSED(firedCount);
 

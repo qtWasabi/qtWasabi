@@ -106,9 +106,20 @@ extern "C" scriptVar wq_isTransparencyAvailable(maki_cmd *, int, ScriptObject *)
     return makeBoolean(1);
 }
 
-extern "C" scriptVar wq_getParam(maki_cmd *, int, ScriptObject *) {
-    // Per-script `<script param="…">` — wired up in M13e.  Empty for now.
-    return makeString(L"");
+// Forward-declared in maki-bridge.h; bodies live in
+// wasabi-port-link-stubs.cpp.  Declared here as plain forward so we
+// don't pull the full maki-bridge.h (which exposes Qt-incompatible
+// types via its Qt-side accessors).
+namespace WasabiQt::Maki {
+    const wchar_t *currentScriptParam();
+    void setCurrentScriptId(int);
+}
+
+extern "C" scriptVar wq_getParam(maki_cmd *, int /*vsd*/, ScriptObject *) {
+    // Per-script `<script param="…">` — looked up by the currently-
+    // dispatching script id.  SkinRuntime sets it via setCurrentScriptId
+    // before each fireEventByName / fireOnSetXuiParam call.
+    return makeString(WasabiQt::Maki::currentScriptParam());
 }
 
 extern "C" scriptVar wq_getToken(maki_cmd *, int, ScriptObject *,
@@ -240,6 +251,10 @@ extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
     if (name.type != SCRIPT_STRING || !name.data.sdata) return makeVoid();
     const wchar_t *val = (value.type == SCRIPT_STRING && value.data.sdata)
                             ? value.data.sdata : L"";
+    if (std::getenv("WASABIQT_TRACE_MAKI")) {
+        std::fprintf(stderr, "[maki] setXmlParam(%ls, %ls)\n",
+                     name.data.sdata, val);
+    }
     wq_widget_setAttr(o, name.data.sdata, val);
     return makeVoid();
 }
@@ -323,6 +338,12 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getParam",                0, (void *)wq_getParam},
         {L"getToken",                3, (void *)wq_getToken},
         {L"stringToInteger",         1, (void *)wq_stringToInteger},
+        // NOTE: titlebar.m uses `StringToInteger` (capital S).  Wasabi
+        // is case-sensitive so they're separate DLF entries.  Adding
+        // a second binding under the capital-S name lets the script
+        // actually parse padtitle{left,right}, but doing so opens up
+        // a deeper cascade of incomplete paths in scripts beyond
+        // titlebar.m.  Left out until M13g hardens those paths.
         {L"integerToString",         1, (void *)wq_integerToString},
         {L"messageBox",              4, (void *)wq_messageBox},
         {L"navigateUrlBrowser",      1, (void *)wq_navigateUrlBrowser},

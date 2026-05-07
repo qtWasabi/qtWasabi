@@ -37,13 +37,20 @@ struct Element {
     int                      sourceLine = 0;
 };
 
+// One <script file="…" param="…"/> reference encountered during parse.
+struct ScriptRef {
+    QString file;     // path relative to skin root
+    QString param;    // per-script param string ("" when omitted)
+};
+
 struct Document {
     QString      skinDir;                  // absolute path to the skin root
     Element      root;                     // top-level <wasabixml> element
     QString      skinName;                 // <skininfo><name>
     QString      authorName;               // <skininfo><author>
     QString      skinVersion;              // <skininfo><version>
-    QStringList  scriptFiles;              // collected <script file="…"/> paths
+    QStringList  scriptFiles;              // file paths only (legacy)
+    QList<ScriptRef> scripts;              // file + param pairs
     int          includesResolved = 0;
     int          elementCount     = 0;
     QStringList  warnings;                 // non-fatal parse issues
