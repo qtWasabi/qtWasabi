@@ -58,6 +58,10 @@ set(WASABIQT_BFC_SOURCES
     # WidgetScriptObject: ScriptObject subclass backed by an opaque
     # widget pointer.  Sole TU that #include's <api/script/scriptobj.h>.
     ${CMAKE_CURRENT_SOURCE_DIR}/widget-script-object.cpp
+
+    # Maki method bodies — function pointers that ObjectTable::
+    # addrefDLF wires into VCPUdlfEntry::ptr so CALLMs run real code.
+    ${CMAKE_CURRENT_SOURCE_DIR}/maki-bindings.cpp
 )
 
 # Object library — the .o files are pulled into both the shared and the

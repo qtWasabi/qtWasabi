@@ -236,12 +236,37 @@ int lookupNparams(const wchar_t *name) {
 
 }  // namespace
 
-int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int /*id*/) {
+// Implemented in maki-bindings.cpp — full method registry with
+// real function bodies for the load-bearing Wasabi methods.
+namespace WasabiQt::Maki {
+struct MakiMethod { const wchar_t *name; int nparams; void *ptr; };
+const MakiMethod *makiMethodTable(int *count);
+}
+
+int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
     if (!dlf) return 0;
-    dlf->nparams = lookupNparams(dlf->functionName);
-    dlf->ptr     = nullptr;     // CALLM checks this and skips dispatch
-    // Returning 1 increments highestDLFId (mirrors upstream's
-    // behaviour for newly-registered DLFs).
+    // Upstream: when a method's physical pointer is already
+    // registered, reuse its DLFid; else assign `id` (highestDLFId)
+    // and signal the caller to bump the counter.  We assign a fresh
+    // id every time — `getDLFFromPointer` would let multiple scripts
+    // share an existing id, but our table is small enough that the
+    // duplication is harmless.
+    dlf->DLFid = id;
+    if (dlf->functionName) {
+        int n = 0;
+        const auto *t = WasabiQt::Maki::makiMethodTable(&n);
+        for (int i = 0; i < n; ++i) {
+            if (wcscmp(t[i].name, dlf->functionName) == 0) {
+                dlf->nparams = t[i].nparams;
+                dlf->ptr     = t[i].ptr;
+                return 1;
+            }
+        }
+        // Known by name only → safe no-op via nparams (e->ptr stays
+        // NULL; CALLM short-circuits to int 0 with stack still aligned).
+        dlf->nparams = lookupNparams(dlf->functionName);
+        dlf->ptr     = nullptr;
+    }
     return 1;
 }
 void ObjectTable::delrefDLF(VCPUdlfEntry *)                 {}
