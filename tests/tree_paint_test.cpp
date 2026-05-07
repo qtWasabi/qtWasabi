@@ -89,5 +89,5 @@ private slots:
     }
 };
 
-QTEST_GUILESS_MAIN(TreePaintTest)
+QTEST_MAIN(TreePaintTest)
 #include "tree_paint_test.moc"

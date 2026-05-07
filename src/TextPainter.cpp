@@ -5,6 +5,9 @@
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/BitmapRegistry.h>
 
+#include <QColor>
+#include <QFont>
+#include <QFontMetrics>
 #include <QImage>
 #include <QPainter>
 #include <QRect>
@@ -42,11 +45,9 @@ bool paintText(QPainter *p,
     if (fontId.isEmpty()) return false;
 
     const auto *fontDef = fontReg.find(fontId);
-    if (!fontDef) {
-        // TrueType-style font name (e.g. "Arial").  Skipped at this
-        // milestone — would need a font-loader.  Fail silently so
-        // the rest of the layout keeps painting.
-        return false;
+    const bool isBitmap = (fontDef != nullptr);
+    if (!isBitmap) {
+        // TrueType fall-through — handled at the end of this function.
     }
 
     // Resolve x/y/w/h with relat* against the container.
@@ -58,46 +59,77 @@ bool paintText(QPainter *p,
     if (attrBool(attrs, QStringLiteral("relaty"))) y = containerSize.height() + y;
     if (attrBool(attrs, QStringLiteral("relatw"))) w = containerSize.width()  + w;
     if (attrBool(attrs, QStringLiteral("relath"))) h = containerSize.height() + h;
-    if (w <= 0) w = fontDef->charWidth * 8;     // arbitrary fallback
-    if (h <= 0) h = fontDef->charHeight;
+    if (w <= 0) w = isBitmap ? (fontDef->charWidth * 8) : 64;
+    if (h <= 0) h = isBitmap ? fontDef->charHeight     : 16;
 
-    // Pick the string to paint: resolver(display=) → default → empty.
+    // Pick the string: resolver(display=) → default/text → empty.
     QString text;
     const QString display = attrs.value(QStringLiteral("display"));
     if (resolver && !display.isEmpty()) text = resolver(display);
     if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
-    if (text.isEmpty()) return true;             // nothing to draw
+    if (text.isEmpty()) text = attrs.value(QStringLiteral("text"));
+    if (text.isEmpty()) return true;
 
     if (attrBool(attrs, QStringLiteral("forceuppercase")))
         text = text.toUpper();
 
-    // Measure the line we want to draw, accounting for hSpacing.
-    int lineW = 0;
-    for (int i = 0; i < text.size(); ++i) {
-        if (i > 0) lineW += fontDef->hSpacing;
-        lineW += fontDef->charWidth;
-    }
+    const QString align = attrs.value(QStringLiteral("align")).toLower();
 
-    // Alignment within the (x,y,w,h) rect.
-    int drawX = x;
-    const QString align = attrs.value(QStringLiteral("align"))
-                              .toLower();
-    if (align == QStringLiteral("center"))
-        drawX = x + (w - lineW) / 2;
-    else if (align == QStringLiteral("right"))
-        drawX = x + (w - lineW);
-    int drawY = y + (h - fontDef->charHeight) / 2;
-    if (drawY < y) drawY = y;
-
-    // Paint each glyph.
-    int cx = drawX;
-    for (int i = 0; i < text.size(); ++i) {
-        QImage glyph = fontReg.glyph(fontId, text.at(i), bmpReg);
-        if (!glyph.isNull()) {
-            p->drawImage(QPoint(cx, drawY), glyph);
+    if (isBitmap) {
+        // ── bitmap font path ───────────────────────────────────
+        int lineW = 0;
+        for (int i = 0; i < text.size(); ++i) {
+            if (i > 0) lineW += fontDef->hSpacing;
+            lineW += fontDef->charWidth;
         }
-        cx += fontDef->charWidth + fontDef->hSpacing;
+        int drawX = x;
+        if      (align == QStringLiteral("center")) drawX = x + (w - lineW) / 2;
+        else if (align == QStringLiteral("right"))  drawX = x + (w - lineW);
+        int drawY = y + (h - fontDef->charHeight) / 2;
+        if (drawY < y) drawY = y;
+        int cx = drawX;
+        for (int i = 0; i < text.size(); ++i) {
+            QImage glyph = fontReg.glyph(fontId, text.at(i), bmpReg);
+            if (!glyph.isNull())
+                p->drawImage(QPoint(cx, drawY), glyph);
+            cx += fontDef->charWidth + fontDef->hSpacing;
+        }
+        return true;
     }
+
+    // ── TrueType fallback ──────────────────────────────────────
+    // Wasabi's `font="Arial"` etc. — render via QPainter::drawText.
+    // Honours fontsize, bold, italic, color (best-effort string→QColor),
+    // align, antialias.
+    QFont qf(fontId);
+    const int fontsize = attrInt(attrs, QStringLiteral("fontsize"), 12);
+    qf.setPixelSize(fontsize);
+    if (attrBool(attrs, QStringLiteral("bold")))   qf.setBold(true);
+    if (attrBool(attrs, QStringLiteral("italic"))) qf.setItalic(true);
+
+    p->save();
+    p->setFont(qf);
+    if (attrBool(attrs, QStringLiteral("antialias")))
+        p->setRenderHint(QPainter::TextAntialiasing, true);
+
+    // Color: accepted forms are "r,g,b" or a named id (skipped — would
+    // need a color registry).  Default white so something shows.
+    const QString colorStr = attrs.value(QStringLiteral("color"));
+    QColor color(Qt::white);
+    if (colorStr.contains(QChar(','))) {
+        const auto parts = colorStr.split(QChar(','));
+        if (parts.size() == 3)
+            color = QColor(parts[0].toInt(), parts[1].toInt(), parts[2].toInt());
+    }
+    p->setPen(color);
+
+    int qFlag = Qt::AlignVCenter;
+    if      (align == QStringLiteral("center")) qFlag |= Qt::AlignHCenter;
+    else if (align == QStringLiteral("right"))  qFlag |= Qt::AlignRight;
+    else                                        qFlag |= Qt::AlignLeft;
+
+    p->drawText(QRect(x, y, w, h), qFlag, text);
+    p->restore();
     return true;
 }
 
