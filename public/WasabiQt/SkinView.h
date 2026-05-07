@@ -16,6 +16,7 @@
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
 #include <WasabiQt/FontRegistry.h>
+#include <WasabiQt/GammasetRegistry.h>
 
 #include <QString>
 #include <QWidget>
@@ -47,6 +48,11 @@ public:
     const Layout::ResolvedWidget &tree() const { return m_tree; }
     BitmapRegistry               &registry()   { return m_registry; }
     FontRegistry                 &fonts()      { return m_fonts; }
+    GammasetRegistry             &gammasets()  { return m_gammasets; }
+
+    // Switch to a named gammaset (Color Theme).  Empty/unknown name
+    // means "Default" (identity transform).  Triggers a repaint.
+    void setActiveGammaset(const QString &name);
 
     // Embedder hook: resolve a <text display="…"/> key to a live
     // string at paint time.  Returning an empty string falls back
@@ -65,6 +71,7 @@ private:
     Layout::ResolvedWidget m_tree;
     BitmapRegistry         m_registry;
     FontRegistry           m_fonts;
+    GammasetRegistry       m_gammasets;
     QSize                  m_nativeSize { 354, 280 };
     DisplayResolver        m_resolver;
 };
