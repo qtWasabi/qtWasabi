@@ -118,6 +118,36 @@ inline void DebugStringW(const wchar_t *s) {
 #  define NULLSOFT_BFC_PRECOMP_H 1
 #  define _STD_WIN_H 1                      // wasabi_std_wnd.h guard
 
+// ── Pre-empt upstream guard symbols so the include-stubs/ versions
+//    win even when vcpu.h does `#include "script.h"` (quote-include
+//    that resolves locally to the upstream file).
+#  define __SCRIPT_H 1                       // api/script/script.h
+#  define _SCRIPTOBJI_H 1                    // api/script/scriptobji.h
+#  define _SCRIPT_H 1                        // api/script/scriptmgr.h's guard
+
+// ── wasabicfg.h override ─────────────────────────────────────────
+//
+// Wasabi's wasabicfg.h enables WASABI_COMPILE_WND which then makes
+// bfc/platform/linux.h pull X11/Xpm + GTK headers we don't have or
+// want.  Pre-set the include guard with a stripped feature set: keep
+// SCRIPT (we're vendoring vcpu.cpp/scriptmgr.cpp) and CONFIG, drop
+// the windowing stack — our Qt widget layer takes that over.
+#  define NULLSOFT_WASABICFG_H 1
+#  define WASABI_COMPILE_SCRIPT
+#  define WASABI_COMPILE_CONFIG
+#  define WASABINOMAINAPI
+
+// ── min/max macro pollution from bfc/platform/linux.h ───────────
+// linux.h:91-92 unconditionally `#define min(a,b)` / `#define max(a,b)`,
+// which collides with std::min / std::max as soon as <algorithm> or
+// <ranges> appears.  Wasabi's own headers don't actually use the
+// macros — pre-emptively reserve the identifiers so linux.h's
+// definitions become no-ops.
+#  define WASABI_NO_MINMAX_MACROS 1
+// linux.h does not honour any guard like that, so fall back to
+// undef'ing after the fact.  Done in any TU that includes <algorithm>;
+// the opensourced vcpu.cpp doesn't, but consumers of the shim might.
+
 // ── locale + wide-char ───────────────────────────────────────────
 // wasabi_std.h uses Win32's _locale_t and locale-aware wide-char
 // converters without including the right POSIX headers.  Wasabi
