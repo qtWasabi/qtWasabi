@@ -15,9 +15,12 @@ target_compile_definitions(titlebar_test PRIVATE
 
 add_test(NAME titlebar COMMAND titlebar_test)
 
-# M2 smoke test — verifies the opensourced Maki VM (vcpu.cpp) links into
-# libwasabiqt and accepts a .maki blob via VCPU::addScript().
+# Maki loader + VM smoke test — parses every .maki blob in the user's
+# Winamp Modern + Bento skin folders (skipped if not installed) and
+# verifies VM::addScript accepts the loaded Script.
 add_executable(maki_loader_test maki_loader_test.cpp)
+target_include_directories(maki_loader_test PRIVATE
+    ${CMAKE_SOURCE_DIR})
 target_link_libraries(maki_loader_test PRIVATE
     wasabiqt
     Qt6::Test)
