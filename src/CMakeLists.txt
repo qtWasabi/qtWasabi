@@ -19,6 +19,16 @@ set(WASABIQT_SOURCES
     # complains about missing vtables for Skin etc.)
     ${CMAKE_SOURCE_DIR}/public/WasabiQt/Skin.h
     ${WASABIQT_QT6_SOURCES}
+
+    # Maki bytecode VM — clean-room reimplementation of the format
+    # documented in the WACUP source dump.  Loader parses .maki blobs;
+    # Vcpu interprets opcodes; Bindings maps GUID + name → C++ lambda.
+    # Native object classes (SystemObject, GuiObject, …) live in
+    # StandardBindings/RuntimeWidget which depend on the engine layer
+    # and aren't built here yet — they land alongside M3.
+    ${CMAKE_SOURCE_DIR}/maki/Loader.cpp
+    ${CMAKE_SOURCE_DIR}/maki/Vcpu.cpp
+    ${CMAKE_SOURCE_DIR}/maki/Bindings.cpp
 )
 
 # ── shared library ─────────────────────────────────────────────
@@ -44,6 +54,7 @@ foreach(_target wasabiqt wasabiqt_static)
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
+            ${CMAKE_SOURCE_DIR}/maki
             ${WASABIQT_QT6_INCLUDE_DIR}
             ${WASABI_SRC_DIR}
             ${WASABI_SRC_DIR}/Wasabi)
