@@ -59,9 +59,7 @@ QString staticImageId(const QHash<QString, QString> &a) {
 
 void paintRecursive(QPainter *p, const ResolvedWidget &node,
                     BitmapRegistry &reg, const QSize &canvas) {
-    if (attrBool(node.attrs, QStringLiteral("visible")) == false &&
-        node.attrs.contains(QStringLiteral("visible")) &&
-        node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
+    if (node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
 
     const QString &t = node.tag;
