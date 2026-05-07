@@ -26,21 +26,31 @@
 
 #include <QtCore/qglobal.h>
 #include <QSize>
+#include <functional>
+#include <QString>
 
 class QPainter;
 
 namespace WasabiQt {
 
 class BitmapRegistry;
+class FontRegistry;
 namespace Layout { struct ResolvedWidget; }
 
 namespace TreePainter {
 
+// Optional callback the embedder supplies to resolve a <text>
+// widget's `display=` key into a live string.  Empty result falls
+// back to the `default=` attribute.
+using DisplayResolver = std::function<QString(const QString &)>;
+
 // Paint every visible widget in `root` onto `p`, using `reg` for
-// bitmap lookups.  `canvas` is the pixel size of the area `root`
-// occupies — used to resolve relat*/negative-w-h.
+// bitmap lookups and `fontReg` for <text> widgets.  `canvas` is the
+// pixel size of the area `root` occupies.  `resolver` is optional.
 void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
-               BitmapRegistry &reg, const QSize &canvas);
+               BitmapRegistry &reg, FontRegistry &fontReg,
+               const QSize &canvas,
+               const DisplayResolver &resolver = {});
 
 }  // namespace TreePainter
 }  // namespace WasabiQt

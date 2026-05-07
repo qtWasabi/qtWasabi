@@ -23,6 +23,7 @@ bool SkinView::load(const SkinXml::Document &doc,
     if (!Layout::expandLayout(doc, containerId, layoutId, m_tree, errMsg))
         return false;
     m_registry.loadFromDocument(doc);
+    m_fonts.loadFromDocument(doc);
 
     // Native size: prefer explicit w/h, fall back to minimum_w/h.
     auto attrInt = [&](const QString &k, int def = 0) {
@@ -45,7 +46,8 @@ bool SkinView::load(const SkinXml::Document &doc,
 void SkinView::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.fillRect(rect(), Qt::transparent);
-    TreePainter::paintTree(&p, m_tree, m_registry, size());
+    TreePainter::paintTree(&p, m_tree, m_registry, m_fonts, size(),
+                            m_resolver);
 }
 
 }  // namespace WasabiQt

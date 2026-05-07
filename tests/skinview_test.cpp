@@ -7,6 +7,7 @@
 #include <WasabiQt/SkinXml.h>
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/TreePainter.h>
 
 #include <QApplication>
@@ -48,11 +49,13 @@ private slots:
                                      QStringLiteral("normal"), tree));
         BitmapRegistry reg;
         reg.loadFromDocument(doc);
+        FontRegistry fonts;
+        fonts.loadFromDocument(doc);
         QImage viaTree(QSize(354, 280), QImage::Format_ARGB32);
         viaTree.fill(Qt::transparent);
         {
             QPainter painter(&viaTree);
-            TreePainter::paintTree(&painter, tree, reg, QSize(354, 280));
+            TreePainter::paintTree(&painter, tree, reg, fonts, QSize(354, 280));
         }
 
         // The two should produce the same opaque-pixel coverage.

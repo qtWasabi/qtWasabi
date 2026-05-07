@@ -15,9 +15,11 @@
 
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/FontRegistry.h>
 
 #include <QString>
 #include <QWidget>
+#include <functional>
 
 namespace WasabiQt::SkinXml { struct Document; }
 
@@ -44,6 +46,16 @@ public:
     // Access the parsed tree, e.g. for hit-testing in M9.
     const Layout::ResolvedWidget &tree() const { return m_tree; }
     BitmapRegistry               &registry()   { return m_registry; }
+    FontRegistry                 &fonts()      { return m_fonts; }
+
+    // Embedder hook: resolve a <text display="…"/> key to a live
+    // string at paint time.  Returning an empty string falls back
+    // to the widget's `default=` attribute.
+    using DisplayResolver = std::function<QString(const QString &)>;
+    void setDisplayResolver(DisplayResolver r) {
+        m_resolver = std::move(r);
+        update();
+    }
 
 protected:
     void paintEvent(QPaintEvent *e) override;
@@ -52,7 +64,9 @@ protected:
 private:
     Layout::ResolvedWidget m_tree;
     BitmapRegistry         m_registry;
+    FontRegistry           m_fonts;
     QSize                  m_nativeSize { 354, 280 };
+    DisplayResolver        m_resolver;
 };
 
 }  // namespace WasabiQt
