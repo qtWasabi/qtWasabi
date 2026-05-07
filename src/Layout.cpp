@@ -47,6 +47,18 @@ void collectGroupdefs(const Element &el, GroupdefIndex &out) {
     for (const auto &c : el.children) collectGroupdefs(c, out);
 }
 
+// `<hideobject target="id1;id2;…"/>` — explicit visibility override
+// applied at expansion time.  Stored as a flat set of widget ids
+// that should resolve to `visible="0"`.
+void collectHideObjects(const Element &el, QSet<QString> &out) {
+    if (el.tag == QStringLiteral("hideobject")) {
+        const QString target = el.attrs.value(QStringLiteral("target"));
+        for (const QString &t : target.split(QChar(';'), Qt::SkipEmptyParts))
+            out.insert(t.trimmed());
+    }
+    for (const auto &c : el.children) collectHideObjects(c, out);
+}
+
 void collectSendparams(const Element &el, SendparamsMap &out) {
     if (el.tag == QStringLiteral("sendparams")) {
         const QString grp    = el.attrs.value(QStringLiteral("group"));
@@ -114,8 +126,10 @@ ResolvedWidget makeResolved(const Element &src) {
 class Expander {
 public:
     Expander(const GroupdefIndex &groupdefs,
-             const SendparamsMap &sendparams)
-        : m_groupdefs(groupdefs), m_sendparams(sendparams) {}
+             const SendparamsMap &sendparams,
+             const QSet<QString> &hidden)
+        : m_groupdefs(groupdefs), m_sendparams(sendparams),
+          m_hidden(hidden) {}
 
     void expandChildren(const Element &src, ResolvedWidget &out,
                         const QString &instanceId) {
@@ -172,6 +186,38 @@ private:
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
 
+            // `content="X"` on a frame instantiation says: inject the
+            // groupdef X's children into this frame's content slot.
+            // Wasabi's standardframe.maki normally does this at runtime;
+            // we replicate it statically here so the player chrome
+            // appears even without Maki running.  The `embed_xui`
+            // attribute on the groupdef names a placeholder element
+            // that gets replaced; without one, we just append.
+            const QString content =
+                el.attrs.value(QStringLiteral("content"));
+            if (!content.isEmpty()) {
+                if (const Element *contentDef = m_groupdefs.lookup(content)) {
+                    if (!m_inflightInstances.contains(content)) {
+                        m_inflightInstances.insert(content);
+                        const QString embedTarget =
+                            def->attrs.value(QStringLiteral("embed_xui"));
+                        // Build the content's children into a temp node...
+                        ResolvedWidget contentExp;
+                        expandChildren(*contentDef, contentExp,
+                                       iid.isEmpty() ? instanceId : iid);
+                        // ...then either splice over the embed_xui
+                        // placeholder, or append at the end.
+                        if (!embedTarget.isEmpty()) {
+                            replaceById(node, embedTarget, contentExp.children);
+                        } else {
+                            for (auto &c : contentExp.children)
+                                node.children.append(std::move(c));
+                        }
+                        m_inflightInstances.remove(content);
+                    }
+                }
+            }
+
             m_inflightInstances.remove(gid);
             parent.children.append(std::move(node));
             return;
@@ -187,6 +233,9 @@ private:
 
     void applySendparams(ResolvedWidget &w, const QString &instanceId) {
         if (w.id.isEmpty()) return;
+        if (m_hidden.contains(w.id)) {
+            w.attrs.insert(QStringLiteral("visible"), QStringLiteral("0"));
+        }
         // First instance-scoped sendparams (group="instanceid" target=…),
         // then layout-scoped (group="" target=…) — instance-scoped are
         // more specific and shouldn't be overridden by less-specific.
@@ -206,8 +255,24 @@ private:
         }
     }
 
+    // Walk `node`'s tree, find the first descendant with `id == targetId`,
+    // and replace its children with `replacement`.  Used to splice a
+    // frame's `content` groupdef into the `embed_xui` placeholder slot.
+    static bool replaceById(ResolvedWidget &node, const QString &targetId,
+                            QList<ResolvedWidget> &replacement) {
+        for (auto &c : node.children) {
+            if (c.id == targetId) {
+                c.children = std::move(replacement);
+                return true;
+            }
+            if (replaceById(c, targetId, replacement)) return true;
+        }
+        return false;
+    }
+
     const GroupdefIndex &m_groupdefs;
     const SendparamsMap &m_sendparams;
+    const QSet<QString> &m_hidden;
     QSet<QString>        m_inflightInstances;
 };
 
@@ -235,9 +300,24 @@ bool expandLayout(const SkinXml::Document &doc,
     collectGroupdefs(doc.root, groupdefs);
     SendparamsMap sendparams;
     collectSendparams(doc.root, sendparams);
+    QSet<QString> hidden;
+    collectHideObjects(doc.root, hidden);
+    // Wasabi's standardframe.maki / videoavs.maki / pledit.maki etc.
+    // call setVisible(0) on these container groups during onLoad.
+    // Until our Maki bindings actually run those scripts, treat the
+    // groups as default-hidden so static rendering produces a sane
+    // approximation of the in-app render.
+    static const QStringList kScriptHiddenByDefault {
+        QStringLiteral("player.normal.drawer"),
+        QStringLiteral("player.normal.drawer.shadow"),
+        QStringLiteral("AVSGroup"),
+        QStringLiteral("player.normal.video"),
+        QStringLiteral("player.shade.drawer"),
+    };
+    for (const auto &id : kScriptHiddenByDefault) hidden.insert(id);
 
     out = makeResolved(*layout);
-    Expander ex(groupdefs, sendparams);
+    Expander ex(groupdefs, sendparams, hidden);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
     return true;
 }
