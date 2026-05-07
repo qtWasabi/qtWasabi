@@ -1,0 +1,19 @@
+@PACKAGE_INIT@
+
+# Find Qt6 deps that WasabiQT exposes through its public API.
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 6.6 COMPONENTS Core Gui Widgets)
+
+include("${CMAKE_CURRENT_LIST_DIR}/WasabiQTTargets.cmake")
+
+# Convenience: WasabiQT::WasabiQT is the shared lib, WasabiQT::Static
+# is the static archive.  Embedders pick whichever fits their
+# distribution model:
+#
+#   target_link_libraries(my_player PRIVATE WasabiQT::WasabiQT)
+#       — runtime dep on libwasabiqt.so (system / RPM install)
+#
+#   target_link_libraries(my_plugin PRIVATE WasabiQT::Static)
+#       — bundled into the .so / .app / AppImage; no runtime dep
+
+check_required_components(WasabiQT)

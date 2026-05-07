@@ -226,20 +226,107 @@ Override knobs:
 
 ---
 
-## Embedding in your Qt media player
+## Embedding in your Qt media player or plugin
 
-Once installed:
+WasabiQT ships **two link variants** so each embedder picks whichever
+fits their distribution model:
+
+| Variant | Target | Output | When to use |
+|---|---|---|---|
+| Shared | `WasabiQT::WasabiQT` | runtime dep on `libwasabiqt.so` | system-wide install via RPM/dpkg/brew |
+| Static | `WasabiQT::Static`  | bundled into your binary | plugins, Flatpak/Snap/AppImage, single-file builds |
+
+### Path 1 — system-installed shared library (winamp-linux, distro Audacious plugins)
+
+Best when your app is itself distributed via the system package
+manager.  WasabiQT installs `libwasabiqt.so`, headers, the CMake
+config, and pkg-config; consumers find it the standard way:
 
 ```cmake
-find_package(WasabiQT REQUIRED)
+find_package(WasabiQT 0.0.1 REQUIRED)
 target_link_libraries(my_player PRIVATE WasabiQT::WasabiQT)
 ```
+
+Or via pkg-config (autotools / non-CMake builds):
+
+```bash
+gcc $(pkg-config --cflags wasabiqt) -o my_app my_app.cpp \
+    $(pkg-config --libs wasabiqt)
+```
+
+In your RPM spec / dpkg control file:
+
+```
+# Fedora / RHEL
+Requires:       wasabiqt
+BuildRequires:  wasabiqt-devel
+```
+
+```
+# Debian / Ubuntu (when packaged that way)
+Depends:        libwasabiqt0
+Build-Depends:  libwasabiqt-dev
+```
+
+`dnf install winamp-linux` then automatically pulls libwasabiqt.so as a
+dependency.  This is what your existing Cloudflare-R2 + Fedora repo
+should do for winamp-linux.
+
+### Path 2 — bundled static archive (Audacious plugins, Flatpak, AppImage)
+
+Best when your app must ship as a single self-contained artefact —
+Audacious plugins distributed independently, Flatpak/Snap bundles,
+AppImage builds, single-file Qt media players.
+
+```cmake
+find_package(WasabiQT 0.0.1 REQUIRED)
+target_link_libraries(my_audacious_plugin PRIVATE WasabiQT::Static)
+```
+
+Your plugin .so or app binary then contains all of WasabiQT inline
+with no runtime dependency on libwasabiqt.so being present on the
+end-user's system.  The user installs Audacious normally, drops your
+plugin file into `/usr/lib/audacious/Visualization/` (or wherever),
+and it works without any WasabiQT package.
+
+For Audacious plugins specifically:
+
+```cmake
+# CMakeLists.txt for an Audacious skin plugin using WasabiQT
+cmake_minimum_required(VERSION 3.21)
+project(audacious_wasabi_plugin LANGUAGES CXX)
+
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(WasabiQT REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(AUDACIOUS REQUIRED audacious)
+
+add_library(audacious_wasabi MODULE plugin.cpp)
+target_link_libraries(audacious_wasabi PRIVATE
+    WasabiQT::Static                  # bundled, no runtime dep
+    Qt6::Core Qt6::Gui Qt6::Widgets
+    ${AUDACIOUS_LIBRARIES})
+
+set_target_properties(audacious_wasabi PROPERTIES
+    PREFIX ""                          # Audacious expects no "lib" prefix
+    LIBRARY_OUTPUT_NAME wasabi)
+
+install(TARGETS audacious_wasabi
+    LIBRARY DESTINATION ${AUDACIOUS_PLUGIN_DIR}/General)
+```
+
+The plugin's `wasabi.so` is fully self-contained.  You don't depend
+on the user having `wasabiqt-devel` or even WasabiQT installed.
+
+### Embedder code (same for both link variants)
 
 ```cpp
 #include <WasabiQt/Host.h>
 #include <WasabiQt/Skin.h>
 
-class MyPlayerHost : public WasabiQt::Host { /* …implement virtuals…*/ };
+class MyPlayerHost : public WasabiQt::Host {
+    // …implement ~40 virtual methods routing to your playback engine…
+};
 
 MyPlayerHost host;
 WasabiQt::Skin skin(&host);
@@ -248,6 +335,23 @@ mainWindow->setCentralWidget(skin.widget());
 ```
 
 See `examples/minimal_player/main.cpp` for a complete stub host.
+
+### Which path for your specific use cases
+
+- **winamp-linux** (Fedora RPM via Cloudflare R2):
+  shared library + `Requires: wasabiqt` in your spec.  Standard.
+- **Audacious plugin in Fedora repos**:
+  shared library + `Requires: wasabiqt`.  Distro-packaged plugins
+  expect distro-packaged deps.
+- **Audacious plugin distributed independently** (your own download
+  site, sideloaded into stock Audacious): static.  No assumptions
+  about what's on the user's system.
+- **Flatpak / Snap / AppImage** of your player or a plugin:
+  static.  These bundles are sandboxed; reaching the system's
+  libwasabiqt.so isn't permitted.
+- **macOS .app bundle**: typically static, or shared with
+  `macdeployqt`-bundled Frameworks.  Either works; static is
+  simpler.
 
 ## Troubleshooting
 

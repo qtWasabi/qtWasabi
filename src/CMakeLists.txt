@@ -1,39 +1,98 @@
 # src/ — engine integration glue.
 #
+# Builds BOTH a shared library (libwasabiqt.so / .dylib / .dll) for
+# system-wide / package-manager installation AND an importable
+# static archive (libwasabiqt.a) for app-bundled deployment.
+# Downstream consumers pick whichever fits their distribution model.
+#
 # Bridges the WasabiQt::Host embedder interface to Wasabi's service
 # registry, loads skins via Wasabi's SkinParser, and forwards Maki
 # script events back to the host.  The actual VM and widget classes
 # come from the user-supplied ${WASABI_SRC_DIR}.
 
-add_library(wasabiqt SHARED
+set(WASABIQT_SOURCES
     HostAdapter.cpp
     SkinLoader.cpp
     Bootstrap.cpp
 )
 
-target_include_directories(wasabiqt
-    PUBLIC
-        ${CMAKE_SOURCE_DIR}/public
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${WASABI_SRC_DIR}
-        ${WASABI_SRC_DIR}/Wasabi)
+# ── shared library ─────────────────────────────────────────────
+add_library(wasabiqt SHARED ${WASABIQT_SOURCES})
+add_library(WasabiQT::WasabiQT ALIAS wasabiqt)
 
-target_link_libraries(wasabiqt
-    PUBLIC
-        Qt6::Core
-        Qt6::Gui
-        Qt6::Widgets
-    PRIVATE
-        wasabiqt_qt6)
+# ── static library (always built; small, gives embedders choice) ─
+add_library(wasabiqt_static STATIC ${WASABIQT_SOURCES})
+add_library(WasabiQT::Static ALIAS wasabiqt_static)
 
-target_compile_features(wasabiqt PUBLIC cxx_std_20)
+# Common configuration for both
+foreach(_target wasabiqt wasabiqt_static)
+    target_include_directories(${_target}
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/public>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${WASABI_SRC_DIR}
+            ${WASABI_SRC_DIR}/Wasabi)
+
+    target_link_libraries(${_target}
+        PUBLIC
+            Qt6::Core
+            Qt6::Gui
+            Qt6::Widgets
+        PRIVATE
+            wasabiqt_qt6)
+
+    target_compile_features(${_target} PUBLIC cxx_std_20)
+endforeach()
 
 set_target_properties(wasabiqt PROPERTIES
     VERSION   ${PROJECT_VERSION}
     SOVERSION ${PROJECT_VERSION_MAJOR}
     OUTPUT_NAME wasabiqt)
 
-install(TARGETS wasabiqt
+set_target_properties(wasabiqt_static PROPERTIES
+    OUTPUT_NAME wasabiqt
+    POSITION_INDEPENDENT_CODE ON)
+
+# ── install: targets, headers, exports ─────────────────────────
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
+
+install(TARGETS wasabiqt wasabiqt_static
+    EXPORT WasabiQTTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/public/WasabiQt
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h")
+
+# CMake package config — lets downstream do find_package(WasabiQT).
+install(EXPORT WasabiQTTargets
+    FILE WasabiQTTargets.cmake
+    NAMESPACE WasabiQT::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WasabiQT)
+
+configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/WasabiQTConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/WasabiQTConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WasabiQT)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/WasabiQTConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/WasabiQTConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/WasabiQTConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WasabiQT)
+
+# pkg-config (.pc) — for autotools / non-CMake consumers.
+configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/wasabiqt.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/wasabiqt.pc @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wasabiqt.pc
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)

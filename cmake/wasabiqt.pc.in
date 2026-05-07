@@ -1,0 +1,12 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: WasabiQT
+Description: Qt-native Wasabi/Maki skin engine
+URL: https://github.com/kleberbaum/WasabiQT
+Version: @PROJECT_VERSION@
+Requires: Qt6Core Qt6Gui Qt6Widgets
+Libs: -L${libdir} -lwasabiqt
+Cflags: -I${includedir}

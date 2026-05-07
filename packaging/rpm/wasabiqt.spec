@@ -64,18 +64,40 @@ is consumed by the build but never packaged.
 %license LICENSE
 %doc README.md BUILD.md
 %{_libdir}/libwasabiqt.so.*
-%{_includedir}/WasabiQt/
 
 %package devel
-Summary:        Development files for WasabiQT
+Summary:        Development files for WasabiQT (shared linkage)
 Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       qt6-qtbase-devel >= 6.6
+Requires:       cmake
 
 %description devel
-Headers and CMake config for embedding WasabiQT in Qt media players.
+Headers, CMake config (find_package(WasabiQT)), and pkg-config for
+embedding WasabiQT in Qt media players that link against the shared
+libwasabiqt.so installed system-wide.  This is the path winamp-linux
+and most distro-packaged Audacious plugins should use.
 
 %files devel
 %{_libdir}/libwasabiqt.so
 %{_includedir}/WasabiQt/
+%{_libdir}/cmake/WasabiQT/
+%{_libdir}/pkgconfig/wasabiqt.pc
+
+%package static
+Summary:        Static archive of WasabiQT (bundled linkage)
+Requires:       %{name}-devel%{?_isa} = %{version}-%{release}
+
+%description static
+Static archive for embedders that need to bundle WasabiQT into a
+single shipping artefact — Audacious plugins distributed via
+Flatpak/Snap/AppImage, single-file Qt media-player binaries, or
+proprietary builds where a runtime dep on libwasabiqt is undesirable.
+
+Linking against this archive (target WasabiQT::Static in CMake)
+produces an output with no runtime dependency on libwasabiqt.
+
+%files static
+%{_libdir}/libwasabiqt.a
 
 %changelog
 * Wed May 07 2026 Florian Kleber <kleber@snek.at> - 0.0.1-1
