@@ -134,8 +134,116 @@ void  ScriptObject::vcpu_setScriptId(int) {}
 void  ScriptObject::vcpu_delMembers(int) {}
 int   ScriptObject::vcpu_getMember(const wchar_t *, int, int) { return -1; }
 
-// ── ObjectTable ──────────────────────────────────────────────────
-int  ObjectTable::addrefDLF(VCPUdlfEntry *, int)            { return 0; }
+// ── ObjectTable — minimum needed so CALLM doesn't break the stack ──
+//
+// The opensourced vcpu.cpp's CALLM handler (vcpu.cpp:1644) checks
+// `if (e->ptr != NULL)` before dispatching — so a NULL ptr is safe
+// IF `e->nparams` is set correctly (otherwise args don't get popped
+// from the operand stack and the next opcode reads misaligned bytes).
+//
+// `addrefDLF` here does the bare minimum: look up a method's nparams
+// in a static table of known Wasabi method signatures.  e->ptr stays
+// NULL (so the call is a no-op returning 0/void), but the stack
+// stays aligned — scripts run cleanly past CALLM, just with no real
+// effect on widget state.  M13c/d will plug actual function pointers
+// in for the named methods we care about.
+
+namespace {
+struct MethodSig { const wchar_t *name; int nparams; };
+
+// Conservative table: every method titlebar.maki/std.mi/configtabs.maki
+// can call.  nparams matches what the upstream `getExportedFunctions`
+// declares for each.  Add here as new bindings are needed.
+static const MethodSig kKnownMethods[] = {
+    // SystemObject (https://opensourced source: api/script/objects/systemobj.cpp)
+    {L"onScriptLoaded",          0},
+    {L"onScriptUnloading",       0},
+    {L"getRuntimeVersion",       0},
+    {L"getSkinName",             0},
+    {L"getParam",                0},
+    {L"getToken",                3},
+    {L"getScriptGroup",          0},
+    {L"messageBox",              4},
+    {L"getPrivateInt",           3},
+    {L"setPrivateInt",           3},
+    {L"getPublicInt",            3},
+    {L"setPublicInt",            3},
+    {L"getDate",                 0},
+    {L"getTimeOfDay",            0},
+    {L"isTransparencyAvailable", 0},
+    {L"integerToString",         1},
+    {L"stringToInteger",         1},
+    {L"navigateUrlBrowser",      1},
+    {L"setDelay",                0},
+    {L"onTimer",                 0},
+    {L"show",                    0},
+    {L"hide",                    0},
+    {L"stop",                    0},
+    {L"getPlayItemMetaDataString", 1},
+    {L"getPlayItemDisplayTitle", 0},
+    {L"onLeftClick",             0},
+
+    // GuiObject / Group / Layer / Layout / Container — most common
+    {L"findObject",              1},
+    {L"getObject",               1},
+    {L"setVisible",              1},
+    {L"getVisible",              0},
+    {L"setXmlParam",             2},
+    {L"getXmlParam",             1},
+    {L"setAlpha",                1},
+    {L"getAlpha",                0},
+    {L"getAutoWidth",            0},
+    {L"getAutoHeight",           0},
+    {L"getWidth",                0},
+    {L"getHeight",               0},
+    {L"getLeft",                 0},
+    {L"getTop",                  0},
+    {L"clientToScreenX",         1},
+    {L"clientToScreenY",         1},
+    {L"screenToClientX",         1},
+    {L"screenToClientY",         1},
+    {L"getParent",               0},
+    {L"getParentLayout",         0},
+    {L"getParentGroup",          0},
+    {L"bringToFront",            0},
+    {L"bringToBack",             0},
+
+    // Text — methods titlebar.maki uses on the centre text
+    {L"setText",                 1},
+    {L"getText",                 0},
+    {L"onTextChanged",           1},
+    {L"onResize",                4},
+
+    // Common system events (params per upstream Wasabi)
+    {L"onSetXuiParam",           2},
+    {L"onNotify",                4},
+    {L"onPlay",                  0},
+    {L"onPause",                 0},
+    {L"onStop",                  0},
+    {L"onTitleChange",           1},
+    {L"onTitle2Change",          1},
+
+    // sentinel
+    {nullptr, 0},
+};
+
+int lookupNparams(const wchar_t *name) {
+    if (!name) return 0;
+    for (auto *m = kKnownMethods; m->name; ++m)
+        if (wcscmp(m->name, name) == 0) return m->nparams;
+    return 0;          // best guess for unknowns
+}
+
+}  // namespace
+
+int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int /*id*/) {
+    if (!dlf) return 0;
+    dlf->nparams = lookupNparams(dlf->functionName);
+    dlf->ptr     = nullptr;     // CALLM checks this and skips dispatch
+    // Returning 1 increments highestDLFId (mirrors upstream's
+    // behaviour for newly-registered DLFs).
+    return 1;
+}
 void ObjectTable::delrefDLF(VCPUdlfEntry *)                 {}
 int  ObjectTable::getClassFromName(const wchar_t *)         { return -1; }
 int  ObjectTable::getClassFromGuid(GUID)                    { return -1; }
