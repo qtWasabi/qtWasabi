@@ -332,6 +332,43 @@ extern "C" scriptVar wq_bringToBack(maki_cmd *, int, ScriptObject *)  { return m
 extern "C" scriptVar wq_setText(maki_cmd *, int, ScriptObject *, scriptVar) { return makeVoid(); }
 extern "C" scriptVar wq_getText(maki_cmd *, int, ScriptObject *)            { return makeString(L""); }
 
+// ── Config / ConfigItem / ConfigAttribute (M14g stub layer) ─────
+//
+// The Wasabi script API exposes a Config singleton for managing
+// preferences.  initAttribs() chains dozens of Config.newItem() and
+// .newAttribute() calls before the rest of the script runs, and every
+// missing method on that chain fires a guru meditation.  We do not
+// have a real preference store yet, so all of these return a single
+// shared dummy ScriptObject that survives dispatch.  setData / getData
+// on it become no-ops.  Real Config plumbing is its own milestone.
+
+// Forward-declared from widget-script-object.cpp, in the same namespace.
+namespace WasabiQt::Maki { void *createWidgetScriptObject(void *); }
+
+static ScriptObject *configDummy() {
+    static ScriptObject *sentinel = static_cast<ScriptObject *>(
+        WasabiQt::Maki::createWidgetScriptObject(nullptr));
+    return sentinel;
+}
+
+extern "C" scriptVar wq_newItem(maki_cmd *, int, ScriptObject *,
+                                 scriptVar, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_getItem(maki_cmd *, int, ScriptObject *, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *,
+                                      scriptVar, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *, scriptVar) {
+    return makeVoid();
+}
+extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *) {
+    return makeString(L"");
+}
+
 // ── method registry ─────────────────────────────────────────────
 
 namespace WasabiQt::Maki {
@@ -394,6 +431,12 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"bringToBack",             0, (void *)wq_bringToBack},
         {L"setText",                 1, (void *)wq_setText},
         {L"getText",                 0, (void *)wq_getText},
+        // Config / ConfigItem / ConfigAttribute stubs (M14g)
+        {L"newItem",                 2, (void *)wq_newItem},
+        {L"getItem",                 1, (void *)wq_getItem},
+        {L"newAttribute",            2, (void *)wq_newAttribute},
+        {L"setData",                 1, (void *)wq_setData},
+        {L"getData",                 0, (void *)wq_getData},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;
