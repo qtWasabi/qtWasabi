@@ -351,6 +351,12 @@ static ScriptObject *configDummy() {
     return sentinel;
 }
 
+// Exposed for the bridge so M14i hydration can fill null SCRIPT_OBJECT
+// vars with this fallback. Same singleton as configDummy().
+extern "C" void *wq_config_dummy_get() {
+    return static_cast<void *>(configDummy());
+}
+
 extern "C" scriptVar wq_newItem(maki_cmd *, int, ScriptObject *,
                                  scriptVar, scriptVar) {
     return makeObject(configDummy());

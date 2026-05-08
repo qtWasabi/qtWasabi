@@ -29,6 +29,47 @@ void getVmState(int *vsd, int *vip, int *vsp) {
     if (vsp) *vsp = VCPU::VSP;
 }
 
+// M14i: walk the script's entries in variablesTable and replace any
+// null SCRIPT_OBJECT receiver with the given fallback object. _predecl
+// classes from the Wasabi standard library (Config, etc.) reserve a
+// variable slot but the runtime is expected to bind a singleton there.
+// Without that binding every dispatch on the predecl gurus with
+// GURU_NULLCALLED. This helper installs a fallback after addScript so
+// the script's PUSH var[N] reads a non-null receiver and the call
+// chain lands on the Config method stubs in maki-bindings.cpp.
+//
+// `fallback` should be a ScriptObject*, opaque here so callers do not
+// need to include scriptobj.h. Returns the number of slots patched.
+int hydrateNullObjectVars(int scriptId, void *fallback) {
+    if (!fallback) return 0;
+    int patched = 0;
+    int n = VCPU::variablesTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUscriptVar *v = VCPU::variablesTable.enumItem(i);
+        if (!v || v->scriptId != scriptId) continue;
+        // Only patch entries that are actually typed as a script
+        // object slot. Wasabi stores int / double / etc. globals with
+        // their declared type and the data union holds the value, so
+        // a null odata on those represents the value 0, not an
+        // unbound object. Touching them here would corrupt them.
+        if (v->v.type != SCRIPT_OBJECT) continue;
+        if (v->v.data.odata != nullptr) continue;
+        v->v.data.odata = static_cast<ScriptObject *>(fallback);
+        ++patched;
+    }
+    if (const char *t = getenv("WASABIQT_TRACE_HYDRATE"); t && *t == '1') {
+        fprintf(stderr, "[hydrate] sid=%d patched %d null SCRIPT_OBJECT vars\n",
+                scriptId, patched);
+    }
+    return patched;
+}
+
+// Singleton fallback ScriptObject used by hydrateNullObjectVars. Lives
+// in the bindings TU (sole owner of createWidgetScriptObject) so we
+// expose it through this getter rather than reach across.
+extern "C" void *wq_config_dummy_get();   // defined in maki-bindings.cpp
+void *getConfigDummy() { return wq_config_dummy_get(); }
+
 int addScript(const void *blob, int blobSize, int cpuId) {
     if (!blob || blobSize <= 0) return -1;
     int sid = VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);

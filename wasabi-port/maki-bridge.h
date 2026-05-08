@@ -27,6 +27,17 @@ int  assignNewScriptId();
 // and ip context instead of just the default switch case location.
 void getVmState(int *vsd, int *vip, int *vsp);
 
+// M14i: walk the script's variables and replace any null SCRIPT_OBJECT
+// entry with `fallback`. Used to hydrate predeclared variables (like
+// Config) the runtime is supposed to bind but we have not wired up
+// individually. Returns the number of slots patched.
+int  hydrateNullObjectVars(int scriptId, void *fallback);
+
+// Returns the shared dummy ScriptObject used as the fallback by
+// hydrateNullObjectVars. Same singleton that the Config method stubs
+// return.
+void *getConfigDummy();
+
 // Add a script blob to the VM.  Returns the assigned script id, or
 // -1 on parse failure.  `blob` must be a complete .maki file.
 // Pass cpuId from a prior call to assignNewScriptId().

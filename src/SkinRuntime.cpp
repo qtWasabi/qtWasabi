@@ -160,6 +160,14 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
             Maki::registerScriptSystemObject(predictedId, nullptr);
             Maki::registerScriptSystemObject(sid, sysObj);
         }
+
+        // M14i: predeclared globals (Config, etc.) reserve a variable
+        // slot per script that the runtime is supposed to bind to a
+        // singleton. We do not have per-class singleton plumbing yet,
+        // so hydrate every null SCRIPT_OBJECT slot with a shared
+        // fallback. The Config method stubs in maki-bindings.cpp pick
+        // it up so initAttribs() chains land cleanly.
+        Maki::hydrateNullObjectVars(sid, Maki::getConfigDummy());
         // M14a diagnostic: which file landed at which sid.
         if (qEnvironmentVariableIntValue("WASABIQT_TRACE_SCRIPTS") == 1)
             qInfo().noquote() << QStringLiteral("[script] sid=%1 -> %2")
