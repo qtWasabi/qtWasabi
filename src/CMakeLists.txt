@@ -18,6 +18,8 @@ set(WASABIQT_SOURCES
     BitmapRegistry.cpp
     LayerPainter.cpp
     TreePainter.cpp
+    SkinView.cpp
+    ${CMAKE_SOURCE_DIR}/public/WasabiQt/SkinView.h
     Bootstrap.cpp
     # Q_OBJECT public headers — listed so AUTOMOC generates their
     # moc_*.cpp files inside this target (otherwise downstream link
