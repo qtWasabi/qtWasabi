@@ -306,7 +306,7 @@ once milestone 6 lands.
 
 ### License
 
-qtWasabi (everything in this repo): **MIT**, see [`LICENSE`](LICENSE).
+qtWasabi (everything in this repo): **MIT**, see [`COPYING`](COPYING).
 
 The Wasabi source you supply at build time: Winamp
 Collaborative License v1.0, see the source archive's own
