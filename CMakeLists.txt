@@ -33,6 +33,11 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindWasabiSrc.cmake)
 # the 2015-era /Src/Wasabi/qt6/ adapter shim.  Used by src/.
 add_subdirectory(qt6)
 
+# wasabi-port/ — minimum BFC subset from WASABI_SRC_DIR, compiled
+# against wasabi-port-shim.h to bridge the unported Linux/macOS layers.
+# Exposes WASABIQT_PORT_OBJECTS / _SHIM / _INCLUDES to the parent scope.
+add_subdirectory(wasabi-port)
+
 # src/ — engine integration glue (host bridge, skin loader bootstrap).
 # Compiles against the user's Wasabi source via WASABI_SRC_DIR.
 add_subdirectory(src)

@@ -22,11 +22,18 @@ set(WASABIQT_SOURCES
 )
 
 # ── shared library ─────────────────────────────────────────────
-add_library(wasabiqt SHARED ${WASABIQT_SOURCES})
+# WASABIQT_PORT_OBJECTS is a $<TARGET_OBJECTS:wasabiqt_port> generator
+# expression — each .o is embedded directly without an intermediate
+# static archive.  Set in wasabi-port/CMakeLists.txt.
+add_library(wasabiqt SHARED
+    ${WASABIQT_SOURCES}
+    ${WASABIQT_PORT_OBJECTS})
 add_library(WasabiQT::WasabiQT ALIAS wasabiqt)
 
 # ── static library (always built; small, gives embedders choice) ─
-add_library(wasabiqt_static STATIC ${WASABIQT_SOURCES})
+add_library(wasabiqt_static STATIC
+    ${WASABIQT_SOURCES}
+    ${WASABIQT_PORT_OBJECTS})
 add_library(WasabiQT::Static ALIAS wasabiqt_static)
 
 # Common configuration for both
