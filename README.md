@@ -23,11 +23,13 @@ abandoned X11 port.
 
 qtWasabi splits the difference:
 
-- **Maki bytecode VM**, official `/Src/Wasabi/api/script/`, **unmodified**. Bit-perfect compatibility with every shipped Modern skin, no risk of re-implementation drift breaking obscure scripts.
-- **Minimal BFC subset**, official `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}`. POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use.
-- **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …), **qtWasabi's own Qt6 implementation**. Matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter`.
-- **Skin XML parser, sendparams, gammaset, font loading**, **qtWasabi's own**. Qt-native, no platform port needed.
-- **Window/canvas/event integration**, **qtWasabi's `qt6/`**. `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub.
+| Component | Source | Why |
+|---|---|---|
+| **Maki bytecode VM** | opensourced `/Src/Wasabi/api/script/`, **unmodified** | bit-perfect compatibility with every shipped Modern skin — no risk of re-implementation drift breaking obscure scripts |
+| **Minimal BFC subset** | opensourced `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}` | POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use |
+| **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **WasabiQT's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
+| **Skin XML parser, sendparams, gammaset, font loading** | **WasabiQT's own** | Qt-native, no platform port needed |
+| **Window/canvas/event integration** | **WasabiQT's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
 
 **What this gives us:**
 
@@ -186,7 +188,7 @@ can call its bindings against our widget. ~10 LOC per binding.
 
 ### What we pull from the official Winamp release
 
-Only this irreducible subset compiles into the qtWasabi library:
+Only this irreducible subset compiles into the WasabiQT library:
 
 - `bfc/memblock.cpp`, `critsec.cpp`, `foreach.cpp`, `freelist.cpp`,
   `nsguid.cpp`, `ptrlist.cpp`, `stack.cpp`, `node.cpp`, `thread.cpp`
@@ -196,8 +198,7 @@ Only this irreducible subset compiles into the qtWasabi library:
   `scriptobj.cpp`, `script.cpp`, `guru.cpp` → ~5000 LOC Maki VM
   + script registry
 
-Total: about 8000 LOC pulled from the official Winamp release at
-build time, all platform-independent.
+Total: ~8000 LOC of opensourced source, all platform-independent.
 
 Everything else — the BFC platform layer (`std_file`, `std_keyboard`,
 `std_wnd`, `linux.cpp`, the X11 backend), the widget classes, the

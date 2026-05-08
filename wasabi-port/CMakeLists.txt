@@ -1,22 +1,21 @@
-# wasabi-port/ — minimum BFC subset compiled with the port-shim.
+# wasabi-port/ — minimum BFC subset + opensourced Maki VM compiled with the
+# port-shim.
 #
 # WasabiQT's hybrid approach: vendor the opensourced Maki VM source bit-perfect
 # from the user's WASABI_SRC_DIR (NEVER from this repo's tree), build it
 # against a small force-included header that papers over the unported
-# Linux/macOS layers (`std_file`, `std_keyboard`, `std_wnd`, locale).
-#
-# Only the sources listed below are needed.  Notable exclusions:
-#   - `wasabi_std.cpp` — has X11 mouse / Win32 timer paths and is unused
-#     by the Maki VM (verified: vcpu/scriptmgr/objecttable reference 0
-#     symbols from it).  Replace with a Qt-native equivalent later.
-#   - `critsec.cpp`   — Linux branch references undeclared `cs.mutex`;
-#     VM doesn't use CriticalSection at all (verified the same way), so
-#     skip rather than patch.
-#   - `thread.cpp`    — same story as critsec.
+# Linux/macOS layers (`std_file`, `std_keyboard`, `std_wnd`, locale)
+# AND a tiny `include-stubs/` overlay that intercepts a handful of
+# windowing-adjacent headers (`tataki/canvas/Canvas.h`,
+# `api/timer/api_timer.h`) which the VM only needs for declarations.
 
-set(WASABIQT_PORT_SHIM   ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-shim.h)
+set(WASABIQT_PORT_SHIM    ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-shim.h)
+set(WASABIQT_PORT_STUBDIR ${CMAKE_CURRENT_SOURCE_DIR}/include-stubs)
 
 set(WASABIQT_BFC_SOURCES
+    # ── BFC subset ───────────────────────────────────────────────
+    # Pure containers / GUID / geometry — POSIX-clean, all compile
+    # straight from WASABI_SRC_DIR with the port-shim.
     ${WASABI_SRC_DIR}/Wasabi/bfc/memblock.cpp
     ${WASABI_SRC_DIR}/Wasabi/bfc/foreach.cpp
     ${WASABI_SRC_DIR}/Wasabi/bfc/ptrlist.cpp
@@ -25,10 +24,36 @@ set(WASABIQT_BFC_SOURCES
     ${WASABI_SRC_DIR}/Wasabi/bfc/freelist.cpp
     ${WASABI_SRC_DIR}/Wasabi/bfc/wasabi_std_rect.cpp
     ${WASABI_SRC_DIR}/Wasabi/bfc/nsguid.cpp
+    # StringW.cpp is NOT compiled directly — upstream lacks a Linux
+    # branch in StringW::va_sprintf and falls through with no return
+    # (SIGTRAP at the next caller).  StringW-port.cpp #include's it
+    # under `#define __APPLE__ 1`, which routes va_sprintf to the
+    # POSIX vswprintf path that works on Linux.
+    ${CMAKE_CURRENT_SOURCE_DIR}/StringW-port.cpp
+    ${WASABI_SRC_DIR}/Wasabi/bfc/string/string.cpp
 
-    # Linux/Qt implementations of the platform hooks BFC declares but
-    # only provides on Win32 / macOS.  Lives in this repo (legally clean).
+    # ── Maki VM (opensourced, unmodified) ─────────────────────────────
+    # vcpu.cpp is the bit-perfect bytecode dispatch loop.  Its header
+    # neighbours scriptmgr.cpp / script.cpp are integration glue that
+    # pulls the entire skin/widget tree and is therefore *not*
+    # vendored — WasabiQT writes its own thin manager that wires the
+    # VM to the WasabiQt::Skin widget tree.
+    ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
+
+    # ── Linux/Qt implementations ─────────────────────────────────
+    # Platform hooks BFC declares but only provides on Win32 / macOS.
     ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-stubs.cpp
+
+    # Link-time bodies for the upstream classes our include-stubs/
+    # headers declare.  Returning-default implementations so the
+    # opensourced vcpu.cpp links into libwasabiqt.  WasabiQT-own code
+    # later supplies the real bodies (script bindings → Qt widgets).
+    ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-link-stubs.cpp
+
+    # Bridge between the opensourced VCPU class and the rest of WasabiQT.
+    # Sole TU that includes <api/script/vcpu.h> — limits the blast
+    # radius of bfc/platform/linux.h's macro pollution.
+    ${CMAKE_CURRENT_SOURCE_DIR}/maki-bridge.cpp
 )
 
 # Object library — the .o files are pulled into both the shared and the
@@ -37,6 +62,9 @@ set(WASABIQT_BFC_SOURCES
 add_library(wasabiqt_port OBJECT ${WASABIQT_BFC_SOURCES})
 
 set(WASABIQT_PORT_INCLUDES
+    # include-stubs/ FIRST so our overrides for entangled windowing
+    # headers (Canvas.h, api_timer.h) win over WASABI_SRC_DIR.
+    ${WASABIQT_PORT_STUBDIR}
     ${WASABI_SRC_DIR}
     ${WASABI_SRC_DIR}/Wasabi
     ${WASABI_SRC_DIR}/Wasabi/bfc

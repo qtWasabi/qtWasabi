@@ -27,6 +27,8 @@
 #include <wctype.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <ctype.h>
+#include <strings.h>
 
 // NOTE: BFC declares these in C++ linkage (no `extern "C"`), so the
 // definitions here must match.  The compiler mangles them; the linker
@@ -92,6 +94,33 @@ void _assert_handler_str(const char *str, const char *reason,
               reason ? reason : "(null)", file, line);
     ::abort();
 }
+
+// ── wasabi_std.cpp helpers used by string/StringW.cpp ────────────
+// Wasabi's bfc/wasabi_std.h declares these as wrappers around C string
+// functions (with optional debug instrumentation on Win32).  We're
+// not vendoring wasabi_std.cpp, so provide forwarders.
+
+int    STRLEN(const char *s)                                   { return s ? (int)::strlen(s) : 0; }
+char  *STRCPY(char *d, const char *s)                          { return ::strcpy(d, s); }
+char  *STRNCPY(char *d, const char *s, int n)                  { ::strncpy(d, s, n); if (n > 0) d[n-1] = 0; return d; }
+int    STRCMP(const char *a, const char *b)                    { return ::strcmp(a, b); }
+const char *STRSTR(const char *h, const char *n)               { return ::strstr(h, n); }
+char  *STRTOLOWER(char *s)                                     { for (char *p = s; p && *p; ++p) *p = (char)::tolower((unsigned char)*p); return s; }
+char  *STRTOUPPER(char *s)                                     { for (char *p = s; p && *p; ++p) *p = (char)::toupper((unsigned char)*p); return s; }
+int    STRCMPSAFE(const char *a, const char *b, const char *da, const char *db)
+                                                               { return ::strcmp(a ? a : (da ? da : ""), b ? b : (db ? db : "")); }
+int    STRICMPSAFE(const char *a, const char *b, const char *da, const char *db)
+                                                               { return ::strcasecmp(a ? a : (da ? da : ""), b ? b : (db ? db : "")); }
+
+int    ISDIGIT(wchar_t c)                                      { return (c >= L'0' && c <= L'9') ? 1 : 0; }
+wchar_t *WCSCPYN(wchar_t *d, const wchar_t *s, unsigned long n) { ::wcsncpy(d, s, n); if (n > 0) d[n-1] = 0; return d; }
+int    WCSICMPSAFE(const wchar_t *a, const wchar_t *b, const wchar_t *da, const wchar_t *db)
+                                                               { return WCSICMP(a ? a : (da ? da : L""), b ? b : (db ? db : L"")); }
+
+// Directory separator character — '/' on POSIX, '\\' on Win32.
+namespace Wasabi { namespace Std {
+    char dirChar() { return '/'; }
+}}
 
 // MEMFILL<unsigned short> — primary template lives in std_mem.h, this
 // specialisation is forward-declared there but has no in-tree body on
