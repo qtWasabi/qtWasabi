@@ -1,31 +1,33 @@
-# WasabiQT
+<p align="center">
+  <img src="docs/mascot.png" alt="qtWasabi mascot" width="360">
+</p>
+
+<h3 align="center">qtWasabi</h3>
+
+<p align="center">Pronounced "cute Wasabi". The "qt" is Qt the framework, which spells itself "cute".</p>
 
 A Qt-native skin engine **inspired by** Winamp's Wasabi 1 and Wasabi 2,
 built fresh for the latest Qt with the goal of running Modern Winamp
-skins on **any themeable Winamp clone** — Audacious, WACUP, future
-projects — across Linux, macOS, and Windows. Apple Silicon native.
+skins on **any themeable Winamp clone**, Audacious, WACUP, future
+projects, across Linux, macOS, and Windows. Apple Silicon native.
 
-Pronounced "wasabi-cute".
-
-## Approach: hybrid
+### Approach: hybrid
 
 Re-implementing the Maki bytecode VM from scratch is a multi-year
 bug-hunt — thousands of shipped skins exercise small quirks of the
 real VM, and the only spec is the running code. Porting the entire
-opensourced Wasabi C++ to Linux is also impractical: the 2024 Llama Group
+open-sourced Wasabi C++ to Linux is also impractical: the 2024 Llama Group
 release ships with `#error port me` markers across the BFC platform
 layer (file I/O, keyboard, window, canvas) and an incomplete-and-
 abandoned X11 port.
 
-WasabiQT splits the difference:
+qtWasabi splits the difference:
 
-| Component | Source | Why |
-|---|---|---|
-| **Maki bytecode VM** | opensourced `/Src/Wasabi/api/script/`, **unmodified** | bit-perfect compatibility with every shipped Modern skin — no risk of re-implementation drift breaking obscure scripts |
-| **Minimal BFC subset** | opensourced `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}` | POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use |
-| **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **WasabiQT's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
-| **Skin XML parser, sendparams, gammaset, font loading** | **WasabiQT's own** | Qt-native, no platform port needed |
-| **Window/canvas/event integration** | **WasabiQT's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
+- **Maki bytecode VM**, official `/Src/Wasabi/api/script/`, **unmodified**. Bit-perfect compatibility with every shipped Modern skin, no risk of re-implementation drift breaking obscure scripts.
+- **Minimal BFC subset**, official `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}`. POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use.
+- **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …), **qtWasabi's own Qt6 implementation**. Matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter`.
+- **Skin XML parser, sendparams, gammaset, font loading**, **qtWasabi's own**. Qt-native, no platform port needed.
+- **Window/canvas/event integration**, **qtWasabi's `qt6/`**. `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub.
 
 **What this gives us:**
 
@@ -36,7 +38,7 @@ WasabiQT splits the difference:
 - Widget rendering is Qt-native, so HiDPI works, Wayland works,
   Apple Silicon works, no platform-port quagmire.
 
-- WasabiQT itself is freshly-authored Qt6 code, redistributable, and
+- qtWasabi itself is freshly-authored Qt6 code, redistributable, and
   small enough to be embeddable in any Qt media player.
 
 **What this costs:**
@@ -47,7 +49,7 @@ WasabiQT splits the difference:
   That's a thin shim per binding (~40 native classes, mostly
   one-liners forwarding to our `Widget` base).
 
-- The Wasabi widget *behaviour* is matched against the opensourced source
+- The Wasabi widget *behaviour* is matched against the open-source release
   as canonical spec. Where we got it visibly wrong in the libwasabiq
   prototype (text-widget +2 inset, getAutoWidth +N padding, etc.),
   we know exactly where to fix.
@@ -55,7 +57,7 @@ WasabiQT splits the difference:
 The pixel-counted reference renders + the Maki-opcode-coverage tests
 from the libwasabiq prototype carry forward as regression harness.
 
-## Repo layout
+### Repo layout
 
 ```
 public/WasabiQt/      — embedder-facing C++ API (Host, Skin, Version)
@@ -69,21 +71,21 @@ script-bridge/        — ScriptObject shims wrapping our widgets to
 cmake/                — FindWasabiSrc + package config
 tests/                — pixel-regression + Maki-opcode-coverage
                         harness against canonical reference renders
-scripts/              — fetch-wasabi.sh (downloads opensourced source
+scripts/              — fetch-wasabi.sh (downloads open-source release
                         from archive.org into ./wasabi-src/)
 packaging/            — RPM spec, macOS .dmg builder, installer.sh
 ```
 
-## Build / install
+### Build / install
 
 ```bash
 # Quickest path on Fedora / RHEL / Debian / Arch / openSUSE / macOS:
-curl -fsSL https://wasabiqt.snek.at | sh
+curl -fsSL https://qtwasabi.org | sh
 
 # Or step-by-step:
-git clone https://github.com/kleberbaum/WasabiQT
-cd WasabiQT
-./scripts/fetch-wasabi.sh           # downloads opensourced source
+git clone https://github.com/kleberbaum/qtWasabi
+cd qtWasabi
+./scripts/fetch-wasabi.sh           # downloads open-source release
 ./build.sh                           # configure + build + install
 ```
 
@@ -91,19 +93,17 @@ Full per-distro instructions, packaging recipes (RPM + macOS .dmg),
 embedder integration (shared lib + static archive + CMake config +
 pkg-config), and troubleshooting in [`BUILD.md`](BUILD.md).
 
-## What's vendored vs supplied vs ours
+### What's vendored vs supplied vs ours
 
-| Path inside repo | Origin | Licence |
-|---|---|---|
-| `public/`, `src/`, `qt6/`, `cmake/`, `tests/`, `scripts/`, `packaging/`, `build.sh`, `BUILD.md`, `README.md` | **WasabiQT (this repo)** | MIT |
-| `wasabi-src/Src/...` (created by `scripts/fetch-wasabi.sh`, `.gitignore`d) | **user-supplied at build time** from the public archive.org mirror | Winamp Collaborative License v1.0 (the user obtains it under §3 "propagate Covered works that you do not Convey") |
+- **qtWasabi's own code** (`public/`, `src/`, `qt6/`, `cmake/`, `tests/`, `scripts/`, `packaging/`, `build.sh`, `BUILD.md`, `README.md`), MIT-licensed.
+- **`wasabi-src/Src/...`** (created by `scripts/fetch-wasabi.sh`, gitignored), user-supplied at build time from the public archive.org mirror, Winamp Collaborative License v1.0 (the user obtains it under §3 "propagate Covered works that you do not Convey").
 
-WasabiQT contains **no Winamp-licensed source code in the repo or
+qtWasabi contains **no Winamp-licensed source code in the repo or
 git history**. The build expects the user to supply their own
-`WASABI_SRC_DIR` pointing at an extracted opensourced-source tree, the
+`WASABI_SRC_DIR` pointing at an extracted open-source release tree, the
 same way console emulators expect a user-supplied BIOS.
 
-## What is BFC?
+### What is BFC?
 
 BFC = **B**eex **F**oundation **C**lasses, Nullsoft's homegrown C++
 foundation library. Written ~2000–2002 because the C++ STL wasn't
@@ -118,22 +118,22 @@ every Wasabi class transitively pulls BFC.
 │                          USES                                    │
 │  ┌────────────────────────────────────────────────────────────┐  │
 │  │  BFC                    (Wasabi's stdlib + framework)      │  │
-│  │  ┌──────────────┬──────────────┬──────────────────────┐    │  │
-│  │  │ containers   │ GUID +       │ object lifetime      │    │  │
-│  │  │ ptrlist tlist│ dispatch     │ node depend          │    │  │
-│  │  │ stack memblk │ nsguid       │ (parent-child trees) │    │  │
-│  │  │ freelist     │ dispatch.h   │ depview              │    │  │
-│  │  ├──────────────┼──────────────┼──────────────────────┤    │  │
-│  │  │ threading    │ strings      │ MISC                 │    │  │
-│  │  │ thread       │ wasabi_std   │ assert error         │    │  │
-│  │  │ critsec      │ string/      │ foreach pair         │    │  │
-│  │  │ reentry      │              │ math rect            │    │  │
-│  │  ├──────────────┴──────────────┴──────────────────────┤    │  │
+│  │  ┌──────────────┬───────────────┬─────────────────────┐    │  │
+│  │  │ containers   │ GUID +        │ object lifetime     │    │  │
+│  │  │ ptrlist tlist│ dispatch      │ node depend         │    │  │
+│  │  │ stack memblk │ nsguid        │ (parent-child trees)│    │  │
+│  │  │ freelist     │ dispatch.h    │ depview             │    │  │
+│  │  ├──────────────┼───────────────┼─────────────────────┤    │  │
+│  │  │ threading    │ strings       │ MISC                │    │  │
+│  │  │ thread       │ wasabi_std    │ assert error        │    │  │
+│  │  │ critsec      │ string/       │ foreach pair        │    │  │
+│  │  │ reentry      │               │ math rect           │    │  │
+│  │  ├──────────────┴───────────────┴─────────────────────┤    │  │
 │  │  │ platform/      types.h, win32.h, linux.h, osx.h    │    │  │
-│  │  ├──────────────┬──────────────┬──────────────────────┤    │  │
+│  │  ├──────────────┬───────────────┬─────────────────────┤    │  │
 │  │  │ std_file ✗   │ std_keyboard ✗│ std_wnd ✗ loadlib ✗ │ ←  │  │
-│  │  │ (port me)    │ (port me)    │ (port me / X11 stub) │    │  │
-│  │  └──────────────┴──────────────┴──────────────────────┘    │  │
+│  │  │ (port me)    │ (port me)     │ (port me / X11 stub)│    │  │
+│  │  └──────────────┴───────────────┴─────────────────────┘    │  │
 │  └────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
                               │
@@ -150,7 +150,7 @@ every Wasabi class transitively pulls BFC.
 
 2. **Platform** (bottom-half, marked ✗: `std_file`, `std_keyboard`,
    `std_wnd`, `loadlib`) — the unfinished part. Win32 done, macOS
-   partly, Linux X11 abandoned circa 2008. WasabiQT does **not**
+   partly, Linux X11 abandoned circa 2008. qtWasabi does **not**
    use these — file I/O goes through Qt's `QFile`, keyboard through
    `QKeyEvent`, window through `QtWindowAdapter`, plugins through
    `QLibrary`. The compile shim header tells BFC's transitively-
@@ -158,7 +158,7 @@ every Wasabi class transitively pulls BFC.
    somewhere — but the VM never actually calls them, so the linker
    never has to find an implementation.
 
-### How Wasabi uses BFC's GUID + dispatch
+#### How Wasabi uses BFC's GUID + dispatch
 
 This is the part that surprises people coming from modern C++. Every
 Wasabi class derives from `Dispatchable` and overrides:
@@ -184,9 +184,9 @@ Our `script-bridge/` shims are exactly this: a thin
 `dependent_getInterface(guid_GuiObject)` with itself, so the VM
 can call its bindings against our widget. ~10 LOC per binding.
 
-## What we use from the opensourced source
+### What we pull from the official Winamp release
 
-Only this irreducible subset compiles into the WasabiQT library:
+Only this irreducible subset compiles into the qtWasabi library:
 
 - `bfc/memblock.cpp`, `critsec.cpp`, `foreach.cpp`, `freelist.cpp`,
   `nsguid.cpp`, `ptrlist.cpp`, `stack.cpp`, `node.cpp`, `thread.cpp`
@@ -196,15 +196,16 @@ Only this irreducible subset compiles into the WasabiQT library:
   `scriptobj.cpp`, `script.cpp`, `guru.cpp` → ~5000 LOC Maki VM
   + script registry
 
-Total: ~8000 LOC of opensourced source, all platform-independent.
+Total: about 8000 LOC pulled from the official Winamp release at
+build time, all platform-independent.
 
 Everything else — the BFC platform layer (`std_file`, `std_keyboard`,
 `std_wnd`, `linux.cpp`, the X11 backend), the widget classes, the
 canvas/window infrastructure, the sendparams handling, the XML parser
-— is **WasabiQT's own implementation**, written ground-up against
+— is **qtWasabi's own implementation**, written ground-up against
 modern Qt6 idioms.
 
-## Why this matters to me
+### Why this matters to me
 
 The dream is selfish. I want to listen to music on my Apple M-Series
 Mac the way I did on Windows in the early 2000s — Winamp running
@@ -217,33 +218,33 @@ canonical WACUP / Winamp Modern reference renders.
 The bigger goal is that this becomes embeddable in any themeable
 Winamp clone. Wasabi was a great UI framework that nobody else
 could use because it shipped welded to one player's runtime.
-WasabiQT is the small, embeddable piece you actually wanted —
+qtWasabi is the small, embeddable piece you actually wanted —
 implement a `WasabiQt::Host` (~40 virtual methods), drop a
 `WasabiQt::Skin` into your `QMainWindow`, and your media player has
 classic `.wal` skin support.
 
-## Inspirations
+### Inspirations
 
 - **Wasabi 1** — `Src/Wasabi/api/`'s widget framework and Maki VM.
   The VM is vendored unmodified; the widget classes are
   re-implemented in Qt for the platform-port reasons described
   above. Their documented behaviour is the spec.
 - **Wasabi 2** — `Src/replicant/`'s service-oriented rewrite, never
-  finished. WasabiQT shares its goal (cross-platform, modular) and
+  finished. qtWasabi shares its goal (cross-platform, modular) and
   goes further by replacing the rendering layer entirely with Qt.
 - **`Src/Wasabi/qt6/QtWindowAdapter` / `QtCanvasAdapter`** — the
   abandoned ~2015 Qt6 adapter shim. Useful as **reference** for what
   surface to expose to Wasabi expectations, but the implementation
   there targets a 2015-era Qt with several MOC workarounds no longer
-  needed. WasabiQT targets the **latest Qt** (Qt6 today, Qt7+ when
+  needed. qtWasabi targets the **latest Qt** (Qt6 today, Qt7+ when
   it ships).
 - **`libwasabiq` prototype** (deleted; lives in
   [`winamp-linux`](https://github.com/kleberbaum/winamp-linux) git
   history) — earlier clean-room re-implementation that taught us
-  where every visible gap lives in the opensourced source. Test harness,
+  where every visible gap lives in the open-source release. Test harness,
   reference image corpus, and host-interface design carry forward.
 
-## Targets
+### Targets
 
 - **Linux** — Asahi (aarch64), Fedora, Arch, Debian, openSUSE.
   Wayland-first.
@@ -253,7 +254,7 @@ classic `.wal` skin support.
 Qt6 abstracts the rest. No platform-specific render code beyond
 what Qt itself does.
 
-## Status
+### Status
 
 Bootstrapping. Concrete next milestones, in dependency order:
 
@@ -269,13 +270,13 @@ Bootstrapping. Concrete next milestones, in dependency order:
    load a compiled `std.mi`-using script, dispatch `onScriptLoaded`
    against a stub `SystemObject`, no opcodes left unhandled.
 
-3. **WasabiQT widget tree + skin XML parser** — port the
-   well-tested libwasabiq XML parser + Widget tree into WasabiQT's
+3. **qtWasabi widget tree + skin XML parser** — port the
+   well-tested libwasabiq XML parser + Widget tree into qtWasabi's
    `src/`. Parses WinampModernPP's `skin.xml`, dumps the
    `Container`/`Layout`/`groupdef` tree.
 
 4. **First widget paints through Qt** — implement `Layer::paint`,
-   `Group::paint`, etc. in WasabiQT's widget classes routing to
+   `Group::paint`, etc. in qtWasabi's widget classes routing to
    `QtCanvasAdapter`. Player frame chrome (top corners + horizontal
    frame) renders inside a `QtWindowAdapter`.
 
@@ -299,16 +300,22 @@ few sessions' work, not a single evening.
 
 The reference embedder is
 [**winamp-linux**](https://github.com/kleberbaum/winamp-linux) —
-already wired up to link against the WasabiQT library; will swap
+already wired up to link against the qtWasabi library; will swap
 in `WasabiQt::Skin::load` for its current modern-skin code path
 once milestone 6 lands.
 
-## License
+### License
 
-WasabiQT (everything in this repo): **MIT**, see [`LICENSE`](LICENSE).
+qtWasabi (everything in this repo): **MIT**, see [`COPYING`](COPYING).
 
-The opensourced Wasabi source you supply at build time: Winamp
+The Wasabi source you supply at build time: Winamp
 Collaborative License v1.0, see the source archive's own
 `LICENSE.md`. Your responsibility to honour. WCL §3 grants
-"propagate Covered works that you do not Convey" — that's the
-clause that lets you build WasabiQT against your local copy.
+"propagate Covered works that you do not Convey", that's the
+clause that lets you build qtWasabi against your local copy.
+
+### Mascot
+
+Wasabi is the project's good-luck charm and a friendly face cheering
+the work along. She is a spirit animal for qtWasabi, nothing more.
+Not a logo, not a trademark.

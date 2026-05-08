@@ -1,6 +1,15 @@
+Valid-License-Identifier: MIT
+SPDX-URL: https://spdx.org/licenses/MIT.html
+Usage-Guide:
+  To use the MIT License put the following SPDX tag/value pair into a
+  comment according to the placement guidelines in the licensing rules
+  documentation:
+    SPDX-License-Identifier: MIT
+License-Text:
+
 MIT License
 
-Copyright (c) 2026 Florian Kleber <kleber@snek.at>
+Copyright (c) 2026 Florian Kleber and qtWasabi contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,11 +28,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-NOTE: This licence applies only to WasabiQT's own source code (everything in
-this repository). It does NOT apply to the Wasabi source tree (Llama
-Group / Winamp) which WasabiQT can be configured to build against. That
-source carries the Winamp Collaborative License and is obtained
-separately by the user. See README.md and BUILD.md.

@@ -1,0 +1,81 @@
+qtWasabi licensing and build model
+==================================
+
+This document explains the licensing situation around qtWasabi as a
+project, what is in this repository and how it is licensed, and what
+you need to fetch yourself in order to build it.
+
+
+Code in this repository
+-----------------------
+
+Everything in this repository is original work authored by qtWasabi
+contributors. None of the Winamp or Wasabi source files are included
+here, in the working tree or in the git history.
+
+Therefore, every file you find in this repository is licensed under
+the MIT License. The full text of the MIT License lives at
+LICENSES/preferred/MIT, which also marks MIT as qtWasabi's preferred
+and only license for tooling that scans the LICENSES/ directory.
+
+
+Code that is NOT in this repository
+-----------------------------------
+
+qtWasabi exists to embed Winamp's Maki bytecode VM and a small
+portable subset of Wasabi's foundation classes (BFC) into a Qt6
+application. Those pieces are not included in this repository.
+
+In 2024 the Llama Group officially open-sourced the Winamp client and
+the Wasabi widget framework. The release is a public source archive
+that anyone can download and use under the terms shipped with it. To
+build qtWasabi you fetch that release locally and link the relevant
+parts into the build.
+
+Why everyone has to build it themselves:
+
+  1. Run scripts/fetch-wasabi.sh. The script downloads the official
+     Winamp open-source release into wasabi-src/, a directory that is
+     gitignored and never pushed back to this repository.
+  2. The build links the open-sourced Winamp pieces (the Maki VM and
+     a portable subset of BFC) into the qtWasabi library on your
+     local machine.
+  3. The licence governing those linked-in Winamp pieces is whichever
+     licence the Llama Group ships with the official source release.
+     Read the LICENSE.md file inside that release for the exact
+     terms. Honouring those terms is your responsibility as the
+     person doing the build.
+
+This is the same model console emulators use for BIOS files. The
+emulator code is freely distributable under its own licence, the
+machine-specific files come from the user.
+
+
+Why this split
+--------------
+
+Two reasons.
+
+First, it keeps qtWasabi cleanly MIT-licensed. Embedders can drop the
+qtWasabi library into a Qt media player without inheriting any extra
+licence obligations from the original Winamp code.
+
+Second, when the official Winamp repository is back online and
+accepting contributions, the qtWasabi code is upstreamable as a Qt
+front-end for Wasabi without re-licensing surgery. Everything in
+this repository is original work, so the upstream maintainers can
+take it in under whatever licence they prefer.
+
+
+Summary
+-------
+
+  qtWasabi (this repository)
+      MIT, see LICENSES/preferred/MIT.
+
+  Maki VM and BFC subset
+      Official Winamp open-source release, fetched at build time via
+      scripts/fetch-wasabi.sh, governed by the licence shipped with
+      that release.
+
+  No Winamp or Wasabi source in this repository or its git history.
