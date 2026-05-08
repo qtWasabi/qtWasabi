@@ -38,6 +38,10 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
     int w = attrInt(attrs, QStringLiteral("w"), 0);
     int h = attrInt(attrs, QStringLiteral("h"), 0);
 
+    // relatx=1: x is taken relative to the right edge of the container
+    // (`x="-10" relatx="1"` ⇒ container.width() - 10).  Same for y.
+    if (attrBool(attrs, QStringLiteral("relatx"))) x = containerSize.width()  + x;
+    if (attrBool(attrs, QStringLiteral("relaty"))) y = containerSize.height() + y;
     if (attrBool(attrs, QStringLiteral("relatw"))) w = containerSize.width()  + w;
     if (attrBool(attrs, QStringLiteral("relath"))) h = containerSize.height() + h;
     if (w <= 0) w = src.width();

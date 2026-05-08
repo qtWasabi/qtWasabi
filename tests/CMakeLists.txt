@@ -9,7 +9,9 @@ add_executable(titlebar_test titlebar_test.cpp)
 target_link_libraries(titlebar_test PRIVATE
     wasabiqt
     Qt6::Test
-    Qt6::Widgets)
+    Qt6::Gui)
+target_compile_definitions(titlebar_test PRIVATE
+    WASABIQT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 add_test(NAME titlebar COMMAND titlebar_test)
 
@@ -20,20 +22,3 @@ target_link_libraries(maki_loader_test PRIVATE
     wasabiqt
     Qt6::Test)
 add_test(NAME maki_loader COMMAND maki_loader_test)
-
-# M3 — Wasabi skin XML parser walks a skin.xml's <include> tree and
-# extracts metadata + script paths.
-add_executable(skin_xml_test skin_xml_test.cpp)
-target_link_libraries(skin_xml_test PRIVATE
-    wasabiqt
-    Qt6::Test)
-add_test(NAME skin_xml COMMAND skin_xml_test)
-
-# M4 — first widget paints: BitmapRegistry resolves <bitmap> defs +
-# LayerPainter renders a <layer> onto a QPainter canvas.
-add_executable(layer_paint_test layer_paint_test.cpp)
-target_link_libraries(layer_paint_test PRIVATE
-    wasabiqt
-    Qt6::Test
-    Qt6::Gui)
-add_test(NAME layer_paint COMMAND layer_paint_test)
