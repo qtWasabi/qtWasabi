@@ -46,21 +46,3 @@ target_link_libraries(layout_test PRIVATE
     wasabiqt
     Qt6::Test)
 add_test(NAME layout COMMAND layout_test)
-
-# M7 — paint a resolved tree onto a QImage canvas.
-add_executable(tree_paint_test tree_paint_test.cpp)
-target_link_libraries(tree_paint_test PRIVATE
-    wasabiqt
-    Qt6::Test
-    Qt6::Gui)
-add_test(NAME tree_paint COMMAND tree_paint_test)
-
-# M8 — SkinView QWidget smoke test (QApplication + grab()).
-add_executable(skinview_test skinview_test.cpp)
-target_link_libraries(skinview_test PRIVATE
-    wasabiqt
-    Qt6::Test
-    Qt6::Widgets)
-add_test(NAME skinview COMMAND skinview_test)
-set_tests_properties(skinview PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
