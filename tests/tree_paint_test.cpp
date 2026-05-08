@@ -8,6 +8,7 @@
 #include <WasabiQt/SkinXml.h>
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/TreePainter.h>
 
 #include <QDir>
@@ -52,6 +53,8 @@ private slots:
 
         BitmapRegistry reg;
         reg.loadFromDocument(doc);
+        FontRegistry fonts;
+        fonts.loadFromDocument(doc);
 
         // Modern's main layout declares minimum_w=354 minimum_h=280.
         const QSize canvas(354, 280);
@@ -59,7 +62,14 @@ private slots:
         out.fill(Qt::transparent);
         {
             QPainter painter(&out);
-            TreePainter::paintTree(&painter, tree, reg, canvas);
+            TreePainter::DisplayResolver resolver = [](const QString &k) {
+                if (k == QStringLiteral("time"))      return QStringLiteral("00:42");
+                if (k == QStringLiteral("Bitrate"))   return QStringLiteral("128");
+                if (k == QStringLiteral("Frequency")) return QStringLiteral("44");
+                return QString();
+            };
+            TreePainter::paintTree(&painter, tree, reg, fonts,
+                                    canvas, resolver);
         }
 
         const int painted = countOpaquePixels(out);

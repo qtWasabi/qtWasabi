@@ -4,7 +4,9 @@
 #include <WasabiQt/TreePainter.h>
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/LayerPainter.h>
+#include <WasabiQt/TextPainter.h>
 
 #include <QHash>
 #include <QPainter>
@@ -57,23 +59,34 @@ QString staticImageId(const QHash<QString, QString> &a) {
     return a.value(QStringLiteral("image"));
 }
 
+struct PaintCtx {
+    BitmapRegistry        *bmp;
+    FontRegistry          *font;
+    DisplayResolver        resolver;
+};
+
 void paintRecursive(QPainter *p, const ResolvedWidget &node,
-                    BitmapRegistry &reg, const QSize &canvas) {
+                    PaintCtx &ctx, const QSize &canvas) {
     if (node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
 
     const QString &t = node.tag;
 
     if (t == QStringLiteral("layer")) {
-        LayerPainter::paintLayer(p, reg, node.attrs, canvas);
+        LayerPainter::paintLayer(p, *ctx.bmp, node.attrs, canvas);
         return;
     }
 
     if (t == QStringLiteral("button") || t == QStringLiteral("togglebutton")) {
-        // Render the static image.  Same blit semantics as <layer>.
         QHash<QString, QString> a = node.attrs;
         a.insert(QStringLiteral("image"), staticImageId(a));
-        LayerPainter::paintLayer(p, reg, a, canvas);
+        LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+        return;
+    }
+
+    if (t == QStringLiteral("text")) {
+        TextPainter::paintText(p, *ctx.font, *ctx.bmp, node.attrs,
+                               canvas, ctx.resolver);
         return;
     }
 
@@ -86,29 +99,27 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         QSize childSize = canvas;
         if (r.width()  > 0) childSize.setWidth (r.width());
         if (r.height() > 0) childSize.setHeight(r.height());
-        // For <layout> the caller already sized the canvas — translate
-        // only for inner groups (where x/y are non-zero).
         const bool translate = (r.x() != 0 || r.y() != 0)
                                && t != QStringLiteral("layout");
         if (translate) p->save(), p->translate(r.x(), r.y());
         for (const auto &child : node.children)
-            paintRecursive(p, child, reg, childSize);
+            paintRecursive(p, child, ctx, childSize);
         if (translate) p->restore();
         return;
     }
 
-    // <text>, <slider>, <vis>, <albumart>, ... — painted in later
-    // milestones.  Recurse into any structural children just in case
-    // a ResolvedWidget unexpectedly nests something.
+    // <slider>, <vis>, <albumart>, ... — painted in later milestones.
     for (const auto &child : node.children)
-        paintRecursive(p, child, reg, canvas);
+        paintRecursive(p, child, ctx, canvas);
 }
 
 }  // namespace
 
 void paintTree(QPainter *p, const ResolvedWidget &root,
-               BitmapRegistry &reg, const QSize &canvas) {
-    paintRecursive(p, root, reg, canvas);
+               BitmapRegistry &reg, FontRegistry &fontReg,
+               const QSize &canvas, const DisplayResolver &resolver) {
+    PaintCtx ctx{&reg, &fontReg, resolver};
+    paintRecursive(p, root, ctx, canvas);
 }
 
 }  // namespace WasabiQt::TreePainter

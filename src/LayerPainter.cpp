@@ -47,6 +47,21 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
     if (w <= 0) w = src.width();
     if (h <= 0) h = src.height();
 
+    // `alpha=` (0-255) — Wasabi-style attribute for layer-wide
+    // translucency.  Honour it via QPainter::opacity around the
+    // drawImage call.
+    auto alphaIt = attrs.constFind(QStringLiteral("alpha"));
+    if (alphaIt != attrs.constEnd()) {
+        bool ok = false;
+        const int a = alphaIt.value().toInt(&ok);
+        if (ok && a >= 0 && a < 255) {
+            const qreal prev = p->opacity();
+            p->setOpacity(prev * (a / 255.0));
+            p->drawImage(QRect(x, y, w, h), src);
+            p->setOpacity(prev);
+            return true;
+        }
+    }
     p->drawImage(QRect(x, y, w, h), src);
     return true;
 }

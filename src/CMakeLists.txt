@@ -16,8 +16,10 @@ set(WASABIQT_SOURCES
     SkinXml.cpp
     Layout.cpp
     BitmapRegistry.cpp
+    FontRegistry.cpp
     LayerPainter.cpp
     TreePainter.cpp
+    TextPainter.cpp
     SkinView.cpp
     ${CMAKE_SOURCE_DIR}/public/WasabiQt/SkinView.h
     Bootstrap.cpp
