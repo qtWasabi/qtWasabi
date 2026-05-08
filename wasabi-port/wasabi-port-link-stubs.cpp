@@ -184,7 +184,11 @@ void Script::guruMeditation(SystemObject *, int code, const wchar_t *pub, int) {
     std::fprintf(stderr,
                  "[wasabiqt] Maki guru meditation: code=%d sid=%d ip=%d vsp=%d",
                  code, vsd, vip, vsp);
-    if (pub) std::fputws(L" pub=", stderr), std::fputws(pub, stderr);
+    if (pub) {
+        char pb[256];
+        wq_wide_to_ascii(pub, pb, sizeof(pb));
+        std::fprintf(stderr, " pub=%s", pb);
+    }
     std::fputc('\n', stderr);
     if (const char *e = ::getenv("WASABIQT_FATAL_ASSERTS"); e && *e == '1')
         std::abort();

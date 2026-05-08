@@ -228,9 +228,8 @@ int dumpEvents(int scriptId, char *out, int outCap) {
                 break;
             }
         }
-        char nb[64] = {0};
-        for (int k = 0; k < 63 && name[k]; ++k)
-            nb[k] = (name[k] < 128) ? char(name[k]) : '?';
+        char nb[64];
+        wq_wide_to_ascii(name, nb, sizeof(nb));
         char buf[256];
         int n = ::snprintf(buf, sizeof(buf),
                             "ev[%d]: var=%d sid=%d dlf=%d off=%d %s\n",

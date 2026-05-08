@@ -230,9 +230,8 @@ extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
         return makeObject(nullptr);
     void *handle = wq_widget_findById(id.data.sdata);
     if (std::getenv("WASABIQT_TRACE_MAKI")) {
-        char nb[128] = {0};
-        for (int i = 0; i < 127 && id.data.sdata[i]; ++i)
-            nb[i] = (id.data.sdata[i] < 128) ? char(id.data.sdata[i]) : '?';
+        char nb[128];
+        wq_wide_to_ascii(id.data.sdata, nb, sizeof(nb));
         std::fprintf(stderr, "[maki] findObject(%s) -> %p\n", nb, handle);
     }
     return makeObject(static_cast<ScriptObject *>(handle));
@@ -258,15 +257,9 @@ extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
     const wchar_t *val = (value.type == SCRIPT_STRING && value.data.sdata)
                             ? value.data.sdata : L"";
     if (std::getenv("WASABIQT_TRACE_MAKI")) {
-        // %ls fprintf needs the right locale set, which we don't
-        // touch.  Manual narrow conversion (ASCII-only attr/value
-        // names) keeps the trace safe.
-        char nb[128] = {0}, vb[256] = {0};
-        for (int i = 0; i < 127 && name.data.sdata[i]; ++i)
-            nb[i] = (name.data.sdata[i] < 128)
-                        ? char(name.data.sdata[i]) : '?';
-        for (int i = 0; val && i < 255 && val[i]; ++i)
-            vb[i] = (val[i] < 128) ? char(val[i]) : '?';
+        char nb[128], vb[256];
+        wq_wide_to_ascii(name.data.sdata, nb, sizeof(nb));
+        wq_wide_to_ascii(val, vb, sizeof(vb));
         std::fprintf(stderr, "[maki] setXmlParam(%s, %s)\n", nb, vb);
     }
     wq_widget_setAttr(o, name.data.sdata, val);
