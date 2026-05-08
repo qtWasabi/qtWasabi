@@ -11,6 +11,8 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QHash>
+#include <QSet>
 #include <QFileInfo>
 #include <QHash>
 #include <QSet>
@@ -56,14 +58,21 @@ struct SkinRuntime::Impl {
     QList<QByteArray> scriptBlobs;
 
     void destroyAll() {
-        for (int id : loadedScripts) {
+        // M14h: loadedScripts may carry the same sid multiple times
+        // when skin.xml referenced one (file, param) more than once.
+        // Run the per-sid teardown only once each.
+        QSet<int> uniqueIds;
+        for (int id : loadedScripts) uniqueIds.insert(id);
+        for (int id : uniqueIds) {
             Maki::registerScriptSystemObject(id, nullptr);
             Maki::registerScriptParam(id, nullptr);
             Maki::removeScript(id);
         }
         loadedScripts.clear();
         scriptParams.clear();
-        for (void *h : systemObjects) Maki::destroyWidgetScriptObject(h);
+        for (void *h : systemObjects) {
+            if (h) Maki::destroyWidgetScriptObject(h);
+        }
         systemObjects.clear();
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
         widgetObjects.clear();
@@ -115,8 +124,27 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
     // Stash params alive for the runtime's lifetime.
     m_d->scriptParams.clear();
     m_d->scriptParams.reserve(refs.size());
+
+    // M14h: dedupe identical (file, param) references so the same
+    // script body + arg vector does not pay the addScript cost
+    // multiple times. A common case is one .maki file referenced
+    // twice in skin.xml under containers that happen to want the
+    // exact same params. Refs that share the file path but differ
+    // on param= still get distinct VM instances.
+    QHash<QString, int> seen;     // "file|param" -> sid
     for (const auto &ref : refs) {
         const QString &relPath = ref.file;
+        const QString key = relPath + QStringLiteral("|") + ref.param;
+        if (auto it = seen.constFind(key); it != seen.constEnd()) {
+            const int sid = it.value();
+            m_d->loadedScripts.append(sid);
+            m_d->scriptPaths.append(relPath);
+            // Keep parallel lists in shape but reference the same
+            // backing entries we already created the first time.
+            m_d->systemObjects.append(nullptr);   // null = duplicate
+            m_d->scriptParams.push_back({});
+            continue;
+        }
         const QString abs = QDir(doc.skinDir).filePath(relPath);
         QFile f(abs);
         if (!f.open(QIODevice::ReadOnly)) {
@@ -182,6 +210,10 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         // lifetime — the wchar_t* stays valid until destroyAll().
         m_d->scriptParams.push_back(ref.param.toStdWString());
         Maki::registerScriptParam(sid, m_d->scriptParams.back().c_str());
+
+        // M14h: remember this (file, param) so a later identical
+        // ref reuses the same sid.
+        seen.insert(key, sid);
     }
     Q_UNUSED(firedCount);
 
