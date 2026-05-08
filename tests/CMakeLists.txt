@@ -20,3 +20,11 @@ target_link_libraries(maki_loader_test PRIVATE
     wasabiqt
     Qt6::Test)
 add_test(NAME maki_loader COMMAND maki_loader_test)
+
+# M3 — Wasabi skin XML parser walks a skin.xml's <include> tree and
+# extracts metadata + script paths.
+add_executable(skin_xml_test skin_xml_test.cpp)
+target_link_libraries(skin_xml_test PRIVATE
+    wasabiqt
+    Qt6::Test)
+add_test(NAME skin_xml COMMAND skin_xml_test)
