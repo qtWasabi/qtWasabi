@@ -15,9 +15,18 @@
 
 namespace WasabiQt::Maki {
 
+int assignNewScriptId() {
+    return VCPU::assignNewScriptId();
+}
+
 int addScript(const void *blob, int blobSize, int cpuId) {
     if (!blob || blobSize <= 0) return -1;
-    return VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);
+    int sid = VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);
+    if (const char *t = getenv("WASABIQT_TRACE_ADDSCRIPT"); t && *t == '1') {
+        fprintf(stderr, "[addScript] cpuId=%d -> sid=%d (numScripts now %d)\n",
+                cpuId, sid, VCPU::numScripts);
+    }
+    return sid;
 }
 
 void removeScript(int scriptId) {
@@ -95,6 +104,59 @@ bool fireOnSetXuiParam(int scriptId,
     setCurrentScriptId(scriptId);
     VCPU::executeEvent(v, dlfid, /*np*/ nparams, scriptId);
     return true;
+}
+
+// M14a diagnostic: walk every codeTable entry and print its (scriptId,
+// size, base) so we can tell whether there is more than one buffer per
+// script (e.g., a separate code segment alongside a strings/data segment).
+int dumpAllCodeBlocks(char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int written = 0, count = 0;
+    int n = VCPU::codeTable.getNumItems();
+    written += ::snprintf(out + written, outCap - written,
+                          "codeTable has %d entries\n", n);
+    for (int i = 0; i < n && written + 80 < outCap; ++i) {
+        auto *cb = VCPU::codeTable.enumItem(i);
+        if (!cb) continue;
+        int sz = 0;
+        char *base = VCPU::getCodeBlock(cb->scriptId, &sz);
+        written += ::snprintf(out + written, outCap - written,
+                              "  cb[%d]: sid=%d size=%d base=%p (getCodeBlock returns %p, size=%d)\n",
+                              i, cb->scriptId, cb->size, (void *)cb->codeBlock,
+                              (void *)base, sz);
+        ++count;
+    }
+    return count;
+}
+
+// M14a diagnostic: dump bytes from a script's codeblock so we can sanity
+// check whether the codeblock pointer is sane and what bytes live around
+// the offset claimed by the eventsTable.pointer field.
+int dumpCodeblock(int scriptId, int offset, int nBytes, char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int cbSize = 0;
+    char *cb = VCPU::getCodeBlock(scriptId, &cbSize);
+    if (!cb) {
+        return ::snprintf(out, outCap, "codeblock(sid=%d) is NULL\n", scriptId);
+    }
+    int written = ::snprintf(out, outCap,
+                             "codeblock(sid=%d) base=%p size=%d, dump @offset=%d:\n",
+                             scriptId, (void *)cb, cbSize, offset);
+    for (int i = 0; i < nBytes && offset + i < cbSize && written + 4 < outCap; ++i) {
+        written += ::snprintf(out + written, outCap - written,
+                              "%02x ", (unsigned char)cb[offset + i]);
+        if ((i + 1) % 16 == 0 && written + 1 < outCap) {
+            out[written++] = '\n';
+            out[written] = 0;
+        }
+    }
+    if (written + 1 < outCap) {
+        out[written++] = '\n';
+        out[written] = 0;
+    }
+    return written;
 }
 
 int dumpEvents_helper_dummy() { return 0; }

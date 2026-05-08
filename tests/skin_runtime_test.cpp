@@ -52,6 +52,22 @@ private slots:
         QVERIFY2(names.contains(QStringLiteral("onScriptLoaded")),
                  qPrintable(QStringLiteral("missing onScriptLoaded in:\n%1")
                                 .arg(names)));
+
+        // Optional diagnostic dumps, set WASABIQT_DUMP_CODEBLOCKS=1 to
+        // see the per-script codeTable layout used during M14a debug.
+        if (qEnvironmentVariableIntValue("WASABIQT_DUMP_CODEBLOCKS") == 1) {
+            char cbbuf[8192];
+            WasabiQt::Maki::dumpAllCodeBlocks(cbbuf, sizeof(cbbuf));
+            qInfo().noquote() << QString::fromUtf8(cbbuf);
+        }
+
+        // Dispatch every script's onScriptLoaded handler when asked.
+        // Real opcode dispatch runs now (M14a fixed the codeblock
+        // lifetime bug) but downstream binding gaps still cause
+        // segfaults in some scripts, so the dispatch is gated to keep
+        // CI green while M14b through M14f are being worked.
+        if (qEnvironmentVariableIntValue("WASABIQT_DISPATCH_ONLOAD") == 1)
+            runtime.dispatchOnScriptLoaded();
     }
 };
 

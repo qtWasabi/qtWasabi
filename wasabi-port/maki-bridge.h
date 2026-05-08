@@ -18,8 +18,13 @@
 
 namespace WasabiQt::Maki {
 
+// Reserve a new script id from the VM. Increments VCPU::numScripts.
+// Call this before addScript so each script gets its own VM identity.
+int  assignNewScriptId();
+
 // Add a script blob to the VM.  Returns the assigned script id, or
 // -1 on parse failure.  `blob` must be a complete .maki file.
+// Pass cpuId from a prior call to assignNewScriptId().
 int  addScript(const void *blob, int blobSize, int cpuId = 0);
 
 // Remove a previously-added script.
@@ -67,6 +72,16 @@ int  dumpDlfNames(int scriptId, char *out, int outCap);
 // Diagnostic: list event-table entries (varId,scriptId,DLFid,ptr)
 // for `scriptId`, plus the DLF name behind each.
 int  dumpEvents(int scriptId, char *out, int outCap);
+
+// Diagnostic: dump a hex slice of the script's codeblock starting at the
+// given offset. Used to confirm whether the codeblock pointer is sane and
+// what bytes really live at the offsets the eventsTable claims.
+int  dumpCodeblock(int scriptId, int offset, int nBytes, char *out, int outCap);
+
+// Diagnostic: walk every codeTable entry and print (scriptId, size, base).
+// Tells us whether there are multiple buffers per script (e.g., a separate
+// code segment alongside the strings/data segment).
+int  dumpAllCodeBlocks(char *out, int outCap);
 
 // ── WidgetScriptObject ──────────────────────────────────────────
 // Opaque handle to a ScriptObject instance backed by a Qt-side
