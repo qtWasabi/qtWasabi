@@ -4,12 +4,12 @@
 
 <h3 align="center">qtWasabi</h3>
 
+<p align="center">Pronounced "cute Wasabi". The "qt" is Qt the framework, which spells itself "cute".</p>
+
 A Qt-native skin engine **inspired by** Winamp's Wasabi 1 and Wasabi 2,
 built fresh for the latest Qt with the goal of running Modern Winamp
 skins on **any themeable Winamp clone**, Audacious, WACUP, future
 projects, across Linux, macOS, and Windows. Apple Silicon native.
-
-<p align="center">Pronounced "cute Wasabi". The "qt" is Qt the framework, which spells itself "cute".</p>
 
 ### Approach: hybrid
 
@@ -23,13 +23,11 @@ abandoned X11 port.
 
 qtWasabi splits the difference:
 
-| Component | Source | Why |
-|---|---|---|
-| **Maki bytecode VM** | official `/Src/Wasabi/api/script/`, **unmodified** | bit-perfect compatibility with every shipped Modern skin — no risk of re-implementation drift breaking obscure scripts |
-| **Minimal BFC subset** | official `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}` | POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use |
-| **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **qtWasabi's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
-| **Skin XML parser, sendparams, gammaset, font loading** | **qtWasabi's own** | Qt-native, no platform port needed |
-| **Window/canvas/event integration** | **qtWasabi's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
+- **Maki bytecode VM**, official `/Src/Wasabi/api/script/`, **unmodified**. Bit-perfect compatibility with every shipped Modern skin, no risk of re-implementation drift breaking obscure scripts.
+- **Minimal BFC subset**, official `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}`. POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use.
+- **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …), **qtWasabi's own Qt6 implementation**. Matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter`.
+- **Skin XML parser, sendparams, gammaset, font loading**, **qtWasabi's own**. Qt-native, no platform port needed.
+- **Window/canvas/event integration**, **qtWasabi's `qt6/`**. `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub.
 
 **What this gives us:**
 
@@ -97,10 +95,8 @@ pkg-config), and troubleshooting in [`BUILD.md`](BUILD.md).
 
 ### What's vendored vs supplied vs ours
 
-| Path inside repo | Origin | Licence |
-|---|---|---|
-| `public/`, `src/`, `qt6/`, `cmake/`, `tests/`, `scripts/`, `packaging/`, `build.sh`, `BUILD.md`, `README.md` | **qtWasabi (this repo)** | MIT |
-| `wasabi-src/Src/...` (created by `scripts/fetch-wasabi.sh`, `.gitignore`d) | **user-supplied at build time** from the public archive.org mirror | Winamp Collaborative License v1.0 (the user obtains it under §3 "propagate Covered works that you do not Convey") |
+- **qtWasabi's own code** (`public/`, `src/`, `qt6/`, `cmake/`, `tests/`, `scripts/`, `packaging/`, `build.sh`, `BUILD.md`, `README.md`), MIT-licensed.
+- **`wasabi-src/Src/...`** (created by `scripts/fetch-wasabi.sh`, gitignored), user-supplied at build time from the public archive.org mirror, Winamp Collaborative License v1.0 (the user obtains it under §3 "propagate Covered works that you do not Convey").
 
 qtWasabi contains **no Winamp-licensed source code in the repo or
 git history**. The build expects the user to supply their own
