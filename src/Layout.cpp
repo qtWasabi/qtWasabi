@@ -182,6 +182,22 @@ private:
             m_inflightInstances.insert(gid);
 
             ResolvedWidget node = makeResolved(el);
+            // Inherit groupdef defaults the instance didn't override.
+            // `<groupdef id="player.normal.display" relatw="1" w="-49">`
+            // means the instance is sized -49 px shy of its container;
+            // without this merge we'd treat instance w/h as 0 and the
+            // child layers would size against the full canvas.
+            for (auto it = def->attrs.constBegin();
+                 it != def->attrs.constEnd(); ++it) {
+                const QString &k = it.key();
+                if (k == QStringLiteral("id") ||
+                    k == QStringLiteral("xuitag") ||
+                    k == QStringLiteral("embed_xui") ||
+                    k == QStringLiteral("instanceid"))
+                    continue;
+                if (!node.attrs.contains(k))
+                    node.attrs.insert(k, it.value());
+            }
             applySendparams(node, instanceId);
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
