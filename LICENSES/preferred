@@ -1,3 +1,10 @@
+qtWasabi's preferred and only license is the MIT License.
+
+The full text of the MIT License follows. The same text is available at
+the root of the repository as LICENSE.
+
+----
+
 MIT License
 
 Copyright (c) 2026 Florian Kleber and qtWasabi contributors
@@ -19,12 +26,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This licence applies to every file in this repository. The repository
-contains only original work, none of the Winamp or Wasabi source files
-are vendored here. Winamp and Wasabi were officially open-sourced by
-the Llama Group in 2024, qtWasabi can be configured to build against
-that release at build time. See README.md and COPYING for the full
-build-time-fetch model.
