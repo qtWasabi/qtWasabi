@@ -176,10 +176,18 @@ void ScriptObjectManager::mid(wchar_t *dest, const wchar_t *str, int s, int l) {
 }
 
 // ── Script ───────────────────────────────────────────────────────
+namespace WasabiQt::Maki { void getVmState(int *vsd, int *vip, int *vsp); }
+
 void Script::guruMeditation(SystemObject *, int code, const wchar_t *pub, int) {
-    std::fprintf(stderr, "[wasabiqt] Maki guru meditation: code=%d", code);
+    int vsd = -1, vip = -1, vsp = -1;
+    WasabiQt::Maki::getVmState(&vsd, &vip, &vsp);
+    std::fprintf(stderr,
+                 "[wasabiqt] Maki guru meditation: code=%d sid=%d ip=%d vsp=%d",
+                 code, vsd, vip, vsp);
     if (pub) std::fputws(L" pub=", stderr), std::fputws(pub, stderr);
     std::fputc('\n', stderr);
+    if (const char *e = ::getenv("WASABIQT_FATAL_ASSERTS"); e && *e == '1')
+        std::abort();
 }
 
 scriptVar MAKE_SCRIPT_INT(int i) {

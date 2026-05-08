@@ -22,6 +22,11 @@ namespace WasabiQt::Maki {
 // Call this before addScript so each script gets its own VM identity.
 int  assignNewScriptId();
 
+// Snapshot the VM dispatcher's current state into the out params.
+// Used by the assert handler so failed assertions print the script
+// and ip context instead of just the default switch case location.
+void getVmState(int *vsd, int *vip, int *vsp);
+
 // Add a script blob to the VM.  Returns the assigned script id, or
 // -1 on parse failure.  `blob` must be a complete .maki file.
 // Pass cpuId from a prior call to assignNewScriptId().

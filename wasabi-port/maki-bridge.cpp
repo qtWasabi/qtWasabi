@@ -19,6 +19,16 @@ int assignNewScriptId() {
     return VCPU::assignNewScriptId();
 }
 
+// M14d: snapshot the VM's current dispatch state. Read by the assert
+// handler in wasabi-port-stubs.cpp so the assertion message points at
+// the actual ip/vsp/script that fired the assert, not just the file
+// and line of the default switch case in the dispatch loop.
+void getVmState(int *vsd, int *vip, int *vsp) {
+    if (vsd) *vsd = VCPU::VSD;
+    if (vip) *vip = VCPU::VIP;
+    if (vsp) *vsp = VCPU::VSP;
+}
+
 int addScript(const void *blob, int blobSize, int cpuId) {
     if (!blob || blobSize <= 0) return -1;
     int sid = VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);

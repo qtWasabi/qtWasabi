@@ -91,9 +91,21 @@ static bool fatal_asserts() {
     return e && *e == '1';
 }
 
+// Forward-declared instead of #include "maki-bridge.h" so this TU
+// stays free of bridge-side dependencies in case anything pulls it in
+// before the bridge header is reachable.
+namespace WasabiQt::Maki { void getVmState(int *vsd, int *vip, int *vsp); }
+
+static void print_vm_context(::FILE *out) {
+    int vsd = -1, vip = -1, vsp = -1;
+    WasabiQt::Maki::getVmState(&vsd, &vip, &vsp);
+    ::fprintf(out, "  vm: sid=%d ip=%d vsp=%d\n", vsd, vip, vsp);
+}
+
 void _assert_handler(const char *reason, const char *file, int line) {
     ::fprintf(stderr, "[wasabiqt-assert] %s   at %s:%d\n",
               reason ? reason : "(null)", file, line);
+    print_vm_context(stderr);
     if (fatal_asserts()) ::abort();
 }
 
@@ -102,6 +114,7 @@ void _assert_handler_str(const char *str, const char *reason,
     ::fprintf(stderr, "[wasabiqt-assert] %s — %s   at %s:%d\n",
               str    ? str    : "(null)",
               reason ? reason : "(null)", file, line);
+    print_vm_context(stderr);
     if (fatal_asserts()) ::abort();
 }
 
