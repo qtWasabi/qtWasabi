@@ -18,6 +18,8 @@ set(WASABIQT_SOURCES
     BitmapRegistry.cpp
     FontRegistry.cpp
     GammasetRegistry.cpp
+    SkinRuntime.cpp
+    SkinRuntimeBridge.cpp
     LayerPainter.cpp
     TreePainter.cpp
     TextPainter.cpp

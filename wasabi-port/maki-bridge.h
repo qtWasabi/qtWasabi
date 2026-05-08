@@ -28,4 +28,57 @@ void removeScript(int scriptId);
 // Number of currently-loaded scripts (debug telemetry).
 int  scriptCount();
 
+// Register the per-script SystemObject BEFORE calling addScript.
+// Upstream's VCPU::addScript reads SOM::getSystemObjectByScriptId
+// after parsing the .maki blob and binds the returned object as
+// var[0] of the script (see vcpu.cpp line ~457) — without this
+// binding, no event handler ever matches and scripts run nothing.
+//
+// `systemObjectHandle` must be a WidgetScriptObject created via
+// createWidgetScriptObject(...); it'll be returned through the
+// upstream SOM::getSystemObject family.
+void registerScriptSystemObject(int scriptId, void *systemObjectHandle);
+
+// Set the per-script `param=` string used by getParam() / getToken().
+// Must be valid UTF-16 with lifetime past the script's lifetime —
+// SkinRuntime keeps a backing QString it owns.
+void registerScriptParam(int scriptId, const wchar_t *param);
+const wchar_t *currentScriptParam();
+void setCurrentScriptId(int scriptId);
+
+// Walk `scriptId`'s DLF table, find the entry with the given UTF-16
+// function name (e.g. L"onScriptLoaded"), and fire it via
+// VCPU::executeEvent against the script's bound SystemObject.
+// Returns the DLF id used, or -1 if no matching entry.
+int  fireEventByName(int scriptId, const wchar_t *functionName);
+
+// Fire System.onSetXuiParam(name, value) on `scriptId`'s SystemObject.
+// In real Wasabi these are delivered to the script of an embedded
+// group when its host frame instantiates with non-standard XUI tag
+// attributes (`<Wasabi:MainFrame:NoStatus padtitleleft="10" .../>`).
+// Returns true if a handler was found.
+bool fireOnSetXuiParam(int scriptId,
+                       const wchar_t *name, const wchar_t *value);
+
+// Diagnostic: list the DLF names registered for `scriptId` (one per
+// line, UTF-8) into `out`.  Returns count.
+int  dumpDlfNames(int scriptId, char *out, int outCap);
+
+// Diagnostic: list event-table entries (varId,scriptId,DLFid,ptr)
+// for `scriptId`, plus the DLF name behind each.
+int  dumpEvents(int scriptId, char *out, int outCap);
+
+// ── WidgetScriptObject ──────────────────────────────────────────
+// Opaque handle to a ScriptObject instance backed by a Qt-side
+// widget pointer.  The VM dispatches against this handle without
+// the caller needing to include the opensourced <api/script/scriptobj.h>.
+//
+// `opaqueWidget` is whatever the embedder wants to store; convention
+// is `Layout::ResolvedWidget *`.  All operations are O(1).
+
+void *createWidgetScriptObject(void *opaqueWidget);
+void  destroyWidgetScriptObject(void *handle);
+void *opaqueOf(void *handle);
+int   scriptIdOf(void *handle);
+
 }  // namespace WasabiQt::Maki

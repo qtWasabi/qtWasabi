@@ -67,6 +67,13 @@ add_test(NAME skinview COMMAND skinview_test)
 set_tests_properties(skinview PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
+# M13a — SkinRuntime loads .maki scripts + binds widget objects.
+add_executable(skin_runtime_test skin_runtime_test.cpp)
+target_link_libraries(skin_runtime_test PRIVATE
+    wasabiqt
+    Qt6::Test)
+add_test(NAME skin_runtime COMMAND skin_runtime_test)
+
 # M10 — bitmap-font text painter renders timer/song-info digits.
 add_executable(text_paint_test text_paint_test.cpp)
 target_link_libraries(text_paint_test PRIVATE
