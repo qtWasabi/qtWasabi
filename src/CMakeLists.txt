@@ -14,6 +14,8 @@ set(WASABIQT_SOURCES
     HostAdapter.cpp
     SkinLoader.cpp
     SkinXml.cpp
+    BitmapRegistry.cpp
+    LayerPainter.cpp
     Bootstrap.cpp
     # Q_OBJECT public headers — listed so AUTOMOC generates their
     # moc_*.cpp files inside this target (otherwise downstream link

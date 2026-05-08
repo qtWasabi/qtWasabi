@@ -28,3 +28,12 @@ target_link_libraries(skin_xml_test PRIVATE
     wasabiqt
     Qt6::Test)
 add_test(NAME skin_xml COMMAND skin_xml_test)
+
+# M4 — first widget paints: BitmapRegistry resolves <bitmap> defs +
+# LayerPainter renders a <layer> onto a QPainter canvas.
+add_executable(layer_paint_test layer_paint_test.cpp)
+target_link_libraries(layer_paint_test PRIVATE
+    wasabiqt
+    Qt6::Test
+    Qt6::Gui)
+add_test(NAME layer_paint COMMAND layer_paint_test)
