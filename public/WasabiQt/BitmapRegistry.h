@@ -16,6 +16,7 @@
 
 namespace WasabiQt {
 namespace SkinXml { struct Document; }
+class GammasetRegistry;
 
 struct BitmapDef {
     QString id;
@@ -40,16 +41,25 @@ public:
 
     // Returns a QImage of the bitmap's sub-rect (or a null QImage if
     // the file is missing / the rect is out of bounds).  Cached after
-    // first call.
+    // first call.  When a `GammasetRegistry` was bound, bitmaps with
+    // a `gammagroup=` attribute are tinted on first load.
     QImage  imageFor(const QString &id);
 
     // Same, but for an arbitrary BitmapDef (not in the registry).
     QImage  imageFor(const BitmapDef &def);
 
+    // Bind a gammaset registry — tints bitmaps with a known
+    // `gammagroup=` on first load, using the registry's active set.
+    // Pass nullptr to disable.  Clears the image cache so subsequent
+    // lookups re-tint.
+    void    setGammasetRegistry(GammasetRegistry *gs);
+
 private:
     QHash<QString, BitmapDef> m_defs;
     QHash<QString, QImage>    m_imgCache;     // by file path (whole image)
+    QHash<QString, QImage>    m_subCache;     // by bitmap id (post-tint)
     QString                   m_skinDir;
+    GammasetRegistry         *m_gammasets = nullptr;
 };
 
 }  // namespace WasabiQt

@@ -47,6 +47,7 @@ option(WASABIQT_BUILD_TESTS "Build WasabiQT regression tests" ON)
 if(WASABIQT_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
+    add_subdirectory(tests/visual)
 endif()
 
 # Examples — minimal skin viewer that opens a layout in a Qt window.

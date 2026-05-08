@@ -1,0 +1,8 @@
+# Pipe-separated test cases.  Theme names can contain spaces.
+#
+# NAME | THEME | CONTAINER | LAYOUT | W | H | EXTRA-ARGS
+modern_main_default          | Default          | main | normal | 354 | 280 |
+modern_main_blues            | Blues            | main | normal | 354 | 280 |
+modern_main_goodol           | Good Ol' Winamp  | main | normal | 354 | 280 |
+modern_main_with_time        | Default          | main | normal | 354 | 280 | --display time=00:42 --display Bitrate=128 --display Frequency=44
+modern_main_blues_with_time  | Blues            | main | normal | 354 | 280 | --display time=00:42 --display Bitrate=128
