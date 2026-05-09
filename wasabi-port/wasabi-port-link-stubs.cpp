@@ -36,6 +36,8 @@
 #include <cstring>
 #include <cstdlib>
 #include <cwchar>
+#include <set>
+#include <string>
 
 // ── ScriptObjectManager (SOM) ────────────────────────────────────
 ScriptObjectManager::ScriptObjectManager()  {}
@@ -337,8 +339,25 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
         }
         // Known by name only → safe no-op via nparams (e->ptr stays
         // NULL; CALLM short-circuits to int 0 with stack still aligned).
+        // Trace fallthroughs to identify methods missing from both
+        // tables so we can grow them. Set WASABIQT_TRACE_UNKNOWN_DLF=1
+        // to log each new method seen exactly once.
         dlf->nparams = lookupNparams(dlf->functionName);
         dlf->ptr     = nullptr;
+        if (const char *t2 = ::getenv("WASABIQT_TRACE_UNKNOWN_DLF");
+            t2 && *t2 == '1') {
+            // Cheap dedupe via a static hash; the table is bounded by
+            // the number of distinct method names a skin can call.
+            static std::set<std::wstring> seen;
+            std::wstring k(dlf->functionName);
+            if (seen.insert(k).second) {
+                char nb[128];
+                wq_wide_to_ascii(dlf->functionName, nb, sizeof(nb));
+                std::fprintf(stderr,
+                    "[unknown-dlf] %s nparams=%d (defaulted from lookupNparams)\n",
+                    nb, dlf->nparams);
+            }
+        }
     }
     return 1;
 }
