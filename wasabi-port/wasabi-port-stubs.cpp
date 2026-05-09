@@ -40,14 +40,27 @@ void   FREE(void *ptr)                                { ::free(ptr); }
 void  *REALLOC(void *ptr, size_t size)                { return ::realloc(ptr, size); }
 void  *CALLOC(size_t n, size_t sz)                    { return ::calloc(n, sz); }
 
-wchar_t *WMALLOC(size_t size_in_bytes) {
-    return static_cast<wchar_t *>(::malloc(size_in_bytes));
+// Upstream's WMALLOC takes a wchar_t **count** (and multiplies by
+// sizeof(wchar_t) internally), it does NOT take a byte count.  Match
+// that semantics: every existing caller in vcpu.cpp / StringW.cpp /
+// wasabi_std.cpp passes (length + 1) where length is a number of
+// wchars.  Treating the argument as a byte count under-allocates by
+// 3x on Linux (sizeof(wchar_t) == 4) and lets the very next write
+// scribble into the next heap chunk's metadata.  Caused the
+// "corrupted size vs. prev_size" abort during sustained dispatch.
+wchar_t *WMALLOC(size_t count) {
+    return static_cast<wchar_t *>(::malloc(count * sizeof(wchar_t)));
 }
 
-void   MEMCPY(void *dest, const void *src, size_t n)   { ::memcpy(dest, src, n); }
-void   MEMCPY_(void *dest, const void *src, size_t n)  { ::memcpy(dest, src, n); }
+// Upstream wasabi_std.cpp documents MEMCPY as "allows dest and src to
+// overlap" and PtrList::removeByPos relies on that overlap-safe shift.
+// Use memmove so we honour that contract.  The plain libc memcpy is
+// undefined for overlapping ranges and ASAN trips on it during
+// PtrList compaction.
+void   MEMCPY(void *dest, const void *src, size_t n)   { ::memmove(dest, src, n); }
+void   MEMCPY_(void *dest, const void *src, size_t n)  { ::memmove(dest, src, n); }
 void   MEMCPY32(void *dest, const void *src, size_t words) {
-    ::memcpy(dest, src, words * sizeof(uint32_t));
+    ::memmove(dest, src, words * sizeof(uint32_t));
 }
 void  *MEMDUP(const void *src, size_t n) {
     void *p = ::malloc(n);
