@@ -85,6 +85,10 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "expand: %s\n", qPrintable(err));
         return 1;
     }
+    // M14b: expandLayout no longer auto-runs the static well-known
+    // scripts; the visual harness still wants the titlebar resize
+    // math applied, so request it explicitly.
+    Layout::runKnownScripts(tree, width);
 
     BitmapRegistry bmp;     bmp.loadFromDocument(doc);
     FontRegistry   fonts;   fonts.loadFromDocument(doc);

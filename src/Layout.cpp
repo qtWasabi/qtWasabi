@@ -337,15 +337,13 @@ bool expandLayout(const SkinXml::Document &doc,
     Expander ex(groupdefs, sendparams, hidden);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
 
-    // Static equivalents of well-known Maki scripts run here.  Each
-    // mirrors the geometry/visibility manipulation a script's load-
-    // time handlers would otherwise do.  Removed when M13 ships
-    // real Maki bindings.
-    extern void runKnownScripts(ResolvedWidget &, int);
-    int layoutW = out.attrs.value(QStringLiteral("w")).toInt();
-    if (layoutW <= 0) layoutW = out.attrs.value(QStringLiteral("minimum_w")).toInt();
-    if (layoutW <= 0) layoutW = 354;
-    runKnownScripts(out, layoutW);
+    // Static well-known-script equivalents (titlebar resizeObjects
+    // etc.) used to run here so the resolved tree was paint-ready
+    // immediately.  M14b moves that responsibility to whoever owns
+    // the post-resolve mutation step: callers that drive Maki via
+    // SkinRuntime get widget mutations from the dispatched scripts;
+    // callers that want the legacy static path can call
+    // `runKnownScripts(out, layoutW)` themselves before rendering.
 
     return true;
 }
