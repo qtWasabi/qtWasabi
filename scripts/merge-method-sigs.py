@@ -143,7 +143,9 @@ def merge(target: Path, new_sigs: dict[str, int],
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__.strip())
+    p = argparse.ArgumentParser(
+        description="Merge {L\"name\", nparams}, entries into "
+                    "kKnownMethods in wasabi-port-link-stubs.cpp.")
     p.add_argument(
         "input",
         type=Path,
