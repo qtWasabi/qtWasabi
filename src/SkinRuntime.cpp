@@ -17,6 +17,8 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -182,6 +184,12 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
             Maki::registerScriptSystemObject(predictedId, nullptr);
             Maki::destroyWidgetScriptObject(sysObj);
             continue;
+        }
+        if (const char *tt = ::getenv("WASABIQT_TRACE_SCRIPTS");
+            tt && *tt == '1') {
+            QByteArray pn = relPath.toUtf8();
+            std::fprintf(stderr, "[script-path] sid=%d %s\n", sid,
+                         pn.constData());
         }
         if (sid != predictedId) {
             // Fix up the registration if our prediction was off.

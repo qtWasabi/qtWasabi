@@ -29,6 +29,16 @@ from pathlib import Path
 # method on its ScriptObject's vtable. Capture (method_name, nparams)
 # from each.
 PATTERNS = [
+    # The actual shape Wasabi's static dispatch tables use, three
+    # fields per entry, the third being a function-pointer cast or
+    # equivalent we don't care about:
+    #
+    #     {L"name", nparams, (void*)Class::method},
+    #
+    # This is what every objects/*.cpp's binding table looks like.
+    re.compile(
+        r'\{\s*L"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*(-?\d+)\s*,',
+    ),
     # mgr->addFunction(L"name", nparams, ...);
     re.compile(
         r'addFunction\s*\(\s*L"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*(-?\d+)',
