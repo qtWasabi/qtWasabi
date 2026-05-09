@@ -205,7 +205,7 @@ extern "C" scriptVar wq_getPlayItemDisplayTitle(maki_cmd *, int, ScriptObject *)
     return makeString(L"");
 }
 
-extern "C" scriptVar wq_setDelay(maki_cmd *, int, ScriptObject *) {
+extern "C" scriptVar wq_setDelay(maki_cmd *, int, ScriptObject *, scriptVar) {
     return makeVoid();
 }
 
@@ -400,7 +400,7 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getScriptGroup",          0, (void *)wq_getScriptGroup},
         {L"getPlayItemMetaDataString", 1, (void *)wq_getPlayItemMetaDataString},
         {L"getPlayItemDisplayTitle", 0, (void *)wq_getPlayItemDisplayTitle},
-        {L"setDelay",                0, (void *)wq_setDelay},
+        {L"setDelay",                1, (void *)wq_setDelay},
         {L"show",                    0, (void *)wq_show},
         {L"hide",                    0, (void *)wq_hide},
         {L"stop",                    0, (void *)wq_stop},
