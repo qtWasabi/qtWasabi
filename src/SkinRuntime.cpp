@@ -11,10 +11,14 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QHash>
+#include <QSet>
 #include <QFileInfo>
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -49,19 +53,36 @@ struct SkinRuntime::Impl {
     // Script paths relative to skin root, for diagnostics.
     QStringList scriptPaths;
 
+    // M14a fix: addScript stores a raw pointer into the blob we hand it
+    // (codeBlock = p, no copy) so we have to keep every script's bytes
+    // alive for the runtime's lifetime, otherwise the dispatcher reads
+    // freed memory and walks off into opcode-table gaps.
+    QList<QByteArray> scriptBlobs;
+
     void destroyAll() {
-        for (int id : loadedScripts) {
+        // M14h: loadedScripts may carry the same sid multiple times
+        // when skin.xml referenced one (file, param) more than once.
+        // Run the per-sid teardown only once each.
+        QSet<int> uniqueIds;
+        for (int id : loadedScripts) uniqueIds.insert(id);
+        for (int id : uniqueIds) {
             Maki::registerScriptSystemObject(id, nullptr);
             Maki::registerScriptParam(id, nullptr);
             Maki::removeScript(id);
         }
         loadedScripts.clear();
         scriptParams.clear();
-        for (void *h : systemObjects) Maki::destroyWidgetScriptObject(h);
+        for (void *h : systemObjects) {
+            if (h) Maki::destroyWidgetScriptObject(h);
+        }
         systemObjects.clear();
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
         widgetObjects.clear();
         scriptPaths.clear();
+        // Free script blobs only AFTER the VM has dropped them via
+        // removeScript above, otherwise the codeBlock pointer in the
+        // codeTable would dangle.
+        scriptBlobs.clear();
         clearWidgetRegistry();
     }
 };
@@ -105,15 +126,38 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
     // Stash params alive for the runtime's lifetime.
     m_d->scriptParams.clear();
     m_d->scriptParams.reserve(refs.size());
+
+    // M14h: dedupe identical (file, param) references so the same
+    // script body + arg vector does not pay the addScript cost
+    // multiple times. A common case is one .maki file referenced
+    // twice in skin.xml under containers that happen to want the
+    // exact same params. Refs that share the file path but differ
+    // on param= still get distinct VM instances.
+    QHash<QString, int> seen;     // "file|param" -> sid
     for (const auto &ref : refs) {
         const QString &relPath = ref.file;
+        const QString key = relPath + QStringLiteral("|") + ref.param;
+        if (auto it = seen.constFind(key); it != seen.constEnd()) {
+            const int sid = it.value();
+            m_d->loadedScripts.append(sid);
+            m_d->scriptPaths.append(relPath);
+            // Keep parallel lists in shape but reference the same
+            // backing entries we already created the first time.
+            m_d->systemObjects.append(nullptr);   // null = duplicate
+            m_d->scriptParams.push_back({});
+            continue;
+        }
         const QString abs = QDir(doc.skinDir).filePath(relPath);
         QFile f(abs);
         if (!f.open(QIODevice::ReadOnly)) {
             qWarning() << "SkinRuntime: cannot open" << abs;
             continue;
         }
-        const QByteArray blob = f.readAll();
+        // Retain the blob in the runtime, the VM will keep a raw
+        // pointer into it. m_d->scriptBlobs is parallel to
+        // loadedScripts so the lifetimes match.
+        m_d->scriptBlobs.append(f.readAll());
+        const QByteArray &blob = m_d->scriptBlobs.last();
 
         // Pre-allocate a SystemObject for this script (any
         // WidgetScriptObject suffices — the opensourced addScript only
@@ -123,21 +167,48 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         // we need to register AFTER.  Workaround: we use the opensourced
         // VCPU::numScripts to predict the next id.
         void *sysObj = Maki::createWidgetScriptObject(nullptr);
-        const int predictedId = Maki::scriptCount();    // next id
+        // Reserve a unique script id BEFORE addScript so each script
+        // gets its own VM identity. assignNewScriptId() is what
+        // actually increments VCPU::numScripts, scriptCount() merely
+        // reads it. M14a root cause: with predictedId derived from
+        // scriptCount() (which never advanced because addScript does
+        // not call assignNewScriptId itself), every script collided
+        // on id=0 and getCodeBlock(0) returned the wrong codeblock.
+        const int predictedId = Maki::assignNewScriptId();
         Maki::registerScriptSystemObject(predictedId, sysObj);
 
-        const int sid = Maki::addScript(blob.constData(), blob.size(), 0);
+        const int sid = Maki::addScript(blob.constData(), blob.size(),
+                                        predictedId);
         if (sid < 0) {
             qWarning() << "SkinRuntime: addScript rejected" << relPath;
             Maki::registerScriptSystemObject(predictedId, nullptr);
             Maki::destroyWidgetScriptObject(sysObj);
             continue;
         }
+        if (const char *tt = ::getenv("WASABIQT_TRACE_SCRIPTS");
+            tt && *tt == '1') {
+            QByteArray pn = relPath.toUtf8();
+            std::fprintf(stderr, "[script-path] sid=%d %s\n", sid,
+                         pn.constData());
+        }
         if (sid != predictedId) {
             // Fix up the registration if our prediction was off.
             Maki::registerScriptSystemObject(predictedId, nullptr);
             Maki::registerScriptSystemObject(sid, sysObj);
         }
+
+        // M14i: predeclared globals (Config, etc.) reserve a variable
+        // slot per script that the runtime is supposed to bind to a
+        // singleton. We do not have per-class singleton plumbing yet,
+        // so hydrate every null SCRIPT_OBJECT slot with a shared
+        // fallback. The Config method stubs in maki-bindings.cpp pick
+        // it up so initAttribs() chains land cleanly.
+        Maki::hydrateNullObjectVars(sid, Maki::getConfigDummy());
+        // M14a diagnostic: which file landed at which sid.
+        if (qEnvironmentVariableIntValue("WASABIQT_TRACE_SCRIPTS") == 1)
+            qInfo().noquote() << QStringLiteral("[script] sid=%1 -> %2")
+                                     .arg(sid).arg(relPath);
+
         m_d->loadedScripts.append(sid);
         m_d->scriptPaths.append(relPath);
         m_d->systemObjects.append(sysObj);
@@ -147,6 +218,10 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         // lifetime — the wchar_t* stays valid until destroyAll().
         m_d->scriptParams.push_back(ref.param.toStdWString());
         Maki::registerScriptParam(sid, m_d->scriptParams.back().c_str());
+
+        // M14h: remember this (file, param) so a later identical
+        // ref reuses the same sid.
+        seen.insert(key, sid);
     }
     Q_UNUSED(firedCount);
 

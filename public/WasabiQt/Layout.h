@@ -72,5 +72,14 @@ QStringList containerIds(const SkinXml::Document &doc);
 QStringList layoutIds(const SkinXml::Document &doc,
                       const QString &containerId);
 
+// Apply static equivalents of well-known Maki scripts to a resolved
+// tree.  Mirrors the geometry / visibility mutations a script's
+// load-time handlers would otherwise do (titlebar.m's resizeObjects,
+// etc.).  M14b moved this out of expandLayout — call it explicitly
+// when you want the legacy static path; skip it when SkinRuntime
+// will dispatch the real .maki scripts and mutate widgets through
+// setXmlParam.
+void runKnownScripts(ResolvedWidget &root, int layoutWidth);
+
 }  // namespace Layout
 }  // namespace WasabiQt

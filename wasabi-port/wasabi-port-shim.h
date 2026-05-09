@@ -106,6 +106,23 @@ inline void DebugStringW(const wchar_t *s) {
     if (s) ::fputws(s, stderr);
 }
 
+// M14e: narrow a wchar_t string into an ASCII buffer, replacing any
+// non-ASCII codepoints with '?'. Used for trace and assert output
+// where %ls / fputws hit glibc locale issues, and we only need a
+// printable-enough form (Wasabi method/attribute names are all ASCII
+// anyway). Always null-terminates. Returns the number of source
+// characters consumed.
+inline int wq_wide_to_ascii(const wchar_t *src, char *dst, int cap) {
+    if (!dst || cap <= 0) return 0;
+    int i = 0;
+    if (src) {
+        for (; i < cap - 1 && src[i]; ++i)
+            dst[i] = (src[i] < 128) ? char(src[i]) : '?';
+    }
+    dst[i] = 0;
+    return i;
+}
+
 // ── Skip precomp + the windowing-related headers we don't use ────
 //
 // precomp_wasabi_bfc.h pulls wasabi_std_wnd.h which uses HDC and

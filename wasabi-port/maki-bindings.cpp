@@ -205,7 +205,7 @@ extern "C" scriptVar wq_getPlayItemDisplayTitle(maki_cmd *, int, ScriptObject *)
     return makeString(L"");
 }
 
-extern "C" scriptVar wq_setDelay(maki_cmd *, int, ScriptObject *) {
+extern "C" scriptVar wq_setDelay(maki_cmd *, int, ScriptObject *, scriptVar) {
     return makeVoid();
 }
 
@@ -230,9 +230,8 @@ extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
         return makeObject(nullptr);
     void *handle = wq_widget_findById(id.data.sdata);
     if (std::getenv("WASABIQT_TRACE_MAKI")) {
-        char nb[128] = {0};
-        for (int i = 0; i < 127 && id.data.sdata[i]; ++i)
-            nb[i] = (id.data.sdata[i] < 128) ? char(id.data.sdata[i]) : '?';
+        char nb[128];
+        wq_wide_to_ascii(id.data.sdata, nb, sizeof(nb));
         std::fprintf(stderr, "[maki] findObject(%s) -> %p\n", nb, handle);
     }
     return makeObject(static_cast<ScriptObject *>(handle));
@@ -258,15 +257,9 @@ extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
     const wchar_t *val = (value.type == SCRIPT_STRING && value.data.sdata)
                             ? value.data.sdata : L"";
     if (std::getenv("WASABIQT_TRACE_MAKI")) {
-        // %ls fprintf needs the right locale set, which we don't
-        // touch.  Manual narrow conversion (ASCII-only attr/value
-        // names) keeps the trace safe.
-        char nb[128] = {0}, vb[256] = {0};
-        for (int i = 0; i < 127 && name.data.sdata[i]; ++i)
-            nb[i] = (name.data.sdata[i] < 128)
-                        ? char(name.data.sdata[i]) : '?';
-        for (int i = 0; val && i < 255 && val[i]; ++i)
-            vb[i] = (val[i] < 128) ? char(val[i]) : '?';
+        char nb[128], vb[256];
+        wq_wide_to_ascii(name.data.sdata, nb, sizeof(nb));
+        wq_wide_to_ascii(val, vb, sizeof(vb));
         std::fprintf(stderr, "[maki] setXmlParam(%s, %s)\n", nb, vb);
     }
     wq_widget_setAttr(o, name.data.sdata, val);
@@ -332,6 +325,49 @@ extern "C" scriptVar wq_bringToBack(maki_cmd *, int, ScriptObject *)  { return m
 extern "C" scriptVar wq_setText(maki_cmd *, int, ScriptObject *, scriptVar) { return makeVoid(); }
 extern "C" scriptVar wq_getText(maki_cmd *, int, ScriptObject *)            { return makeString(L""); }
 
+// ── Config / ConfigItem / ConfigAttribute (M14g stub layer) ─────
+//
+// The Wasabi script API exposes a Config singleton for managing
+// preferences.  initAttribs() chains dozens of Config.newItem() and
+// .newAttribute() calls before the rest of the script runs, and every
+// missing method on that chain fires a guru meditation.  We do not
+// have a real preference store yet, so all of these return a single
+// shared dummy ScriptObject that survives dispatch.  setData / getData
+// on it become no-ops.  Real Config plumbing is its own milestone.
+
+// Forward-declared from widget-script-object.cpp, in the same namespace.
+namespace WasabiQt::Maki { void *createWidgetScriptObject(void *); }
+
+static ScriptObject *configDummy() {
+    static ScriptObject *sentinel = static_cast<ScriptObject *>(
+        WasabiQt::Maki::createWidgetScriptObject(nullptr));
+    return sentinel;
+}
+
+// Exposed for the bridge so M14i hydration can fill null SCRIPT_OBJECT
+// vars with this fallback. Same singleton as configDummy().
+extern "C" void *wq_config_dummy_get() {
+    return static_cast<void *>(configDummy());
+}
+
+extern "C" scriptVar wq_newItem(maki_cmd *, int, ScriptObject *,
+                                 scriptVar, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_getItem(maki_cmd *, int, ScriptObject *, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *,
+                                      scriptVar, scriptVar) {
+    return makeObject(configDummy());
+}
+extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *, scriptVar) {
+    return makeVoid();
+}
+extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *) {
+    return makeString(L"");
+}
+
 // ── method registry ─────────────────────────────────────────────
 
 namespace WasabiQt::Maki {
@@ -364,7 +400,7 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getScriptGroup",          0, (void *)wq_getScriptGroup},
         {L"getPlayItemMetaDataString", 1, (void *)wq_getPlayItemMetaDataString},
         {L"getPlayItemDisplayTitle", 0, (void *)wq_getPlayItemDisplayTitle},
-        {L"setDelay",                0, (void *)wq_setDelay},
+        {L"setDelay",                1, (void *)wq_setDelay},
         {L"show",                    0, (void *)wq_show},
         {L"hide",                    0, (void *)wq_hide},
         {L"stop",                    0, (void *)wq_stop},
@@ -394,6 +430,12 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"bringToBack",             0, (void *)wq_bringToBack},
         {L"setText",                 1, (void *)wq_setText},
         {L"getText",                 0, (void *)wq_getText},
+        // Config / ConfigItem / ConfigAttribute stubs (M14g)
+        {L"newItem",                 2, (void *)wq_newItem},
+        {L"getItem",                 1, (void *)wq_getItem},
+        {L"newAttribute",            2, (void *)wq_newAttribute},
+        {L"setData",                 1, (void *)wq_setData},
+        {L"getData",                 0, (void *)wq_getData},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;

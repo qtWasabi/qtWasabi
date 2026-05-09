@@ -3,18 +3,38 @@
 
 #include <WasabiQt/SkinView.h>
 #include <WasabiQt/SkinXml.h>
+#include <WasabiQt/SkinRuntime.h>
 #include <WasabiQt/TreePainter.h>
 
+#include <QMetaObject>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QPointer>
 
 namespace WasabiQt {
 
 SkinView::SkinView(QWidget *parent) : QWidget(parent) {
     setAttribute(Qt::WA_OpaquePaintEvent, false);
+
+    // M14c: hook the runtime's repaint callback so script mutations
+    // (setXmlParam from Maki) trigger a repaint. QPointer keeps the
+    // closure safe even if the view dies before the callback fires,
+    // and QueuedConnection routes the update to the GUI thread no
+    // matter where dispatch ran.
+    QPointer<SkinView> self(this);
+    registerSkinRepaintCallback([self]() {
+        if (auto *v = self.data()) {
+            QMetaObject::invokeMethod(v, [v]() { v->update(); },
+                                      Qt::QueuedConnection);
+        }
+    });
 }
 
-SkinView::~SkinView() = default;
+SkinView::~SkinView() {
+    // M14c: clear the runtime callback so a freshly mutated widget
+    // attr after this view dies doesn't reach into a dead lambda.
+    registerSkinRepaintCallback({});
+}
 
 void SkinView::setActiveGammaset(const QString &name) {
     m_gammasets.setActiveGammaset(name);

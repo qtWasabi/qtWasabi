@@ -15,9 +15,69 @@
 
 namespace WasabiQt::Maki {
 
+int assignNewScriptId() {
+    return VCPU::assignNewScriptId();
+}
+
+// M14d: snapshot the VM's current dispatch state. Read by the assert
+// handler in wasabi-port-stubs.cpp so the assertion message points at
+// the actual ip/vsp/script that fired the assert, not just the file
+// and line of the default switch case in the dispatch loop.
+void getVmState(int *vsd, int *vip, int *vsp) {
+    if (vsd) *vsd = VCPU::VSD;
+    if (vip) *vip = VCPU::VIP;
+    if (vsp) *vsp = VCPU::VSP;
+}
+
+// M14i: walk the script's entries in variablesTable and replace any
+// null SCRIPT_OBJECT receiver with the given fallback object. _predecl
+// classes from the Wasabi standard library (Config, etc.) reserve a
+// variable slot but the runtime is expected to bind a singleton there.
+// Without that binding every dispatch on the predecl gurus with
+// GURU_NULLCALLED. This helper installs a fallback after addScript so
+// the script's PUSH var[N] reads a non-null receiver and the call
+// chain lands on the Config method stubs in maki-bindings.cpp.
+//
+// `fallback` should be a ScriptObject*, opaque here so callers do not
+// need to include scriptobj.h. Returns the number of slots patched.
+int hydrateNullObjectVars(int scriptId, void *fallback) {
+    if (!fallback) return 0;
+    int patched = 0;
+    int n = VCPU::variablesTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUscriptVar *v = VCPU::variablesTable.enumItem(i);
+        if (!v || v->scriptId != scriptId) continue;
+        // Only patch entries that are actually typed as a script
+        // object slot. Wasabi stores int / double / etc. globals with
+        // their declared type and the data union holds the value, so
+        // a null odata on those represents the value 0, not an
+        // unbound object. Touching them here would corrupt them.
+        if (v->v.type != SCRIPT_OBJECT) continue;
+        if (v->v.data.odata != nullptr) continue;
+        v->v.data.odata = static_cast<ScriptObject *>(fallback);
+        ++patched;
+    }
+    if (const char *t = getenv("WASABIQT_TRACE_HYDRATE"); t && *t == '1') {
+        fprintf(stderr, "[hydrate] sid=%d patched %d null SCRIPT_OBJECT vars\n",
+                scriptId, patched);
+    }
+    return patched;
+}
+
+// Singleton fallback ScriptObject used by hydrateNullObjectVars. Lives
+// in the bindings TU (sole owner of createWidgetScriptObject) so we
+// expose it through this getter rather than reach across.
+extern "C" void *wq_config_dummy_get();   // defined in maki-bindings.cpp
+void *getConfigDummy() { return wq_config_dummy_get(); }
+
 int addScript(const void *blob, int blobSize, int cpuId) {
     if (!blob || blobSize <= 0) return -1;
-    return VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);
+    int sid = VCPU::addScript(const_cast<void *>(blob), blobSize, cpuId);
+    if (const char *t = getenv("WASABIQT_TRACE_ADDSCRIPT"); t && *t == '1') {
+        fprintf(stderr, "[addScript] cpuId=%d -> sid=%d (numScripts now %d)\n",
+                cpuId, sid, VCPU::numScripts);
+    }
+    return sid;
 }
 
 void removeScript(int scriptId) {
@@ -97,6 +157,59 @@ bool fireOnSetXuiParam(int scriptId,
     return true;
 }
 
+// M14a diagnostic: walk every codeTable entry and print its (scriptId,
+// size, base) so we can tell whether there is more than one buffer per
+// script (e.g., a separate code segment alongside a strings/data segment).
+int dumpAllCodeBlocks(char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int written = 0, count = 0;
+    int n = VCPU::codeTable.getNumItems();
+    written += ::snprintf(out + written, outCap - written,
+                          "codeTable has %d entries\n", n);
+    for (int i = 0; i < n && written + 80 < outCap; ++i) {
+        auto *cb = VCPU::codeTable.enumItem(i);
+        if (!cb) continue;
+        int sz = 0;
+        char *base = VCPU::getCodeBlock(cb->scriptId, &sz);
+        written += ::snprintf(out + written, outCap - written,
+                              "  cb[%d]: sid=%d size=%d base=%p (getCodeBlock returns %p, size=%d)\n",
+                              i, cb->scriptId, cb->size, (void *)cb->codeBlock,
+                              (void *)base, sz);
+        ++count;
+    }
+    return count;
+}
+
+// M14a diagnostic: dump bytes from a script's codeblock so we can sanity
+// check whether the codeblock pointer is sane and what bytes live around
+// the offset claimed by the eventsTable.pointer field.
+int dumpCodeblock(int scriptId, int offset, int nBytes, char *out, int outCap) {
+    if (!out || outCap <= 0) return 0;
+    out[0] = 0;
+    int cbSize = 0;
+    char *cb = VCPU::getCodeBlock(scriptId, &cbSize);
+    if (!cb) {
+        return ::snprintf(out, outCap, "codeblock(sid=%d) is NULL\n", scriptId);
+    }
+    int written = ::snprintf(out, outCap,
+                             "codeblock(sid=%d) base=%p size=%d, dump @offset=%d:\n",
+                             scriptId, (void *)cb, cbSize, offset);
+    for (int i = 0; i < nBytes && offset + i < cbSize && written + 4 < outCap; ++i) {
+        written += ::snprintf(out + written, outCap - written,
+                              "%02x ", (unsigned char)cb[offset + i]);
+        if ((i + 1) % 16 == 0 && written + 1 < outCap) {
+            out[written++] = '\n';
+            out[written] = 0;
+        }
+    }
+    if (written + 1 < outCap) {
+        out[written++] = '\n';
+        out[written] = 0;
+    }
+    return written;
+}
+
 int dumpEvents_helper_dummy() { return 0; }
 int dumpEvents(int scriptId, char *out, int outCap) {
     if (!out || outCap <= 0) return 0;
@@ -115,9 +228,8 @@ int dumpEvents(int scriptId, char *out, int outCap) {
                 break;
             }
         }
-        char nb[64] = {0};
-        for (int k = 0; k < 63 && name[k]; ++k)
-            nb[k] = (name[k] < 128) ? char(name[k]) : '?';
+        char nb[64];
+        wq_wide_to_ascii(name, nb, sizeof(nb));
         char buf[256];
         int n = ::snprintf(buf, sizeof(buf),
                             "ev[%d]: var=%d sid=%d dlf=%d off=%d %s\n",

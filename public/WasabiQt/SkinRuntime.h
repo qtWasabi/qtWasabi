@@ -20,6 +20,7 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <functional>
 
 namespace WasabiQt {
 
@@ -77,5 +78,11 @@ private:
     struct Impl;
     Impl *m_d;
 };
+
+// M14c: register a callback the runtime fires whenever a script
+// mutates a widget attribute. SkinView wires this up in its ctor so
+// scripts that change padleft/padright/etc. trigger a repaint.
+// Pass an empty std::function to unregister.
+void registerSkinRepaintCallback(std::function<void()> cb);
 
 }  // namespace WasabiQt
