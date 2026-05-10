@@ -81,6 +81,12 @@ public:
     //    override for EQ_BAND etc.
     virtual double sliderPosition(const QString &action) const;
     virtual void   setSliderPosition(const QString &action, double v);
+
+    // ── Visualisation.  Returns the recent audio's normalised
+    //    amplitude (RMS, [0..1]) so <vis> bars can bounce with the
+    //    audio.  Default returns 0 (silent / no audio tap).
+    //    Embedders that wire QAudioBufferOutput / similar override.
+    virtual double audioLevel() const { return 0.0; }
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;

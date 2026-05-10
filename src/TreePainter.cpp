@@ -103,9 +103,11 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     }
 
     if (t == QStringLiteral("vis")) {
-        // Stub spectrum analyzer: paint a few vertical bars in the
-        // declared band colours so the visualisation area shows
-        // *something* until M11+ wires up real audio data.
+        // Spectrum-style bars.  Real FFT-driven spectrum is M11+
+        // work; for now bar heights are pseudo-random per band but
+        // multiplied by Host::audioLevel() (recent RMS) so the
+        // whole visualisation bounces with the audio.  No host =
+        // 0-amplitude bars (chrome stays visible but doesn't move).
         const QRect r = resolveRect(node.attrs, canvas);
         if (r.width() > 0 && r.height() > 0) {
             QColor band(255, 255, 255);
@@ -116,11 +118,15 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
                     band = QColor(parts[0].toInt(), parts[1].toInt(),
                                   parts[2].toInt());
             }
+            const double level = ctx.host
+                ? qBound(0.0, ctx.host->audioLevel() * 4.0, 1.0)
+                : 0.0;
             const int barCount = 16;
             const int barW = r.width() / barCount;
+            const int maxH = r.height() - 4;
             for (int i = 0; i < barCount; ++i) {
-                // Pseudo-random heights.
-                const int h = 4 + ((i * 17 + 3) % (r.height() - 4));
+                const int rawH = 4 + ((i * 17 + 3) % maxH);
+                const int h = qMax(1, int(rawH * level));
                 p->fillRect(r.x() + i * barW + 1,
                             r.y() + (r.height() - h),
                             barW - 1, h, band);
