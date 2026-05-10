@@ -35,6 +35,8 @@
 #include <QtCore/qglobal.h>
 #include <QHash>
 #include <QList>
+#include <QPoint>
+#include <QSize>
 #include <QString>
 
 namespace WasabiQt {
@@ -71,6 +73,31 @@ QStringList containerIds(const SkinXml::Document &doc);
 // Same for <layout> children of a given container.
 QStringList layoutIds(const SkinXml::Document &doc,
                       const QString &containerId);
+
+// Hit-test a resolved layout tree at a window-coordinate point, and
+// return the deepest widget whose absolute pixel bounds contain it.
+// `pointInLayout` is in the same coordinate space as the layout's
+// own origin (i.e. window-local for top-level layouts).
+//
+// Walks children depth-first in reverse paint order so the topmost
+// widget wins.  Only considers widgets with a non-empty `action`
+// attribute by default — pass `actionOnly=false` to hit any widget.
+// Relative coords (relatx / relatw / negative w/h) are not yet
+// resolved; widgets using them are skipped.
+//
+// Many Wasabi widgets (buttons, layers) take their pixel dimensions
+// from a named bitmap rather than carrying explicit `w`/`h` attrs.
+// Pass a `imageSize` resolver that maps a bitmap-id (the widget's
+// `image=` attribute) to the bitmap's pixel size; the hit-test
+// falls back to that when the widget has no explicit `w`/`h`.  Pass
+// `nullptr` if you only want to hit explicitly-sized widgets.
+using ImageSizeResolver = QSize (*)(const QString &bitmapId, void *userdata);
+
+const ResolvedWidget *hitTest(const ResolvedWidget &root,
+                              QPoint pointInLayout,
+                              bool actionOnly = true,
+                              ImageSizeResolver imageSize = nullptr,
+                              void *imageSizeUserdata = nullptr);
 
 // Apply static equivalents of well-known Maki scripts to a resolved
 // tree.  Mirrors the geometry / visibility mutations a script's

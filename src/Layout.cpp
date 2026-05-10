@@ -5,6 +5,7 @@
 #include <WasabiQt/SkinXml.h>
 
 #include <QHash>
+#include <QRect>
 #include <QSet>
 #include <QString>
 #include <functional>
@@ -527,6 +528,111 @@ QStringList layoutIds(const SkinXml::Document &doc, const QString &containerId) 
         }
     }
     return ids;
+}
+
+// Hit-test recurser.  Walks children in reverse paint order (last
+// child = topmost) so the deepest visible match wins.  Mirrors
+// TreePainter's resolveRect: applies relatx / relaty / relatw /
+// relath against the parent's canvas size, and translates groups
+// by their resolved (x, y) the same way the painter does.  Falls
+// back to an image-size resolver when a widget has no explicit
+// `w`/`h` (typical for buttons whose size comes from their named
+// bitmap).
+namespace {
+bool boolAttr(const QHash<QString, QString> &a, const QString &k) {
+    const QString v = a.value(k);
+    return v == QStringLiteral("1") || v.compare(QStringLiteral("true"),
+                                                 Qt::CaseInsensitive) == 0;
+}
+
+QRect resolveRect(const QHash<QString, QString> &a, QSize parent) {
+    int x = a.value(QStringLiteral("x")).toInt();
+    int y = a.value(QStringLiteral("y")).toInt();
+    int w = a.value(QStringLiteral("w")).toInt();
+    int h = a.value(QStringLiteral("h")).toInt();
+    if (boolAttr(a, QStringLiteral("relatx"))) x = parent.width()  + x;
+    if (boolAttr(a, QStringLiteral("relaty"))) y = parent.height() + y;
+    if (boolAttr(a, QStringLiteral("relatw"))) w = parent.width()  + w;
+    if (boolAttr(a, QStringLiteral("relath"))) h = parent.height() + h;
+    return QRect(x, y, w, h);
+}
+
+bool isContainer(const QString &tag) {
+    return tag == QStringLiteral("group")     ||
+           tag == QStringLiteral("container") ||
+           tag == QStringLiteral("layout")    ||
+           tag == QStringLiteral("groupdef");
+}
+
+const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
+                                 QPoint p, QPoint origin, QSize canvas,
+                                 bool actionOnly,
+                                 ImageSizeResolver resolver,
+                                 void *userdata) {
+    const QRect r = resolveRect(w.attrs, canvas);
+
+    // Layout: doesn't translate, but propagates its own size to
+    // children.  Other containers (group/container/groupdef)
+    // translate by (r.x, r.y).
+    QPoint childOrigin = origin;
+    if (w.tag != QStringLiteral("layout")) {
+        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
+    }
+    QSize childCanvas = canvas;
+    if (r.width()  > 0) childCanvas.setWidth (r.width());
+    if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    // Recurse into children first — topmost match wins.
+    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
+        if (auto *hit = hitTestRec(*it, p, childOrigin, childCanvas,
+                                    actionOnly, resolver, userdata))
+            return hit;
+    }
+
+    if (actionOnly &&
+        !w.attrs.contains(QStringLiteral("action"))) {
+        return nullptr;
+    }
+
+    // Self bbox: prefer explicit/resolved w/h, fall back to
+    // bitmap-image dimensions for widgets without sizes.
+    int width  = r.width();
+    int height = r.height();
+    if ((width <= 0 || height <= 0) && resolver) {
+        const QString img = w.attrs.value(QStringLiteral("image"));
+        if (!img.isEmpty()) {
+            const QSize imgSize = resolver(img, userdata);
+            if (width  <= 0) width  = imgSize.width();
+            if (height <= 0) height = imgSize.height();
+        }
+    }
+    if (width <= 0 || height <= 0) return nullptr;
+
+    // Container widgets are usually transparent — their hits would
+    // shadow their children.  Since we recurse children first, we
+    // only reach a container when no child caught the click; hits
+    // on bare group regions do nothing useful, so skip them.
+    if (isContainer(w.tag)) return nullptr;
+
+    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
+    if (!bbox.contains(p)) return nullptr;
+    return &w;
+}
+}  // namespace
+
+const ResolvedWidget *hitTest(const ResolvedWidget &root,
+                              QPoint pointInLayout,
+                              bool actionOnly,
+                              ImageSizeResolver imageSize,
+                              void *imageSizeUserdata) {
+    QSize rootCanvas(
+        root.attrs.value(QStringLiteral("w")).toInt(),
+        root.attrs.value(QStringLiteral("h")).toInt());
+    if (rootCanvas.width()  <= 0 || rootCanvas.height() <= 0) {
+        rootCanvas = QSize(354, 280);  // safe Modern-skin default
+    }
+    return hitTestRec(root, pointInLayout, QPoint(0, 0), rootCanvas,
+                      actionOnly, imageSize, imageSizeUserdata);
 }
 
 }  // namespace WasabiQt::Layout
