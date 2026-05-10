@@ -35,6 +35,7 @@ namespace WasabiQt {
 
 class BitmapRegistry;
 class FontRegistry;
+class Host;
 namespace Layout { struct ResolvedWidget; }
 
 namespace TreePainter {
@@ -51,6 +52,14 @@ void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
                BitmapRegistry &reg, FontRegistry &fontReg,
                const QSize &canvas,
                const DisplayResolver &resolver = {});
+
+// Same as above but driven by a Host pointer — paintTree pulls
+// display strings and slider positions straight from `host`.  Use
+// this overload to get <slider> thumbs painted at their live audio
+// position; the DisplayResolver overload falls back to no-thumb.
+void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
+               BitmapRegistry &reg, FontRegistry &fontReg,
+               const QSize &canvas, Host *host);
 
 }  // namespace TreePainter
 }  // namespace WasabiQt

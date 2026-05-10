@@ -21,6 +21,33 @@ QString fmtMs(qint64 ms) {
 }
 }  // namespace
 
+double Host::sliderPosition(const QString &action) const {
+    const QString a = action.toUpper();
+    if (a == QLatin1String("VOLUME"))
+        return qBound(0.0, volume() / 100.0, 1.0);
+    if (a == QLatin1String("SEEK") || a == QLatin1String("SEEKBAR")) {
+        const qint64 dur = durationMs();
+        if (dur <= 0) return 0.0;
+        return qBound(0.0, double(positionMs()) / double(dur), 1.0);
+    }
+    if (a == QLatin1String("PAN")) return 0.5;     // centred
+    return -1.0;                                    // unknown
+}
+
+void Host::setSliderPosition(const QString &action, double v) {
+    v = qBound(0.0, v, 1.0);
+    const QString a = action.toUpper();
+    if (a == QLatin1String("VOLUME")) {
+        setVolume(int(v * 100));
+        return;
+    }
+    if (a == QLatin1String("SEEK") || a == QLatin1String("SEEKBAR")) {
+        const qint64 dur = durationMs();
+        if (dur > 0) seekMs(qint64(v * dur));
+        return;
+    }
+}
+
 QUrl Host::pickFile(QWidget *embedder) {
     const QString musicDir = QStandardPaths::writableLocation(
         QStandardPaths::MusicLocation);

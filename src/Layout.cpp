@@ -568,7 +568,8 @@ const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
                                  QPoint p, QPoint origin, QSize canvas,
                                  bool actionOnly,
                                  ImageSizeResolver resolver,
-                                 void *userdata) {
+                                 void *userdata,
+                                 QRect *outBbox) {
     const QRect r = resolveRect(w.attrs, canvas);
 
     // Layout: doesn't translate, but propagates its own size to
@@ -585,7 +586,8 @@ const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
     // Recurse into children first — topmost match wins.
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
         if (auto *hit = hitTestRec(*it, p, childOrigin, childCanvas,
-                                    actionOnly, resolver, userdata))
+                                    actionOnly, resolver, userdata,
+                                    outBbox))
             return hit;
     }
 
@@ -616,6 +618,7 @@ const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
 
     const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
     if (!bbox.contains(p)) return nullptr;
+    if (outBbox) *outBbox = bbox;
     return &w;
 }
 }  // namespace
@@ -624,7 +627,8 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
                               QPoint pointInLayout,
                               bool actionOnly,
                               ImageSizeResolver imageSize,
-                              void *imageSizeUserdata) {
+                              void *imageSizeUserdata,
+                              QRect *outBbox) {
     QSize rootCanvas(
         root.attrs.value(QStringLiteral("w")).toInt(),
         root.attrs.value(QStringLiteral("h")).toInt());
@@ -632,7 +636,7 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
         rootCanvas = QSize(354, 280);  // safe Modern-skin default
     }
     return hitTestRec(root, pointInLayout, QPoint(0, 0), rootCanvas,
-                      actionOnly, imageSize, imageSizeUserdata);
+                      actionOnly, imageSize, imageSizeUserdata, outBbox);
 }
 
 }  // namespace WasabiQt::Layout

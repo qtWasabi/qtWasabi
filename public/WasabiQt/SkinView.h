@@ -26,6 +26,8 @@ namespace WasabiQt::SkinXml { struct Document; }
 
 namespace WasabiQt {
 
+class Host;
+
 class SkinView : public QWidget {
     Q_OBJECT
 public:
@@ -63,6 +65,13 @@ public:
         update();
     }
 
+    // Bind an embedder Host so paintEvent pulls live display
+    // strings + slider thumb positions straight from it.  Takes
+    // precedence over a manual setDisplayResolver().  Pass nullptr
+    // to detach.
+    void  setHost(Host *h) { m_host = h; update(); }
+    Host *host() const     { return m_host; }
+
 protected:
     void paintEvent(QPaintEvent *e) override;
     QSize sizeHint() const override { return m_nativeSize; }
@@ -74,6 +83,7 @@ private:
     GammasetRegistry       m_gammasets;
     QSize                  m_nativeSize { 354, 280 };
     DisplayResolver        m_resolver;
+    Host                  *m_host = nullptr;
 };
 
 }  // namespace WasabiQt

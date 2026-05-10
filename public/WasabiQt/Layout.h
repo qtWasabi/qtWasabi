@@ -97,7 +97,8 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
                               QPoint pointInLayout,
                               bool actionOnly = true,
                               ImageSizeResolver imageSize = nullptr,
-                              void *imageSizeUserdata = nullptr);
+                              void *imageSizeUserdata = nullptr,
+                              QRect *outBbox = nullptr);
 
 // Apply static equivalents of well-known Maki scripts to a resolved
 // tree.  Mirrors the geometry / visibility mutations a script's

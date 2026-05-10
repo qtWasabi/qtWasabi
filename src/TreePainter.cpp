@@ -5,8 +5,10 @@
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
 #include <WasabiQt/FontRegistry.h>
+#include <WasabiQt/Host.h>
 #include <WasabiQt/LayerPainter.h>
 #include <WasabiQt/TextPainter.h>
+#include <QImage>
 
 #include <QHash>
 #include <QPainter>
@@ -63,6 +65,7 @@ struct PaintCtx {
     BitmapRegistry        *bmp;
     FontRegistry          *font;
     DisplayResolver        resolver;
+    Host                  *host = nullptr;
 };
 
 void paintRecursive(QPainter *p, const ResolvedWidget &node,
@@ -144,7 +147,33 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
-    // <slider>, <vis>, <albumart>, ... — painted in later milestones.
+    if (t == QStringLiteral("slider")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() <= 0 || r.height() <= 0) return;
+        // Optional background bitmap (most Modern-skin sliders
+        // paint their groove via separate <layer> siblings; some
+        // do carry an `image=` attr though).
+        const QString bgId = node.attrs.value(QStringLiteral("image"));
+        if (!bgId.isEmpty()) {
+            QHash<QString, QString> bg = node.attrs;
+            bg.remove(QStringLiteral("thumb"));
+            LayerPainter::paintLayer(p, *ctx.bmp, bg, canvas);
+        }
+        const QString thumbId = node.attrs.value(QStringLiteral("thumb"));
+        if (thumbId.isEmpty() || !ctx.host) return;
+        const QString action = node.attrs.value(QStringLiteral("action"));
+        const double pos = ctx.host->sliderPosition(action);
+        if (pos < 0.0) return;                    // unknown action
+        QImage thumb = ctx.bmp->imageFor(thumbId);
+        if (thumb.isNull()) return;
+        const int travel = qMax(0, r.width() - thumb.width());
+        const int thumbX = r.x() + int(pos * travel);
+        const int thumbY = r.y() + (r.height() - thumb.height()) / 2;
+        p->drawImage(thumbX, thumbY, thumb);
+        return;
+    }
+
+    // <vis>, <albumart>, ... — painted in later milestones.
     for (const auto &child : node.children)
         paintRecursive(p, child, ctx, canvas);
 }
@@ -154,7 +183,14 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
 void paintTree(QPainter *p, const ResolvedWidget &root,
                BitmapRegistry &reg, FontRegistry &fontReg,
                const QSize &canvas, const DisplayResolver &resolver) {
-    PaintCtx ctx{&reg, &fontReg, resolver};
+    PaintCtx ctx{&reg, &fontReg, resolver, nullptr};
+    paintRecursive(p, root, ctx, canvas);
+}
+
+void paintTree(QPainter *p, const ResolvedWidget &root,
+               BitmapRegistry &reg, FontRegistry &fontReg,
+               const QSize &canvas, Host *host) {
+    PaintCtx ctx{&reg, &fontReg, makeDefaultDisplayResolver(host), host};
     paintRecursive(p, root, ctx, canvas);
 }
 

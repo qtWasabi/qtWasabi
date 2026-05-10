@@ -73,6 +73,14 @@ public:
     //    host the skin in a real window override these.
     virtual bool    close()    { return false; }
     virtual bool    minimize() { return false; }
+
+    // ── Sliders.  Returns a normalised position [0..1] for the
+    //    given action keyword, or a negative value if the action
+    //    isn't slider-shaped.  The default handles VOLUME + SEEK
+    //    + PAN from the standard audio-state methods; embedders
+    //    override for EQ_BAND etc.
+    virtual double sliderPosition(const QString &action) const;
+    virtual void   setSliderPosition(const QString &action, double v);
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;

@@ -74,8 +74,18 @@ bool SkinView::load(const SkinXml::Document &doc,
 void SkinView::paintEvent(QPaintEvent *) {
     QPainter p(this);
     p.fillRect(rect(), Qt::transparent);
-    TreePainter::paintTree(&p, m_tree, m_registry, m_fonts, size(),
-                            m_resolver);
+    if (m_host) {
+        // Host route — pulls live display strings + slider
+        // positions straight from the embedder's Host impl.  When
+        // the embedder also set a display resolver explicitly, the
+        // Host route still uses qtWasabi's default mapping; the
+        // explicit resolver only matters in the no-host case.
+        TreePainter::paintTree(&p, m_tree, m_registry, m_fonts,
+                                size(), m_host);
+    } else {
+        TreePainter::paintTree(&p, m_tree, m_registry, m_fonts,
+                                size(), m_resolver);
+    }
 }
 
 }  // namespace WasabiQt
