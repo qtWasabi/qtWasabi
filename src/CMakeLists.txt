@@ -24,6 +24,7 @@ set(WASABIQT_SOURCES
     TreePainter.cpp
     TextPainter.cpp
     SkinView.cpp
+    Host.cpp
     ${PROJECT_SOURCE_DIR}/public/WasabiQt/SkinView.h
     Bootstrap.cpp
     # Q_OBJECT public headers — listed so AUTOMOC generates their

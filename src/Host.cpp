@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Florian Kleber
+
+#include <WasabiQt/Host.h>
+
+#include <QChar>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QStringList>
+#include <QWidget>
+
+namespace WasabiQt {
+
+namespace {
+QString fmtMs(qint64 ms) {
+    if (ms < 0) ms = 0;
+    const qint64 sec = ms / 1000;
+    return QStringLiteral("%1:%2")
+        .arg(sec / 60).arg(sec % 60, 2, 10, QChar('0'));
+}
+}  // namespace
+
+QUrl Host::pickFile(QWidget *embedder) {
+    const QString musicDir = QStandardPaths::writableLocation(
+        QStandardPaths::MusicLocation);
+    const QString path = QFileDialog::getOpenFileName(
+        embedder,
+        QStringLiteral("Open audio file"),
+        musicDir,
+        QStringLiteral(
+            "Audio (*.mp3 *.flac *.ogg *.opus *.wav *.m4a *.aac);;"
+            "All files (*)"));
+    if (path.isEmpty()) return QUrl();
+    return QUrl::fromLocalFile(path);
+}
+
+DisplayResolver makeDefaultDisplayResolver(Host *host) {
+    if (!host) {
+        return [](const QString &) { return QString(); };
+    }
+    return [host](const QString &key) -> QString {
+        const QString k = key.toLower();
+        if (k == QStringLiteral("time"))
+            return fmtMs(host->positionMs());
+        if (k == QStringLiteral("duration"))
+            return fmtMs(host->durationMs());
+        if (k == QStringLiteral("timeleft")) {
+            const qint64 left =
+                qMax<qint64>(0, host->durationMs() - host->positionMs());
+            return QStringLiteral("-") + fmtMs(left);
+        }
+        if (k == QStringLiteral("songname")  ||
+            k == QStringLiteral("songtitle") ||
+            k == QStringLiteral("songinfo")) {
+            const QString t = host->songTitle();
+            return t.isEmpty()
+                ? QStringLiteral("(no song loaded)")
+                : t;
+        }
+        if (k == QStringLiteral("filename"))
+            return host->songFilename();
+        if (k == QStringLiteral("kbps") ||
+            k == QStringLiteral("bitrate"))
+            return QString::number(host->bitrate());
+        if (k == QStringLiteral("khz") ||
+            k == QStringLiteral("samplerate"))
+            return QString::number(host->sampleRate() / 1000);
+        if (k == QStringLiteral("volume"))
+            return QString::number(host->volume());
+        return QString();
+    };
+}
+
+bool dispatchAction(const QString &action, Host *host,
+                    QWidget *embedder) {
+    if (!host) return false;
+    const QString a = action.toUpper();
+    if (a == QLatin1String("PLAY"))     { host->play();  return true; }
+    if (a == QLatin1String("PAUSE"))    { host->pause(); return true; }
+    if (a == QLatin1String("STOP"))     { host->stop();  return true; }
+    if (a == QLatin1String("NEXT"))     { host->next();  return true; }
+    if (a == QLatin1String("PREV"))     { host->prev();  return true; }
+    if (a == QLatin1String("EJECT")) {
+        const QUrl u = host->pickFile(embedder);
+        if (!u.isEmpty()) {
+            // Convention: pickFile is the embedder's hook; the
+            // embedder's Host::pickFile typically also kicks
+            // playback (since EJECT historically loads + plays).
+            // We don't auto-play here so embedders that want a
+            // "load only" semantic can override pickFile to return
+            // the URL without starting playback.  See QtampHost.
+        }
+        return true;
+    }
+    if (a == QLatin1String("CLOSE"))    return host->close();
+    if (a == QLatin1String("MINIMIZE")) return host->minimize();
+    return false;
+}
+
+}  // namespace WasabiQt
