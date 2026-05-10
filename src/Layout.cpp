@@ -3,9 +3,15 @@
 
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/SkinXml.h>
+#include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/LayerPainter.h>
 
+#include <QBitmap>
 #include <QHash>
+#include <QImage>
+#include <QPainter>
 #include <QRect>
+#include <QRgb>
 #include <QSet>
 #include <QString>
 #include <functional>
@@ -637,6 +643,125 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
     }
     return hitTestRec(root, pointInLayout, QPoint(0, 0), rootCanvas,
                       actionOnly, imageSize, imageSizeUserdata, outBbox);
+}
+
+// ── Window-region builder ─────────────────────────────────────────
+namespace {
+// Walk the tree, painting only sysregion-tagged layers onto `out`.
+// Wasabi convention: any layer with `sysregion` != 0 contributes
+// its opaque pixels to the window region.  The actual numeric value
+// (1, -2, …) controls subtleties like alpha-edge anti-aliasing that
+// we don't yet implement — for now we treat all non-zero values
+// the same way (opaque pixels = part of region).
+void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
+                       BitmapRegistry &reg, QSize canvas,
+                       bool &outFoundAny) {
+    if (w.attrs.value(QStringLiteral("visible")) ==
+        QStringLiteral("0")) {
+        return;
+    }
+
+    const QRect r = resolveRect(w.attrs, canvas);
+    QSize childCanvas = canvas;
+    if (r.width()  > 0) childCanvas.setWidth (r.width());
+    if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    const bool isContainer =
+        w.tag == QStringLiteral("group")     ||
+        w.tag == QStringLiteral("container") ||
+        w.tag == QStringLiteral("groupdef")  ||
+        w.tag == QStringLiteral("layout");
+
+    const bool translate = isContainer &&
+                           w.tag != QStringLiteral("layout") &&
+                           (r.x() != 0 || r.y() != 0);
+    if (translate) p.save(), p.translate(r.x(), r.y());
+
+    // Layer with sysregion -> contribute its bitmap pixels.
+    if (w.tag == QStringLiteral("layer")) {
+        const QString sr = w.attrs.value(QStringLiteral("sysregion"));
+        if (!sr.isEmpty() && sr != QStringLiteral("0")) {
+            const QString id  = w.attrs.value(QStringLiteral("id"));
+            const QString img = w.attrs.value(QStringLiteral("image"));
+            if (::getenv("WASABIQT_DEBUG_SYSREGION")) {
+                fprintf(stderr,
+                    "[sysregion] sr=%s id=%s image=%s rect=%dx%d+%d+%d\n",
+                    sr.toLocal8Bit().constData(),
+                    id.toLocal8Bit().constData(),
+                    img.toLocal8Bit().constData(),
+                    r.width(), r.height(), r.x(), r.y());
+            }
+            LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
+            outFoundAny = true;
+        }
+    }
+
+    for (const auto &c : w.children)
+        paintRegionLayers(p, c, reg, childCanvas, outFoundAny);
+
+    if (translate) p.restore();
+}
+
+QRegion regionFromAlpha(const QImage &img) {
+    // Build a QRegion directly as a union of horizontal row spans
+    // wherever the source pixel has non-zero alpha.  Skipping the
+    // QBitmap intermediate avoids a Qt path that ends up empty on
+    // some configurations.
+    QRegion region;
+    const int W = img.width(), H = img.height();
+    int countNonzero = 0;
+    for (int y = 0; y < H; ++y) {
+        const QRgb *src = reinterpret_cast<const QRgb *>(
+            img.constScanLine(y));
+        int spanStart = -1;
+        for (int x = 0; x < W; ++x) {
+            const bool inside = qAlpha(src[x]) > 0;
+            if (inside) {
+                if (spanStart < 0) spanStart = x;
+                ++countNonzero;
+            } else if (spanStart >= 0) {
+                region += QRect(spanStart, y, x - spanStart, 1);
+                spanStart = -1;
+            }
+        }
+        if (spanStart >= 0)
+            region += QRect(spanStart, y, W - spanStart, 1);
+    }
+    if (::getenv("WASABIQT_DEBUG_SYSREGION")) {
+        fprintf(stderr, "[sysregion] non-zero alpha pixels: %d / %d, "
+                        "region rectCount=%d boundingRect=%dx%d+%d+%d\n",
+                countNonzero, W * H,
+                region.rectCount(),
+                region.boundingRect().width(),
+                region.boundingRect().height(),
+                region.boundingRect().x(),
+                region.boundingRect().y());
+    }
+    return region;
+}
+}  // namespace
+
+QRegion computeWindowRegion(const ResolvedWidget &root,
+                            BitmapRegistry &registry,
+                            QSize canvas) {
+    if (canvas.width() <= 0 || canvas.height() <= 0)
+        return QRegion();
+
+    QImage buf(canvas, QImage::Format_ARGB32_Premultiplied);
+    buf.fill(Qt::transparent);
+    bool foundAny = false;
+    {
+        QPainter p(&buf);
+        paintRegionLayers(p, root, registry, canvas, foundAny);
+    }
+    if (::getenv("WASABIQT_DEBUG_SYSREGION_DUMP")) {
+        buf.save("/tmp/qtwasabi-region.png");
+        fprintf(stderr, "[sysregion] region buffer saved to "
+                        "/tmp/qtwasabi-region.png (foundAny=%d)\n",
+                foundAny ? 1 : 0);
+    }
+    if (!foundAny) return QRegion();
+    return regionFromAlpha(buf);
 }
 
 }  // namespace WasabiQt::Layout

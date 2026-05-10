@@ -67,25 +67,52 @@ bool SkinView::load(const SkinXml::Document &doc,
     if (h <= 0) h = attrInt(QStringLiteral("minimum_h"), 280);
     m_nativeSize = QSize(w, h);
     resize(m_nativeSize);
+
+    // Apply the skin's window region — pixels not covered by any
+    // sysregion= layer get masked off so the player keeps its
+    // chrome shape (rounded corners, drawer cutouts, etc.) instead
+    // of leaking opaque bitmap pixels into the desktop.  An empty
+    // region means the skin defines no sysregion mask, so we leave
+    // the widget rectangular (clearMask) and rely on the
+    // chrome bitmaps' own alpha for transparency.
+    // Cache the window region.  Applied at paint time via
+    // QPainter::setClipRegion — QWidget::setMask is X11/Windows
+    // only, so we clip in paintEvent instead.  Pixels outside the
+    // region stay transparent because the surface starts cleared.
+    clearMask();
+    m_windowRegion = Layout::computeWindowRegion(
+        m_tree, m_registry, m_nativeSize);
+
     update();
     return true;
 }
 
 void SkinView::paintEvent(QPaintEvent *) {
-    QPainter p(this);
-    p.fillRect(rect(), Qt::transparent);
-    if (m_host) {
-        // Host route — pulls live display strings + slider
-        // positions straight from the embedder's Host impl.  When
-        // the embedder also set a display resolver explicitly, the
-        // Host route still uses qtWasabi's default mapping; the
-        // explicit resolver only matters in the no-host case.
-        TreePainter::paintTree(&p, m_tree, m_registry, m_fonts,
-                                size(), m_host);
-    } else {
-        TreePainter::paintTree(&p, m_tree, m_registry, m_fonts,
-                                size(), m_resolver);
+    // Render skin into a raster buffer with the window-region clip
+    // applied — QPainter's clip works reliably on QImage targets,
+    // unlike the Wayland-backed widget surface where setClipRegion
+    // is silently ignored on some compositors.  Then blit the
+    // pre-clipped image onto the surface in CompositionMode_Source
+    // so its alpha (zero outside the region) overwrites the
+    // surface alpha unconditionally.
+    QImage buf(size(), QImage::Format_ARGB32_Premultiplied);
+    buf.fill(Qt::transparent);
+    {
+        QPainter bp(&buf);
+        if (!m_windowRegion.isEmpty()) bp.setClipRegion(m_windowRegion);
+        if (m_host) {
+            TreePainter::paintTree(&bp, m_tree, m_registry, m_fonts,
+                                    size(), m_host);
+        } else {
+            TreePainter::paintTree(&bp, m_tree, m_registry, m_fonts,
+                                    size(), m_resolver);
+        }
     }
+
+    QPainter p(this);
+    p.setClipping(false);
+    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.drawImage(0, 0, buf);
 }
 
 }  // namespace WasabiQt

@@ -18,6 +18,7 @@
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/GammasetRegistry.h>
 
+#include <QRegion>
 #include <QString>
 #include <QWidget>
 #include <functional>
@@ -84,6 +85,7 @@ private:
     QSize                  m_nativeSize { 354, 280 };
     DisplayResolver        m_resolver;
     Host                  *m_host = nullptr;
+    QRegion                m_windowRegion;
 };
 
 }  // namespace WasabiQt

@@ -36,11 +36,13 @@
 #include <QHash>
 #include <QList>
 #include <QPoint>
+#include <QRegion>
 #include <QSize>
 #include <QString>
 
 namespace WasabiQt {
 namespace SkinXml { struct Document; }
+class BitmapRegistry;
 
 namespace Layout {
 
@@ -99,6 +101,21 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
                               ImageSizeResolver imageSize = nullptr,
                               void *imageSizeUserdata = nullptr,
                               QRect *outBbox = nullptr);
+
+// Build the window mask defined by `sysregion=` layers in the
+// resolved tree.  Wasabi convention: layers with `sysregion="1"`
+// (or "-2") contribute their opaque pixels to the window region;
+// pixels outside that union are not part of the window at all
+// (Qt's `setMask()` cuts them off, both visually and for input).
+//
+// Walks `root` looking for sysregion layers, paints each to an
+// offscreen ARGB buffer at `canvas` size, and converts the union
+// of alpha-positive pixels into a QRegion.  Returns an empty
+// region if the tree has no sysregion layers — embedders can
+// detect that and skip setMask, leaving the widget rectangular.
+QRegion computeWindowRegion(const ResolvedWidget &root,
+                            BitmapRegistry &registry,
+                            QSize canvas);
 
 // Apply static equivalents of well-known Maki scripts to a resolved
 // tree.  Mirrors the geometry / visibility mutations a script's
