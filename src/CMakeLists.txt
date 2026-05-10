@@ -24,12 +24,12 @@ set(WASABIQT_SOURCES
     TreePainter.cpp
     TextPainter.cpp
     SkinView.cpp
-    ${CMAKE_SOURCE_DIR}/public/WasabiQt/SkinView.h
+    ${PROJECT_SOURCE_DIR}/public/WasabiQt/SkinView.h
     Bootstrap.cpp
     # Q_OBJECT public headers — listed so AUTOMOC generates their
     # moc_*.cpp files inside this target (otherwise downstream link
     # complains about missing vtables for Skin etc.)
-    ${CMAKE_SOURCE_DIR}/public/WasabiQt/Skin.h
+    ${PROJECT_SOURCE_DIR}/public/WasabiQt/Skin.h
     ${WASABIQT_QT6_SOURCES}
 )
 
@@ -52,7 +52,7 @@ add_library(WasabiQT::Static ALIAS wasabiqt_static)
 foreach(_target wasabiqt wasabiqt_static)
     target_include_directories(${_target}
         PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/public>
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/public>
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}
@@ -88,7 +88,7 @@ install(TARGETS wasabiqt wasabiqt_static
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/public/WasabiQt
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/public/WasabiQt
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h")
 
@@ -99,7 +99,7 @@ install(EXPORT WasabiQTTargets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WasabiQT)
 
 configure_package_config_file(
-    ${CMAKE_SOURCE_DIR}/cmake/WasabiQTConfig.cmake.in
+    ${PROJECT_SOURCE_DIR}/cmake/WasabiQTConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/WasabiQTConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/WasabiQT)
 
@@ -115,7 +115,7 @@ install(FILES
 
 # pkg-config (.pc) — for autotools / non-CMake consumers.
 configure_file(
-    ${CMAKE_SOURCE_DIR}/cmake/wasabiqt.pc.in
+    ${PROJECT_SOURCE_DIR}/cmake/wasabiqt.pc.in
     ${CMAKE_CURRENT_BINARY_DIR}/wasabiqt.pc @ONLY)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/wasabiqt.pc
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
