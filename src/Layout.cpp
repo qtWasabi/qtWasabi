@@ -322,8 +322,14 @@ bool expandLayout(const SkinXml::Document &doc,
 
     GroupdefIndex groupdefs;
     collectGroupdefs(doc.root, groupdefs);
+    // Sendparams are scoped to their layout — every container has
+    // its own `<sendparams target="window.titlebar.title"
+    // default="..." />` and we must only apply the chosen
+    // container's overrides, otherwise the titlebar text from one
+    // container (e.g. Video → "VIDEO") leaks into another (main →
+    // "WINAMP").  Walk only the selected layout.
     SendparamsMap sendparams;
-    collectSendparams(doc.root, sendparams);
+    collectSendparams(*layout, sendparams);
     QSet<QString> hidden;
     collectHideObjects(doc.root, hidden);
     // Wasabi's standardframe.maki / videoavs.maki / pledit.maki etc.
