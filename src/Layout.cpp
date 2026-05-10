@@ -678,6 +678,21 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     if (translate) p.save(), p.translate(r.x(), r.y());
 
     // Layer with sysregion -> contribute its bitmap pixels.
+    //
+    // Wasabi convention:
+    //   sysregion="1"  → opaque pixels of this layer are part of
+    //                    the window region.  Painted SourceOver,
+    //                    accumulating into the union.
+    //   sysregion="-2" → opaque pixels of this layer are CUTOUTS
+    //                    that must be removed from the region.
+    //                    These are the staircase corner masks
+    //                    (mainregions.png 6x6 patterns) — opaque
+    //                    pixels mark the rounded-out corner area.
+    //                    Painted with DestinationOut so each
+    //                    opaque mask pixel zeroes the destination
+    //                    alpha at that position — that's how the
+    //                    chrome rectangles get their rounded
+    //                    corners.
     if (w.tag == QStringLiteral("layer")) {
         const QString sr = w.attrs.value(QStringLiteral("sysregion"));
         if (!sr.isEmpty() && sr != QStringLiteral("0")) {
@@ -691,7 +706,13 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
                     img.toLocal8Bit().constData(),
                     r.width(), r.height(), r.x(), r.y());
             }
+            const bool cutoutMode = (sr == QStringLiteral("-2"));
+            if (cutoutMode)
+                p.setCompositionMode(
+                    QPainter::CompositionMode_DestinationOut);
             LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
+            if (cutoutMode)
+                p.setCompositionMode(QPainter::CompositionMode_SourceOver);
             outFoundAny = true;
         }
     }
@@ -752,6 +773,10 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
     bool foundAny = false;
     {
         QPainter p(&buf);
+        // Disable anti-aliasing + smooth scaling so sysregion=-2
+        // mask bitmaps draw 1:1 without alpha bleeding.
+        p.setRenderHint(QPainter::Antialiasing,            false);
+        p.setRenderHint(QPainter::SmoothPixmapTransform,   false);
         paintRegionLayers(p, root, registry, canvas, foundAny);
     }
     if (::getenv("WASABIQT_DEBUG_SYSREGION_DUMP")) {
