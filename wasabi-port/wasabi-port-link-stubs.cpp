@@ -1200,7 +1200,16 @@ void ObjectTable::destroy(ScriptObject *)                   {}
 class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
 
 // ── SystemObject ─────────────────────────────────────────────────
-int SystemObject::isObjectValid(ScriptObject *)             { return 0; }
+// VCPUassign uses this to gate object-typed assignment: when it
+// returns 0 the assigned pointer gets nullified before the slot
+// receives it, which kills every `local = Config.newItem(...)` and
+// similar chains.  Upstream's real implementation walks the live
+// ScriptObject registry; we don't track that here yet — but every
+// ScriptObject we hand to the VM is genuinely live (we never free
+// them until SkinRuntime::destroyAll, and assignment can only happen
+// during script dispatch, which can't outlive that).  Treat all
+// non-null receivers as valid.
+int SystemObject::isObjectValid(ScriptObject *o)            { return o != nullptr; }
 PtrList<ScriptObject> *SystemObject::getAllScriptObjects()  { static PtrList<ScriptObject> empty; return &empty; }
 TList<int> *SystemObject::getTypesList()                    { static TList<int> empty; return &empty; }
 void SystemObject::setIsOldFormat(int)                       {}

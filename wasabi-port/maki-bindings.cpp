@@ -453,7 +453,13 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"setVisible",              1, (void *)wq_setVisible},
         {L"getVisible",              0, (void *)wq_getVisible},
         {L"setXmlParam",             2, (void *)wq_setXmlParam},
+        // Maki is case-sensitive on method lookup; scripts use either
+        // spelling (configtabs.m has both setXmlParam and setXMLParam
+        // in the same file).  Both point at the same body.
+        {L"setXMLParam",             2, (void *)wq_setXmlParam},
         {L"getXmlParam",             1, (void *)wq_getXmlParam},
+        {L"getXMLParam",             1, (void *)wq_getXmlParam},
+        {L"findobject",              1, (void *)wq_findObject},
         {L"setAlpha",                1, (void *)wq_setAlpha},
         {L"getAlpha",                0, (void *)wq_getAlpha},
         {L"getAutoWidth",            0, (void *)wq_getAutoWidth},
