@@ -444,7 +444,15 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
                     const int totalW = tickW + gap;
                     const qint64 ms =
                         QDateTime::currentMSecsSinceEpoch();
-                    const int speed = 30;  // px/sec
+                    // Classic Winamp 2 / WACUP runs the titlebar
+                    // ticker at roughly 6 px/sec — slow enough to be
+                    // readable, fast enough to circle a normal-length
+                    // track title in 5–10 sec.  Default unless the
+                    // skin overrides via `tickspeed=`.
+                    const int speed =
+                        a.value(QStringLiteral("tickspeed")).toInt() > 0
+                            ? a.value(QStringLiteral("tickspeed")).toInt()
+                            : 6;
                     const int offset =
                         int((ms * speed / 1000) % qint64(totalW));
                     p->save();
