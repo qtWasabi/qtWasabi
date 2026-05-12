@@ -87,24 +87,29 @@ bool paintText(QPainter *p,
         // the cursor by 6 instead of 9 to remove the dead space.
         // Wasabi's BIGNUM time-display convention (measured against
         // upstream DeClassified at 275×116):
-        //   * colon occupies a wider cell than digits — charWidth + 2
-        //     px — and the dot itself (`timecolonwidth`) sits right-
-        //     anchored inside that cell.
+        //   * digit cells advance by `charWidth + hSpacing`
+        //   * the colon's cell is just `timecolonwidth` wide with NO
+        //     trailing hSpacing — the colon's own width absorbs the
+        //     visual gap to the next digit
         //   * the seconds digit reserves a small fixed right margin
-        //     (~4 px) so it doesn't hug the LCD frame.
+        //     so it doesn't hug the LCD frame
         const int colDotW = attrInt(attrs,
             QStringLiteral("timecolonwidth"), fontDef->charWidth);
-        const int colCellW = fontDef->charWidth + 2;
-        auto charAdvance = [&](QChar c) {
-            return c == u':' ? colCellW : fontDef->charWidth;
+        auto cellWidth = [&](QChar c) {
+            return c == u':' ? colDotW : fontDef->charWidth;
+        };
+        auto trailingSpace = [&](QChar c) {
+            // No trailing space after the colon: its 6-wide cell IS
+            // the gap to the next digit (verified against upstream's
+            // pixel positions).
+            return c == u':' ? 0 : fontDef->hSpacing;
         };
         int lineW = 0;
         for (int i = 0; i < text.size(); ++i) {
-            if (i > 0) lineW += fontDef->hSpacing;
-            lineW += charAdvance(text.at(i));
+            lineW += cellWidth(text.at(i));
+            if (i < text.size() - 1)
+                lineW += trailingSpace(text.at(i));
         }
-        // Reserve a small fixed right margin on time displays so the
-        // last digit doesn't sit flush against the LCD frame.
         const int timePadRight =
             attrs.contains(QStringLiteral("timecolonwidth")) ? 4 : 0;
         int drawX = x;
@@ -171,17 +176,13 @@ bool paintText(QPainter *p,
         for (int i = 0; i < text.size(); ++i) {
             const QChar ch = text.at(i);
             if (ch == u':' && colonIsBlank) {
-                // 3-wide × 1-tall colon dots, two stacked at thirds
-                // of the digit cell.  Sits centred inside the colon's
-                // wider cell — measured to land where the upstream
-                // reference's grid dots sit.
+                // 3-wide × 1-tall dots at the left of the colon's
+                // narrow cell.  Two stacked at thirds of the digit
+                // cell — exactly where the upstream reference paints
+                // them.
                 const int dotH = 1;
                 const int dotW = 3;
-                // Dots sit at the *right* end of the colon's wider
-                // cell — measured against the upstream reference's
-                // pixel positions on DeClassified, the dot starts at
-                // cx + (colCellW - dotW), not centred.
-                const int dotX = cx + colCellW - dotW;
+                const int dotX = cx;
                 const int t1   = drawY + fontDef->charHeight / 3;
                 const int t2   = drawY + (fontDef->charHeight * 2) / 3;
                 p->save();
@@ -192,14 +193,11 @@ bool paintText(QPainter *p,
                 p->restore();
             } else {
                 QImage glyph = fontReg.glyph(fontId, ch, bmpReg);
-                if (!glyph.isNull()) {
-                    int gx = cx;
-                    if (ch == u':' && colDotW < fontDef->charWidth)
-                        gx -= (fontDef->charWidth - colDotW) / 2;
-                    p->drawImage(QPoint(gx, drawY), glyph);
-                }
+                if (!glyph.isNull())
+                    p->drawImage(QPoint(cx, drawY), glyph);
             }
-            cx += charAdvance(ch) + fontDef->hSpacing;
+            cx += cellWidth(ch);
+            if (i < text.size() - 1) cx += trailingSpace(ch);
         }
         return true;
     }

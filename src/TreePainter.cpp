@@ -288,13 +288,14 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     // visibility, qtWasabi statically picks the matching bitmap and
     // paints it as a regular layer.
     if (t == QStringLiteral("status") && ctx.host) {
+        // SkinXml lowercases attr names; look up the lower-case form.
         QString img;
         if      (ctx.host->isPlaying())
-            img = node.attrs.value(QStringLiteral("playBitmap"));
+            img = node.attrs.value(QStringLiteral("playbitmap"));
         else if (ctx.host->isPaused())
-            img = node.attrs.value(QStringLiteral("pauseBitmap"));
+            img = node.attrs.value(QStringLiteral("pausebitmap"));
         else
-            img = node.attrs.value(QStringLiteral("stopBitmap"));
+            img = node.attrs.value(QStringLiteral("stopbitmap"));
         if (!img.isEmpty()) {
             QHash<QString, QString> a = node.attrs;
             a.insert(QStringLiteral("image"), img);
