@@ -282,6 +282,27 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
+    // <status playBitmap="X" pauseBitmap="Y" stopBitmap="Z"/> —
+    // classic-skin widget that chooses one of three bitmaps based on
+    // the host's playback state.  Without a Maki script driving
+    // visibility, qtWasabi statically picks the matching bitmap and
+    // paints it as a regular layer.
+    if (t == QStringLiteral("status") && ctx.host) {
+        QString img;
+        if      (ctx.host->isPlaying())
+            img = node.attrs.value(QStringLiteral("playBitmap"));
+        else if (ctx.host->isPaused())
+            img = node.attrs.value(QStringLiteral("pauseBitmap"));
+        else
+            img = node.attrs.value(QStringLiteral("stopBitmap"));
+        if (!img.isEmpty()) {
+            QHash<QString, QString> a = node.attrs;
+            a.insert(QStringLiteral("image"), img);
+            LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+        }
+        return;
+    }
+
     if (t == QStringLiteral("button")          ||
         t == QStringLiteral("togglebutton")    ||
         t == QStringLiteral("nstatesbutton")) {
