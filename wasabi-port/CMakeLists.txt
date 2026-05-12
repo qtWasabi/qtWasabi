@@ -8,9 +8,31 @@
 # AND a tiny `include-stubs/` overlay that intercepts a handful of
 # windowing-adjacent headers (`tataki/canvas/Canvas.h`,
 # `api/timer/api_timer.h`) which the VM only needs for declarations.
+#
+# vcpu.cpp lives in `patches/` form rather than direct vendoring: the
+# upstream copy in WASABI_SRC_DIR is copied into the build tree and a
+# qtWasabi-owned patch is applied on top.  Keeps the source-of-truth
+# upstream untouched while letting qtWasabi carry the small mutations
+# the dispatcher needs (object-shaped receiver acceptance, opcode/
+# CALLM tracing, configDummy fallback).
 
 set(WASABIQT_PORT_SHIM    ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-shim.h)
 set(WASABIQT_PORT_STUBDIR ${CMAKE_CURRENT_SOURCE_DIR}/include-stubs)
+
+# Generate a patched copy of vcpu.cpp into the build tree.
+set(WASABIQT_VCPU_PATCHED ${CMAKE_CURRENT_BINARY_DIR}/vcpu.cpp)
+set(WASABIQT_VCPU_PATCH   ${CMAKE_CURRENT_SOURCE_DIR}/patches/vcpu-qtwasabi.patch)
+add_custom_command(
+    OUTPUT  ${WASABIQT_VCPU_PATCHED}
+    COMMAND ${CMAKE_COMMAND} -E copy
+            ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
+            ${WASABIQT_VCPU_PATCHED}
+    COMMAND patch -p1 -d ${CMAKE_CURRENT_BINARY_DIR}
+            -i ${WASABIQT_VCPU_PATCH}
+    DEPENDS ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
+            ${WASABIQT_VCPU_PATCH}
+    COMMENT "Patching vcpu.cpp with qtWasabi mutations"
+    VERBATIM)
 
 set(WASABIQT_BFC_SOURCES
     # ── BFC subset ───────────────────────────────────────────────
@@ -32,13 +54,16 @@ set(WASABIQT_BFC_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/StringW-port.cpp
     ${WASABI_SRC_DIR}/Wasabi/bfc/string/string.cpp
 
-    # ── Maki VM (opensourced, unmodified) ─────────────────────────────
-    # vcpu.cpp is the bit-perfect bytecode dispatch loop.  Its header
-    # neighbours scriptmgr.cpp / script.cpp are integration glue that
-    # pulls the entire skin/widget tree and is therefore *not*
-    # vendored — WasabiQT writes its own thin manager that wires the
-    # VM to the WasabiQt::Skin widget tree.
-    ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
+    # ── Maki VM (opensourced + qtWasabi patch) ─────────────────────────
+    # vcpu.cpp is the bit-perfect bytecode dispatch loop.  We copy the
+    # upstream source into the build tree and apply patches/vcpu-
+    # qtwasabi.patch on top — small mutations for opcode + CALLM
+    # tracing, configDummy fallback, and accepting any object-shaped
+    # receiver in callDLF.  Its header neighbours scriptmgr.cpp /
+    # script.cpp are integration glue that pulls the entire skin/widget
+    # tree and is therefore *not* vendored — WasabiQT writes its own
+    # thin manager that wires the VM to the WasabiQt::Skin widget tree.
+    ${WASABIQT_VCPU_PATCHED}
 
     # ── Linux/Qt implementations ─────────────────────────────────
     # Platform hooks BFC declares but only provides on Win32 / macOS.
@@ -73,6 +98,10 @@ set(WASABIQT_PORT_INCLUDES
     # include-stubs/ FIRST so our overrides for entangled windowing
     # headers (Canvas.h, api_timer.h) win over WASABI_SRC_DIR.
     ${WASABIQT_PORT_STUBDIR}
+    # vcpu.cpp lives in our build tree (patched copy), but does
+    # `#include "vcpu.h"` — its upstream sibling, which we don't
+    # patch.  Add the script/ dir directly so that "" lookup finds it.
+    ${WASABI_SRC_DIR}/Wasabi/api/script
     ${WASABI_SRC_DIR}
     ${WASABI_SRC_DIR}/Wasabi
     ${WASABI_SRC_DIR}/Wasabi/bfc

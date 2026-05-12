@@ -1,0 +1,116 @@
+diff --git a/vcpu.cpp b/vcpu.cpp
+index 1002ee57..9737cef9 100644
+--- a/vcpu.cpp
++++ b/vcpu.cpp
+@@ -6,6 +6,11 @@
+ #include "vcpu.h"
+ #include "opcodes.h"
+ #include <api/wndmgr/container.h>
++
++// M14j: declared in qtWasabi's maki-bindings.cpp. Used in callDLF
++// below as a fallback receiver when a script dispatches on a null
++// _predecl global like Config.
++extern "C" void *wq_config_dummy_get();
+ #include <api/wndmgr/msgbox.h>
+ #include <api/script/objecttable.h>
+ #include <api/syscb/callbacks/consolecb.h>
+@@ -932,6 +937,27 @@ void VCPU::runCode(int scriptId, int pointer, int np) {
+     p+=sizeof(opcode);
+     VIP+=sizeof(opcode);
+ 
++    // M14f: per-opcode trace at WASABIQT_TRACE_MAKI level 2+.
++    // Prints sid, ip, vsp, opcode for every dispatched instruction.
++    // Cheap when off (single env-var lookup cached in static).
++    {
++      static int trace_level = -1;
++      if (trace_level < 0) {
++        const char *t = getenv("WASABIQT_TRACE_MAKI");
++        trace_level = (t && *t) ? atoi(t) : 0;
++      }
++      if (trace_level >= 2) {
++        fprintf(stderr, "[opcode] sid=%d ip=%d vsp=%d op=0x%02X\n",
++                VSD, VIP - 1, VSP, (unsigned)opcode);
++        if (trace_level >= 3) {
++          for (int s = 0; s < VSP && s < 4; ++s) {
++            VCPUscriptVar v = peekAt(s);
++            fprintf(stderr, "    [stack %d] type=%d data=%p\n",
++                    s, v.v.type, (void *)v.v.data.odata);
++          }
++        }
++      }
++    }
+     switch (opcode) {
+       case OPCODE_PUSH: {
+         int id; // var id
+@@ -996,6 +1022,22 @@ void VCPU::runCode(int scriptId, int pointer, int np) {
+           VIP += sizeof(int);
+           np &= 0xFFFF;
+         } else np = -1;
++        // M14k: per-CALLM trace to chase residual VSP imbalances.
++        // Prints method name + the np-source the dispatcher will pick
++        // (bytecode np if guarded, else e->nparams from our table).
++        if (const char *t = ::getenv("WASABIQT_TRACE_CALLM");
++            t && *t == '1' && e && e->functionName) {
++          char nb[128];
++          const wchar_t *wn = e->functionName;
++          int o = 0;
++          for (; wn[o] && o < (int)sizeof(nb)-1; ++o)
++            nb[o] = (wn[o] < 128) ? (char)wn[o] : '?';
++          nb[o] = 0;
++          int eff = (np >= 0) ? np : e->nparams;
++          ::fprintf(stderr,
++            "[callm] sid=%d ip=%d vsp=%d method=%s np_bytecode=%d e->np=%d eff=%d\n",
++            VSD, VIP, VSP, nb, np, e->nparams, eff);
++        }
+         scriptVar r = callDLF(e, np);
+         VCPUscriptVar vr;
+         vr.scriptId = VSD;
+@@ -1638,13 +1680,41 @@ scriptVar VCPU::callDLF(VCPUdlfEntry *e, int np) {
+ 
+   //traceState(object, e);
+ 
+-  if (object.v.data.odata == NULL) {
+-    Script::guruMeditation(SOM::getSystemObjectByScriptId(VCPU::VSD), GURU_NULLCALLED, L"Null object called", object.varId);
+-    cpuidstack.pop(&VCC);
+-    cpuidstack.pop(&VIP);
+-    cpuidstack.pop(&VSD);
+-    return MAKE_SCRIPT_INT(0);
+-    //ASSERT(0);
++  // M14j: redirect bogus receivers to configDummy. Catches both null
++  // (unbound _predecl globals like Config) and non-object types
++  // (data.idata aliased through data.odata as a small int that the
++  // dispatcher would otherwise treat as a pointer and segfault on).
++  // Gated by env var so the byte-for-byte promise stays intact when
++  // off.
++  //
++  // qtWasabi: a var typed as SCRIPT_OBJECT (7) or any class id (>=8,
++  // also the -1 sentinel our `ObjectTable::getClassFromGuid` stub
++  // leaves for every class because we don't yet have a class registry)
++  // is "object-shaped" — the data union holds a pointer.  The original
++  // upstream check `type != SCRIPT_OBJECT` rejects every class-typed
++  // slot, including the ones the loader just bound to a real System.
++  // Accept anything outside the primitive range [SCRIPT_INT,
++  // SCRIPT_STRING] (i.e. 2..6) as a valid object receiver.
++  bool typeIsObjectShaped =
++      (object.v.type < SCRIPT_INT) || (object.v.type > SCRIPT_STRING);
++  bool bogus = (object.v.data.odata == NULL) || !typeIsObjectShaped;
++  if (bogus) {
++    static const char *fb_env = getenv("WASABIQT_CONFIG_FALLBACK");
++    if (fb_env && *fb_env == '1') {
++      if (void *dummy = wq_config_dummy_get()) {
++        object.v.type = SCRIPT_OBJECT;
++        object.v.data.odata = (ScriptObject *)dummy;
++        bogus = false;
++      }
++    }
++    if (bogus) {
++      Script::guruMeditation(SOM::getSystemObjectByScriptId(VCPU::VSD), GURU_NULLCALLED, L"Null object called", object.varId);
++      cpuidstack.pop(&VCC);
++      cpuidstack.pop(&VIP);
++      cpuidstack.pop(&VSD);
++      return MAKE_SCRIPT_INT(0);
++      //ASSERT(0);
++    }
+   }
+ #ifndef _DEBUG
+   try
