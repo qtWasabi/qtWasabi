@@ -451,6 +451,40 @@ extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *) {
     return makeString(L"");
 }
 
+// WinampConfigGroup.getInt(key) — no config store yet, return 0.
+extern "C" scriptVar wq_getInt(maki_cmd *, int, ScriptObject *, scriptVar) {
+    return makeInt(0);
+}
+
+// Layer/Button/Slider.setEnabled — mutate enabled= attr (no-op for
+// widgets that don't render enabled state yet, harmless for those
+// that do).
+extern "C" scriptVar wq_setEnabled(maki_cmd *, int, ScriptObject *o, scriptVar v) {
+    if (!o) return makeVoid();
+    const bool on = (v.type == SCRIPT_BOOLEAN || v.type == SCRIPT_INT)
+                        ? (v.data.idata != 0) : true;
+    wq_widget_setAttr(o, L"enabled", on ? L"1" : L"0");
+    return makeVoid();
+}
+
+// Slider.getPosition — read position= as int (0..255 by Wasabi
+// convention).  Without a real slider model we just return 0; scripts
+// reading this typically only need a non-null receiver.
+extern "C" scriptVar wq_getPosition(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"position"));
+}
+
+// Container.getLayout(name) — return a layout-root-shaped pseudo so
+// callers can chain getWidth()/getHeight() against something.  Real
+// Wasabi looks up the named layout within the container; we don't
+// have a container model yet, so reuse the global layout root.
+extern "C" scriptVar wq_getLayoutByName(maki_cmd *, int, ScriptObject *o,
+                                          scriptVar /*name*/) {
+    void *root = wq_layout_root();
+    return makeObject(static_cast<ScriptObject *>(root ? root : o));
+}
+
 // ── method registry ─────────────────────────────────────────────
 
 namespace WasabiQt::Maki {
@@ -521,12 +555,19 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"bringToBack",             0, (void *)wq_bringToBack},
         {L"setText",                 1, (void *)wq_setText},
         {L"getText",                 0, (void *)wq_getText},
-        // Config / ConfigItem / ConfigAttribute stubs (M14g)
+        // Config / ConfigItem / ConfigAttribute / WinampConfig stubs.
+        // All return a shared dummy ScriptObject so chained calls on
+        // the result stay non-null.
         {L"newItem",                 2, (void *)wq_newItem},
         {L"getItem",                 1, (void *)wq_getItem},
+        {L"getGroup",                1, (void *)wq_getItem},
         {L"newAttribute",            2, (void *)wq_newAttribute},
         {L"setData",                 1, (void *)wq_setData},
         {L"getData",                 0, (void *)wq_getData},
+        {L"getInt",                  1, (void *)wq_getInt},
+        {L"setEnabled",              1, (void *)wq_setEnabled},
+        {L"getPosition",             0, (void *)wq_getPosition},
+        {L"getLayout",               1, (void *)wq_getLayoutByName},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;
