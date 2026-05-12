@@ -1143,6 +1143,7 @@ int lookupNparams(const wchar_t *name) {
 namespace WasabiQt::Maki {
 struct MakiMethod { const wchar_t *name; int nparams; void *ptr; };
 const MakiMethod *makiMethodTable(int *count);
+void *createWidgetScriptObject(void *opaqueWidget);
 }
 
 int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
@@ -1193,9 +1194,23 @@ int  ObjectTable::getClassFromName(const wchar_t *)         { return -1; }
 int  ObjectTable::getClassFromGuid(GUID)                    { return -1; }
 const wchar_t *ObjectTable::getClassName(int)               { return L""; }
 int  ObjectTable::getClassEntryIdx(int)                     { return -1; }
-int  ObjectTable::isClassInstantiable(int)                  { return 0; }
+// Real Wasabi only allows `new Foo` for specific classes (Timer,
+// Region, Map, etc.); ours can't tell what class the int id maps to
+// because getClassFromGuid stubs to -1.  Return 1 unconditionally so
+// `new Foo` doesn't get rejected as not-instantiable; instantiate()
+// hands back a fresh WidgetScriptObject so script-side calls on the
+// result land on real bindings (setDelay no-op, etc.) instead of a
+// null-call guru.
+int  ObjectTable::isClassInstantiable(int)                  { return 1; }
 int  ObjectTable::isClassReferenceable(int)                 { return 0; }
-ScriptObject *ObjectTable::instantiate(int)                 { return nullptr; }
+// `new Timer`, `new Map`, etc. flow through here.  Hand back a fresh
+// WidgetScriptObject so the script-side reference is non-null; the
+// existing Maki bindings (setDelay, start, stop, …) tolerate a
+// receiver without a backing widget and return safe defaults.
+ScriptObject *ObjectTable::instantiate(int) {
+    return static_cast<ScriptObject *>(
+        WasabiQt::Maki::createWidgetScriptObject(nullptr));
+}
 void ObjectTable::destroy(ScriptObject *)                   {}
 class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
 
