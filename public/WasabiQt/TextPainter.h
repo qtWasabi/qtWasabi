@@ -43,7 +43,8 @@ bool paintText(QPainter *p,
                const QSize &containerSize,
                const DisplayResolver &resolver = {},
                const ColorRegistry *colors = nullptr,
-               const GammasetRegistry *gammasets = nullptr);
+               const GammasetRegistry *gammasets = nullptr,
+               bool clipToWidget = true);
 
 }  // namespace TextPainter
 }  // namespace WasabiQt

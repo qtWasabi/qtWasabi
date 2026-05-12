@@ -467,11 +467,13 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
                     p->translate(-offset, 0);
                     TextPainter::paintText(p, *ctx.font, *ctx.bmp, a,
                                            canvas, ctx.resolver,
-                                           ctx.colors, ctx.gammasets);
+                                           ctx.colors, ctx.gammasets,
+                                           /*clipToWidget=*/false);
                     p->translate(totalW, 0);
                     TextPainter::paintText(p, *ctx.font, *ctx.bmp, a,
                                            canvas, ctx.resolver,
-                                           ctx.colors, ctx.gammasets);
+                                           ctx.colors, ctx.gammasets,
+                                           /*clipToWidget=*/false);
                     p->restore();
                     return;
                 }
