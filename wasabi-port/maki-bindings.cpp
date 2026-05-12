@@ -152,9 +152,20 @@ extern "C" scriptVar wq_stringToInteger(maki_cmd *, int, ScriptObject *,
 
 extern "C" scriptVar wq_integerToString(maki_cmd *, int, ScriptObject *,
                                          scriptVar i) {
-    if (i.type != SCRIPT_INT) return makeString(L"0");
+    // Maki uses idata for any numeric value that fits in an int —
+    // SOM::makeInt does the same.  Stamping the type as SCRIPT_DOUBLE
+    // after arithmetic doesn't move the bits into ddata.  Accept all
+    // numeric types and read from idata; only reject string / object.
+    int v;
+    switch (i.type) {
+        case SCRIPT_INT:
+        case SCRIPT_FLOAT:
+        case SCRIPT_DOUBLE:
+        case SCRIPT_BOOLEAN: v = i.data.idata; break;
+        default: return makeString(L"0");
+    }
     wchar_t buf[32];
-    std::swprintf(buf, 32, L"%d", i.data.idata);
+    std::swprintf(buf, 32, L"%d", v);
     return makeString(intern(std::wstring(buf)));
 }
 
@@ -328,22 +339,20 @@ extern "C" scriptVar wq_getAutoHeight(maki_cmd *, int, ScriptObject *o) {
 }
 extern "C" scriptVar wq_getWidth(maki_cmd *, int, ScriptObject *o)      {
     if (!o) return makeInt(0);
-    // Wasabi's getWidth returns the EFFECTIVE pixel width, not the raw
-    // `w` attribute.  Mirror autowidthsource= resolution so configtabs.m's
-    // `tabEQwidth = tEQon.getWidth()` gets the label-based width instead
-    // of 0.
+    // Wasabi's getWidth returns the EFFECTIVE pixel width.  Prefer the
+    // raw `w` attribute when set; otherwise fall back to the widget's
+    // own text measurement (text/songticker) or to the autowidthsource-
+    // referenced text widget (groups whose width is derived from a
+    // label child) so configtabs.m's `tabEQwidth = tEQon.getWidth()`
+    // returns a sensible label-driven width.
     int w = wq_widget_getAttrInt(o, L"w");
     if (w > 0) return makeInt(w);
-    // Self-text fallback (text/songticker widgets carry their own copy).
     if (int tw = wq_widget_textWidth(o); tw > 0) return makeInt(tw);
-    // Group-with-autowidthsource: resolve the named text widget and use
-    // its measurement.
     const wchar_t *src = wq_widget_getAttr(o, L"autowidthsource");
     if (src && *src) {
-        if (void *child = wq_widget_findById(src)) {
+        if (void *child = wq_widget_findById(src))
             if (int tw = wq_widget_textWidth(child); tw > 0)
                 return makeInt(tw);
-        }
     }
     return makeInt(0);
 }
@@ -449,8 +458,10 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getToken",                3, (void *)wq_getToken},
         {L"stringToInteger",         1, (void *)wq_stringToInteger},
         {L"StringToInteger",         1, (void *)wq_stringToInteger},
+        {L"stringtointeger",         1, (void *)wq_stringToInteger},
         {L"integerToString",         1, (void *)wq_integerToString},
         {L"IntegerToString",         1, (void *)wq_integerToString},
+        {L"integertostring",         1, (void *)wq_integerToString},
         {L"messageBox",              4, (void *)wq_messageBox},
         {L"navigateUrlBrowser",      1, (void *)wq_navigateUrlBrowser},
         {L"getPrivateInt",           3, (void *)wq_getPrivateInt},
