@@ -16,8 +16,13 @@ namespace {
 QString fmtMs(qint64 ms) {
     if (ms < 0) ms = 0;
     const qint64 sec = ms / 1000;
+    // Match Winamp's BIGNUM time-display convention: MM:SS with
+    // zero-padded minutes (e.g. "00:02").  Hours fold into minutes —
+    // tracks rarely exceed 99 minutes, and the LCD display widgets
+    // can clip if they do.
     return QStringLiteral("%1:%2")
-        .arg(sec / 60).arg(sec % 60, 2, 10, QChar('0'));
+        .arg(sec / 60, 2, 10, QChar('0'))
+        .arg(sec % 60, 2, 10, QChar('0'));
 }
 }  // namespace
 

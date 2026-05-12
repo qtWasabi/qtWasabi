@@ -114,6 +114,20 @@ QImage FontRegistry::glyph(const QString &fontId, QChar ch,
     if (!def) return {};
     if (def->charWidth <= 0 || def->charHeight <= 0) return {};
 
+    // Classic Winamp NUMBERS.BMP fonts (used by DeClassified et al.)
+    // pack glyphs sequentially in a single row instead of Wasabi's
+    // 3-row table: digits 0..9 → cells 0..9, `:` → cell 10, `-` →
+    // cell 11.  The bitmap is still 3-rows-tall (Wasabi font format
+    // requires it), but only one row has glyphs — which is exactly
+    // what DeClassified's `skin/numfont.png` ships.
+    auto classicCellIndex = [](QChar ic) -> int {
+        const ushort u = ic.unicode();
+        if (u >= u'0' && u <= u'9') return u - u'0';
+        if (u == u':') return 10;
+        if (u == u'-') return 11;  // some skins use 11; others 15
+        return -1;
+    };
+
     QImage table = m_charTableCache.value(fontId);
     if (table.isNull()) {
         // Two conventions for <bitmapfont file="X">:
@@ -130,9 +144,35 @@ QImage FontRegistry::glyph(const QString &fontId, QChar ch,
         if (table.isNull()) return {};
         m_charTableCache.insert(fontId, table);
     }
+    auto cellHasPixels = [&](const QRect &rr) {
+        if (rr.width() <= 0 || rr.height() <= 0) return false;
+        QImage cell = table.copy(rr);
+        if (cell.format() != QImage::Format_ARGB32 &&
+            cell.format() != QImage::Format_ARGB32_Premultiplied)
+            cell = cell.convertToFormat(QImage::Format_ARGB32);
+        for (int y = 0; y < cell.height(); ++y) {
+            const QRgb *row = reinterpret_cast<const QRgb *>(cell.constScanLine(y));
+            for (int x = 0; x < cell.width(); ++x)
+                if (qAlpha(row[x]) > 0) return true;
+        }
+        return false;
+    };
+
     const QPoint p = glyphCoord(ch, def->charWidth, def->charHeight);
     QRect r(p.x(), p.y(), def->charWidth, def->charHeight);
     r = r.intersected(table.rect());
+    // If the Wasabi-default cell is empty, fall back to the classic
+    // NUMBERS.BMP layout (digits at 0..9, `:` at 10, `-` at 11) which
+    // a few non-Modern skins author against.
+    if (!r.isEmpty() && !cellHasPixels(r)) {
+        const int classic = classicCellIndex(ch);
+        if (classic >= 0) {
+            QRect alt(classic * def->charWidth, def->charHeight,
+                      def->charWidth, def->charHeight);
+            alt = alt.intersected(table.rect());
+            if (!alt.isEmpty() && cellHasPixels(alt)) r = alt;
+        }
+    }
     if (r.isEmpty()) return {};
     return table.copy(r);
 }

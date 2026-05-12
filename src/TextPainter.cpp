@@ -100,18 +100,85 @@ bool paintText(QPainter *p,
         else if (align == QStringLiteral("right"))  drawX = x + (w - lineW);
         int drawY = y + (h - fontDef->charHeight) / 2;
         if (drawY < y) drawY = y;
+        // For classic-style NUMBERS.BMP fonts the colon glyph isn't
+        // in the bitmap at all (Winamp 2's BIGNUM had only 0–9 and
+        // `-`).  Detect by sampling: if `:`'s extracted cell has no
+        // bright pixels matching the digit color, paint it as two
+        // small dots procedurally — the same dots stock Wasabi/WACUP
+        // draws for time displays.
+        // Pick a representative glyph color from the digit `0`, which
+        // we'll re-use for procedurally-drawn colon dots if the font
+        // has no colon glyph of its own (classic NUMBERS.BMP style).
+        QImage zeroGlyph = fontReg.glyph(fontId, u'0', bmpReg);
+        QImage colonGlyph = fontReg.glyph(fontId, u':', bmpReg);
+        // Sample the digit's dominant non-background color.  Looks for
+        // any "strong" (non-grey) channel pixel; falls back to white.
+        QColor dotColor(Qt::white);
+        QRgb digitSample = 0;
+        if (!zeroGlyph.isNull()) {
+            QImage z = zeroGlyph.convertToFormat(QImage::Format_ARGB32);
+            for (int yy = 0; yy < z.height() && digitSample == 0; ++yy) {
+                const QRgb *row = reinterpret_cast<const QRgb *>(z.constScanLine(yy));
+                for (int xx = 0; xx < z.width(); ++xx) {
+                    const QRgb rgb = row[xx];
+                    if (qAlpha(rgb) == 0) continue;
+                    const int r = qRed(rgb), g = qGreen(rgb), b = qBlue(rgb);
+                    const int mx = qMax(r, qMax(g, b));
+                    const int mn = qMin(r, qMin(g, b));
+                    if (mx > 80 && (mx - mn) > 30) {   // saturated, not grey
+                        dotColor = QColor::fromRgb(rgb);
+                        digitSample = rgb;
+                        break;
+                    }
+                }
+            }
+        }
+        // Detect a "blank" colon glyph: the cell exists but contains
+        // no pixels matching the digit color we just sampled.  Covers
+        // both empty/transparent cells and dark filler cells (where
+        // alpha=255 but no glyph pixels match the digit hue).
+        bool colonIsBlank = colonGlyph.isNull();
+        if (!colonIsBlank && digitSample != 0) {
+            QImage c = colonGlyph.convertToFormat(QImage::Format_ARGB32);
+            int matchPx = 0;
+            for (int yy = 0; yy < c.height() && matchPx == 0; ++yy) {
+                const QRgb *row = reinterpret_cast<const QRgb *>(c.constScanLine(yy));
+                for (int xx = 0; xx < c.width(); ++xx) {
+                    if (qAlpha(row[xx]) == 0) continue;
+                    const int r = qRed(row[xx]), g = qGreen(row[xx]), b = qBlue(row[xx]);
+                    const int mx = qMax(r, qMax(g, b));
+                    const int mn = qMin(r, qMin(g, b));
+                    if (mx > 80 && (mx - mn) > 30) { ++matchPx; break; }
+                }
+            }
+            if (matchPx == 0) colonIsBlank = true;
+        }
         int cx = drawX;
         for (int i = 0; i < text.size(); ++i) {
-            QImage glyph = fontReg.glyph(fontId, text.at(i), bmpReg);
-            if (!glyph.isNull()) {
-                // Colon: shift the glyph so its narrower visual sits
-                // inside the colW slot (centred within charWidth).
-                int gx = cx;
-                if (text.at(i) == u':' && colW < fontDef->charWidth)
-                    gx -= (fontDef->charWidth - colW) / 2;
-                p->drawImage(QPoint(gx, drawY), glyph);
+            const QChar ch = text.at(i);
+            if (ch == u':' && colonIsBlank) {
+                // Draw two centred dots in the colW slot.  Sizing
+                // mirrors Winamp 2: two ~2px-tall dots, one at
+                // ~1/3 and one at ~2/3 of charHeight.
+                const int dotSize = qMax(1, fontDef->charHeight / 5);
+                const int dotX = cx + (colW - dotSize) / 2;
+                const int t1   = drawY + fontDef->charHeight / 3 - dotSize / 2;
+                const int t2   = drawY + fontDef->charHeight * 2 / 3 - dotSize / 2;
+                p->save();
+                p->setRenderHint(QPainter::Antialiasing, false);
+                p->fillRect(QRect(dotX, t1, dotSize, dotSize), dotColor);
+                p->fillRect(QRect(dotX, t2, dotSize, dotSize), dotColor);
+                p->restore();
+            } else {
+                QImage glyph = fontReg.glyph(fontId, ch, bmpReg);
+                if (!glyph.isNull()) {
+                    int gx = cx;
+                    if (ch == u':' && colW < fontDef->charWidth)
+                        gx -= (fontDef->charWidth - colW) / 2;
+                    p->drawImage(QPoint(gx, drawY), glyph);
+                }
             }
-            cx += charAdvance(text.at(i)) + fontDef->hSpacing;
+            cx += charAdvance(ch) + fontDef->hSpacing;
         }
         return true;
     }
