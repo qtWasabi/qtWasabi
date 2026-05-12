@@ -82,12 +82,11 @@ bool paintText(QPainter *p,
     // Wasabi text widgets clip their content to the declared rect —
     // long song titles in songticker scroll/clip inside `w` instead
     // of leaking into the kbps/kHz area, time strings can never
-    // overflow the LCD frame, etc.  Skip our own clip if the caller
-    // has already set one (the songticker scroll path does, against
-    // a translated painter, so re-clipping would mis-intersect).
+    // overflow the LCD frame, etc.  Use IntersectClip so we combine
+    // with any outer clip (window mask, or songticker's translated
+    // viewport).
     p->save();
-    if (!p->hasClipping())
-        p->setClipRect(QRect(x, y, w, h));
+    p->setClipRect(QRect(x, y, w, h), Qt::IntersectClip);
 
     if (isBitmap) {
         // ── bitmap font path ───────────────────────────────────
