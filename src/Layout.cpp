@@ -839,92 +839,71 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
     };
     walk(root);
 
-    // Layout the drawer's tab cluster (Equalizer / Options /
-    // Color Themes) side-by-side, mirroring configtabs.m::
-    // System.onScriptLoaded:
-    //   tOPTIONSx     = tabEQwidth - 3;
-    //   tCOLORTHEMESx = tabEQwidth + tabOPTIONSwidth - 6;
-    //   tOPTIONS{on,off}.setXmlParam("x", tOPTIONSx);
-    //   tCOLORTHEMES{on,off}.setXmlParam("x", tCOLORTHEMESx);
-    // Each tab's width is auto-derived from its text label
-    // (autowidthsource= in the groupdef) — without the script
-    // the tabs default to w=0 and the Grid 3-slice chrome
-    // collapses.  Use QFontMetrics on the label text to compute
-    // a sensible width, matching the renderer's left/right
-    // 11/13 padding around the text widget (`x="11" w="-24"`).
-    auto tabWidthFor = [&](ResolvedWidget *tab) -> int {
-        if (!tab) return 0;
-        for (auto &c : tab->children) {
-            if (c.tag != QStringLiteral("text")) continue;
-            QString s = c.attrs.value(QStringLiteral("default"));
-            if (s.isEmpty()) continue;
-            const QString family = c.attrs.value(QStringLiteral("font"));
-            // Tab labels use the skin's `player.smallfont` bitmap
-            // font (charwidth=6 hspacing=0).  TrueType QFontMetrics
-            // would mismeasure for that, leaving the tab too narrow
-            // and the label overflowing the chrome.  Match the
-            // bitmap path directly when the font id is a known
-            // bitmapfont.  The +24 accounts for the text widget's
-            // x="11" w="-24" padding inside the tab.
-            if (family.startsWith(QStringLiteral("player.")) ||
-                family.startsWith(QStringLiteral("drawer.")) ||
-                family.contains(QStringLiteral("smallfont")) ||
-                family.contains(QStringLiteral("bitmapfont"))) {
-                const int charW = 6;       // smallfont's charwidth
-                return s.size() * charW + 24;
+    // Resolve `autowidthsource=` into a real `w` attribute on any
+    // group/widget that has it but no explicit `w`.  Wasabi normally
+    // does this at render time as part of the auto-width pass; our
+    // renderer doesn't yet, but the layout values are needed both for
+    // the renderer's 3-slice chrome and for scripts that read
+    // .getWidth() then position siblings (configtabs.m).  Keeping the
+    // resolution here means the script side stays generic — no
+    // skin-specific x/w cluster math needed.
+    std::function<void(ResolvedWidget &)> resolveAutoWidth =
+        [&](ResolvedWidget &w) {
+        const QString aws =
+            w.attrs.value(QStringLiteral("autowidthsource"));
+        if (!aws.isEmpty()) {
+            const QString curW = w.attrs.value(QStringLiteral("w"));
+            if (curW.isEmpty() || curW.toInt() <= 0) {
+                // Find the referenced text widget anywhere in the tree.
+                std::function<ResolvedWidget *(ResolvedWidget &)> findById =
+                    [&](ResolvedWidget &n) -> ResolvedWidget * {
+                    if (n.id == aws) return &n;
+                    for (auto &c : n.children)
+                        if (auto *r = findById(c)) return r;
+                    return nullptr;
+                };
+                ResolvedWidget *src = findById(root);
+                if (src) {
+                    const QString s =
+                        src->attrs.value(QStringLiteral("default"));
+                    if (!s.isEmpty()) {
+                        // Use the bitmap-font width heuristic
+                        // (charwidth=6 + 24 for padding).  Falls
+                        // back to roughly Arial Bold metrics for
+                        // non-bitmap fonts.
+                        const QString family =
+                            src->attrs.value(QStringLiteral("font"));
+                        int width = 0;
+                        if (family.startsWith(QStringLiteral("player.")) ||
+                            family.startsWith(QStringLiteral("drawer.")) ||
+                            family.contains(QStringLiteral("smallfont")) ||
+                            family.contains(QStringLiteral("bitmapfont"))) {
+                            width = s.size() * 6 + 24;
+                        } else {
+                            QFont f;
+                            if (!family.isEmpty()) f.setFamily(family);
+                            bool ok = false;
+                            const int fs = src->attrs
+                                .value(QStringLiteral("fontsize"))
+                                .toInt(&ok);
+                            if (ok && fs > 0)
+                                f.setPixelSize(qMax(1, (fs * 5 + 3) / 7));
+                            if (src->attrs.value(QStringLiteral("bold")) ==
+                                QStringLiteral("1"))
+                                f.setBold(true);
+                            QFontMetrics fm(f);
+                            width = fm.horizontalAdvance(s) + 24;
+                        }
+                        if (width > 0)
+                            w.attrs.insert(QStringLiteral("w"),
+                                           QString::number(width));
+                    }
+                }
             }
-            QFont f;
-            if (!family.isEmpty()) f.setFamily(family);
-            bool ok = false;
-            const int fs = c.attrs.value(QStringLiteral("fontsize"))
-                            .toInt(&ok);
-            if (ok && fs > 0)
-                f.setPixelSize(qMax(1, (fs * 5 + 3) / 7));
-            if (c.attrs.value(QStringLiteral("bold")) ==
-                QStringLiteral("1"))
-                f.setBold(true);
-            QFontMetrics fm(f);
-            return fm.horizontalAdvance(s) + 24;
         }
-        return 64;     // fallback if no label text
+        for (auto &c : w.children) resolveAutoWidth(c);
     };
-    ResolvedWidget *tEQon = nullptr, *tEQoff = nullptr;
-    ResolvedWidget *tOPTon = nullptr, *tOPToff = nullptr;
-    ResolvedWidget *tCTon = nullptr, *tCToff = nullptr;
-    std::function<void(ResolvedWidget &)> findTabs =
-        [&](ResolvedWidget &n) {
-        if (n.id == QStringLiteral("config.tab.eq.on"))           tEQon  = &n;
-        else if (n.id == QStringLiteral("config.tab.eq.off"))     tEQoff = &n;
-        else if (n.id == QStringLiteral("config.tab.options.on")) tOPTon = &n;
-        else if (n.id == QStringLiteral("config.tab.options.off"))tOPToff= &n;
-        else if (n.id == QStringLiteral("config.tab.colorthemes.on"))   tCTon = &n;
-        else if (n.id == QStringLiteral("config.tab.colorthemes.off"))  tCToff= &n;
-        for (auto &c : n.children) findTabs(c);
-    };
-    findTabs(root);
-
-    auto setIntAttr = [](ResolvedWidget *t, const QString &k, int v) {
-        if (t) t->attrs.insert(k, QString::number(v));
-    };
-    if (tEQon || tEQoff) {
-        const int eqW   = tabWidthFor(tEQon ? tEQon : tEQoff);
-        const int optW  = tabWidthFor(tOPTon ? tOPTon : tOPToff);
-        const int ctW   = tabWidthFor(tCTon ? tCTon : tCToff);
-        const int xOpt  = eqW - 3;
-        const int xCT   = eqW + optW - 6;
-        for (auto *t : { tEQon, tEQoff }) {
-            if (t) { setIntAttr(t, QStringLiteral("x"), 0);
-                     setIntAttr(t, QStringLiteral("w"), eqW); }
-        }
-        for (auto *t : { tOPTon, tOPToff }) {
-            if (t) { setIntAttr(t, QStringLiteral("x"), xOpt);
-                     setIntAttr(t, QStringLiteral("w"), optW); }
-        }
-        for (auto *t : { tCTon, tCToff }) {
-            if (t) { setIntAttr(t, QStringLiteral("x"), xCT);
-                     setIntAttr(t, QStringLiteral("w"), ctW); }
-        }
-    }
+    resolveAutoWidth(root);
 }
 
 QStringList containerIds(const SkinXml::Document &doc) {
