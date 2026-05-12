@@ -451,15 +451,23 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
                     const int totalW = tickW + gap;
                     const qint64 ms =
                         QDateTime::currentMSecsSinceEpoch();
-                    // Classic Winamp 2 / WACUP runs the titlebar
-                    // ticker at roughly 6 px/sec — slow enough to be
-                    // readable, fast enough to circle a normal-length
-                    // track title in 5–10 sec.  Default unless the
-                    // skin overrides via `tickspeed=`.
-                    const int speed =
-                        a.value(QStringLiteral("tickspeed")).toInt() > 0
-                            ? a.value(QStringLiteral("tickspeed")).toInt()
-                            : 6;
+                    // Speed comes from the skin: in real Wasabi a Maki
+                    // script calls Songticker.setSpeed(N) at startup.
+                    // Until SkinRuntime drives that universally, the
+                    // skin can set it on the XML via `tickspeed=` or
+                    // `speed=`, and the renderer also honours Modern
+                    // PP's `pixelsperframe` (Wasabi's actual attr name
+                    // for songticker scroll rate).  Default = 12 px/s,
+                    // matching the Wasabi Modern stock speed.
+                    auto attrInt = [&](const QString &k) {
+                        return a.value(k).toInt();
+                    };
+                    int speed = attrInt(QStringLiteral("tickspeed"));
+                    if (speed <= 0) speed = attrInt(QStringLiteral("speed"));
+                    if (speed <= 0)
+                        speed = attrInt(QStringLiteral("pixelsperframe"))
+                                * 30;  // ~30 fps in classic Wasabi
+                    if (speed <= 0) speed = 12;
                     const int offset =
                         int((ms * speed / 1000) % qint64(totalW));
                     p->save();
