@@ -126,6 +126,32 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
+    // mono/stereo "lit" indicator: classic skins ship `<layer
+    // id="mono" image="...mono.inactive"/>` + `<layer id="stereo"
+    // image="...stereo.inactive"/>`, and a Maki script (monoster.maki)
+    // swaps the active one's image to its `.active` variant based on
+    // host->channelCount().  Replicate that statically here so the
+    // indicator works without scripting.
+    if (t == QStringLiteral("layer") && ctx.host &&
+        (node.id == QStringLiteral("mono") ||
+         node.id == QStringLiteral("stereo"))) {
+        const int ch = ctx.host->channelCount();
+        const bool active = (node.id == QStringLiteral("mono")  && ch == 1) ||
+                            (node.id == QStringLiteral("stereo") && ch >= 2);
+        if (active) {
+            QString img = node.attrs.value(QStringLiteral("image"));
+            const QString lit = img.endsWith(QStringLiteral(".inactive"))
+                ? img.chopped(9) + QStringLiteral(".active")
+                : img + QStringLiteral(".active");
+            if (ctx.bmp->find(lit)) {
+                QHash<QString, QString> a = node.attrs;
+                a.insert(QStringLiteral("image"), lit);
+                LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+                return;
+            }
+        }
+    }
+
     if (t == QStringLiteral("layer")) {
         // Cutout-mask layers (`sysregion="-1"` / `sysregion="-2"`)
         // are pure-black/pure-alpha bitmaps used ONLY by

@@ -103,7 +103,8 @@ void collectSendparams(const Element &el, SendparamsMap &out) {
 
 const Element *findContainer(const Element &root, const QString &id) {
     if (root.tag == QStringLiteral("container") &&
-        root.attrs.value(QStringLiteral("id")) == id)
+        root.attrs.value(QStringLiteral("id"))
+            .compare(id, Qt::CaseInsensitive) == 0)
         return &root;
     for (const auto &c : root.children) {
         if (auto *r = findContainer(c, id)) return r;

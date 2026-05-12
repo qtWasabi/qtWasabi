@@ -81,10 +81,19 @@ bool paintText(QPainter *p,
 
     if (isBitmap) {
         // ── bitmap font path ───────────────────────────────────
+        // `timecolonwidth` lets a skin author render the colon
+        // narrower than digits — Winamp's classic BIGNUM has a slim
+        // colon glyph (6 px) inside a 9-px cell, and the skin advances
+        // the cursor by 6 instead of 9 to remove the dead space.
+        const int colW = attrInt(attrs,
+            QStringLiteral("timecolonwidth"), fontDef->charWidth);
+        auto charAdvance = [&](QChar c) {
+            return c == u':' ? colW : fontDef->charWidth;
+        };
         int lineW = 0;
         for (int i = 0; i < text.size(); ++i) {
             if (i > 0) lineW += fontDef->hSpacing;
-            lineW += fontDef->charWidth;
+            lineW += charAdvance(text.at(i));
         }
         int drawX = x;
         if      (align == QStringLiteral("center")) drawX = x + (w - lineW) / 2;
@@ -94,9 +103,15 @@ bool paintText(QPainter *p,
         int cx = drawX;
         for (int i = 0; i < text.size(); ++i) {
             QImage glyph = fontReg.glyph(fontId, text.at(i), bmpReg);
-            if (!glyph.isNull())
-                p->drawImage(QPoint(cx, drawY), glyph);
-            cx += fontDef->charWidth + fontDef->hSpacing;
+            if (!glyph.isNull()) {
+                // Colon: shift the glyph so its narrower visual sits
+                // inside the colW slot (centred within charWidth).
+                int gx = cx;
+                if (text.at(i) == u':' && colW < fontDef->charWidth)
+                    gx -= (fontDef->charWidth - colW) / 2;
+                p->drawImage(QPoint(gx, drawY), glyph);
+            }
+            cx += charAdvance(text.at(i)) + fontDef->hSpacing;
         }
         return true;
     }

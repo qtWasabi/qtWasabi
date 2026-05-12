@@ -46,6 +46,7 @@ public:
     virtual qint64  durationMs()   const = 0;        // total duration
     virtual int     bitrate()      const { return 0; }      // kbps; 0 = unknown
     virtual int     sampleRate()   const { return 0; }      // Hz;   0 = unknown
+    virtual int     channelCount() const { return 0; }      // 1=mono 2=stereo, 0=unknown
     virtual int     volume()       const { return 100; }    // 0..100 linear
     virtual bool    isPlaying()    const = 0;
     virtual bool    isPaused()     const = 0;
