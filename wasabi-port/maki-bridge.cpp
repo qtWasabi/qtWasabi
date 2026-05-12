@@ -47,18 +47,22 @@ int hydrateNullObjectVars(int scriptId, void *fallback) {
     for (int i = 0; i < n; ++i) {
         VCPUscriptVar *v = VCPU::variablesTable.enumItem(i);
         if (!v || v->scriptId != scriptId) continue;
-        // Only patch entries that are actually typed as a script
-        // object slot. Wasabi stores int / double / etc. globals with
-        // their declared type and the data union holds the value, so
-        // a null odata on those represents the value 0, not an
-        // unbound object. Touching them here would corrupt them.
-        if (v->v.type != SCRIPT_OBJECT) continue;
+        // Skip primitives (SCRIPT_INT/FLOAT/DOUBLE/BOOLEAN/STRING,
+        // type IDs 2..6): they store their value in the data union and
+        // a null .odata represents the value 0, touching them would
+        // corrupt them.  Hydrate everything else with a null pointer —
+        // includes SCRIPT_OBJECT (7), class-typed slots (>=8), and the
+        // sentinel -1 the loader leaves when `ObjectTable::
+        // getClassFromName` returns -1 for an unrecognised class name
+        // (our stub does that for everything, so SystemObject globals
+        // declared as `extern System sys;` in std.mi land here unbound).
+        if (v->v.type >= SCRIPT_INT && v->v.type <= SCRIPT_STRING) continue;
         if (v->v.data.odata != nullptr) continue;
         v->v.data.odata = static_cast<ScriptObject *>(fallback);
         ++patched;
     }
     if (const char *t = getenv("WASABIQT_TRACE_HYDRATE"); t && *t == '1') {
-        fprintf(stderr, "[hydrate] sid=%d patched %d null SCRIPT_OBJECT vars\n",
+        fprintf(stderr, "[hydrate] sid=%d patched %d null object vars\n",
                 scriptId, patched);
     }
     return patched;
