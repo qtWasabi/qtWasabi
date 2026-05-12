@@ -85,24 +85,22 @@ bool paintText(QPainter *p,
         // narrower than digits — Winamp's classic BIGNUM has a slim
         // colon glyph (6 px) inside a 9-px cell, and the skin advances
         // the cursor by 6 instead of 9 to remove the dead space.
+        // `timecolonwidth` is the colon's *visual* width (drawn glyph
+        // size).  The colon still occupies one charWidth-wide cell —
+        // the dot just sits centred inside it — so the inter-char
+        // advance stays constant.  Mirrors how Winamp/WACUP lay out
+        // BIGNUM time displays.
         const int colW = attrInt(attrs,
             QStringLiteral("timecolonwidth"), fontDef->charWidth);
-        auto charAdvance = [&](QChar c) {
-            return c == u':' ? colW : fontDef->charWidth;
+        auto charAdvance = [&](QChar) {
+            return fontDef->charWidth;
         };
         int lineW = 0;
         for (int i = 0; i < text.size(); ++i) {
             if (i > 0) lineW += fontDef->hSpacing;
             lineW += charAdvance(text.at(i));
         }
-        // When a `timecolonwidth` is set the widget is a time
-        // display; Wasabi reserves about one charWidth of right
-        // padding on those so the seconds don't hug the LCD frame.
-        // Without it, classic skins (DeClassified, base 2.91) look
-        // visually wrong vs the upstream reference.
-        const int timePadRight =
-            attrs.contains(QStringLiteral("timecolonwidth"))
-                ? fontDef->charWidth : 0;
+        const int timePadRight = 0;
         int drawX = x;
         if      (align == QStringLiteral("center"))
             drawX = x + (w - lineW) / 2;
@@ -167,17 +165,21 @@ bool paintText(QPainter *p,
         for (int i = 0; i < text.size(); ++i) {
             const QChar ch = text.at(i);
             if (ch == u':' && colonIsBlank) {
-                // 7-segment-style colon: two short horizontal bars
-                // (roughly the digit-stroke thickness) stacked at the
-                // two thirds of charHeight.  Mirrors how Winamp/WACUP
-                // render the colon in BIGNUM time displays.
-                const int dotH = qMax(2, fontDef->charHeight / 6);
-                const int dotW = qMax(dotH, colW - 2);
+                // Two compact dots stacked at thirds of charHeight,
+                // sized to the digit-stroke thickness so they read as
+                // colon rather than `=`.  Matches DeClassified/WACUP.
+                const int dotH = qMax(2, fontDef->charHeight / 7);
+                const int dotW = qMax(dotH, qMin(3, colW - 2));
                 const int dotX = cx + (colW - dotW) / 2;
                 const int t1   = drawY + fontDef->charHeight / 3 - dotH / 2;
-                const int t2   = drawY + fontDef->charHeight * 2 / 3 + dotH / 2 - dotH;
+                const int t2   = drawY + (fontDef->charHeight * 2) / 3 - dotH / 2;
+                if (::getenv("WASABIQT_TRACE_TIME"))
+                    fprintf(stderr, "[time] dotX=%d t1=%d t2=%d dotW=%d dotH=%d "
+                            "xform=(%g,%g)\n", dotX, t1, t2, dotW, dotH,
+                            p->transform().dx(), p->transform().dy());
                 p->save();
                 p->setRenderHint(QPainter::Antialiasing, false);
+                p->setRenderHint(QPainter::SmoothPixmapTransform, false);
                 p->fillRect(QRect(dotX, t1, dotW, dotH), dotColor);
                 p->fillRect(QRect(dotX, t2, dotW, dotH), dotColor);
                 p->restore();
