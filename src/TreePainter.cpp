@@ -428,6 +428,12 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             const QString display = a.value(QStringLiteral("display"));
             if (ctx.resolver && !display.isEmpty())
                 tickText = ctx.resolver(display);
+            // Mirror paintText's id-based fallback so the ticker
+            // pre-check sees the same string the painter will draw.
+            if (tickText.isEmpty() && ctx.resolver) {
+                const QString id = a.value(QStringLiteral("id"));
+                if (!id.isEmpty()) tickText = ctx.resolver(id);
+            }
             if (tickText.isEmpty())
                 tickText = a.value(QStringLiteral("default"));
             if (tickText.isEmpty())
