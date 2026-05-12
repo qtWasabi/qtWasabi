@@ -328,7 +328,24 @@ extern "C" scriptVar wq_getAutoHeight(maki_cmd *, int, ScriptObject *o) {
 }
 extern "C" scriptVar wq_getWidth(maki_cmd *, int, ScriptObject *o)      {
     if (!o) return makeInt(0);
-    return makeInt(wq_widget_getAttrInt(o, L"w"));
+    // Wasabi's getWidth returns the EFFECTIVE pixel width, not the raw
+    // `w` attribute.  Mirror autowidthsource= resolution so configtabs.m's
+    // `tabEQwidth = tEQon.getWidth()` gets the label-based width instead
+    // of 0.
+    int w = wq_widget_getAttrInt(o, L"w");
+    if (w > 0) return makeInt(w);
+    // Self-text fallback (text/songticker widgets carry their own copy).
+    if (int tw = wq_widget_textWidth(o); tw > 0) return makeInt(tw);
+    // Group-with-autowidthsource: resolve the named text widget and use
+    // its measurement.
+    const wchar_t *src = wq_widget_getAttr(o, L"autowidthsource");
+    if (src && *src) {
+        if (void *child = wq_widget_findById(src)) {
+            if (int tw = wq_widget_textWidth(child); tw > 0)
+                return makeInt(tw);
+        }
+    }
+    return makeInt(0);
 }
 extern "C" scriptVar wq_getHeight(maki_cmd *, int, ScriptObject *o)     {
     if (!o) return makeInt(0);
