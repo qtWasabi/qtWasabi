@@ -10,6 +10,7 @@
 #include <WasabiQt/Host.h>
 #include <WasabiQt/LayerPainter.h>
 #include <WasabiQt/TextPainter.h>
+#include <QDateTime>
 #include <QImage>
 
 #include <QHash>
@@ -403,14 +404,63 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     }
 
     if (t == QStringLiteral("text") || t == QStringLiteral("songticker")) {
-        // <songticker> paints like <text> with no scrolling; the
-        // displayed string comes through the resolver as
+        // The displayed string comes through the resolver as
         // "songtitle" / "songinfo" or whatever the embedder wires up.
         QHash<QString, QString> a = node.attrs;
         if (t == QStringLiteral("songticker") &&
             a.value(QStringLiteral("display")).isEmpty()) {
             a.insert(QStringLiteral("display"),
                      QStringLiteral("songtitle"));
+        }
+        // Ticker scrolling: <songticker ticker="1"> and <text
+        // ticker="1"> scroll their text leftward when the resolved
+        // string is wider than the widget rect.  Wraps with a small
+        // gap, looping continuously.
+        const bool isTicker =
+            a.value(QStringLiteral("ticker")) == QStringLiteral("1");
+        if (isTicker && ctx.font && ctx.bmp) {
+            // Resolve display string the same way TextPainter does
+            // so we can measure its bitmap-font width.
+            const QString fontId = a.value(QStringLiteral("font"));
+            const auto *fd = ctx.font->find(fontId);
+            QString tickText;
+            const QString display = a.value(QStringLiteral("display"));
+            if (ctx.resolver && !display.isEmpty())
+                tickText = ctx.resolver(display);
+            if (tickText.isEmpty())
+                tickText = a.value(QStringLiteral("default"));
+            if (tickText.isEmpty())
+                tickText = a.value(QStringLiteral("text"));
+            const QRect r = resolveRect(a, canvas);
+            if (fd && fd->charWidth > 0 && r.width() > 0 &&
+                !tickText.isEmpty()) {
+                const int tickW =
+                    tickText.size() * fd->charWidth +
+                    qMax(0, tickText.size() - 1) * fd->hSpacing;
+                if (tickW > r.width()) {
+                    // Scroll: 30 px/s, with a `gap` of charWidth*4
+                    // before the text loops back into view.
+                    const int gap = fd->charWidth * 4;
+                    const int totalW = tickW + gap;
+                    const qint64 ms =
+                        QDateTime::currentMSecsSinceEpoch();
+                    const int speed = 30;  // px/sec
+                    const int offset =
+                        int((ms * speed / 1000) % qint64(totalW));
+                    p->save();
+                    p->setClipRect(r);
+                    p->translate(-offset, 0);
+                    TextPainter::paintText(p, *ctx.font, *ctx.bmp, a,
+                                           canvas, ctx.resolver,
+                                           ctx.colors, ctx.gammasets);
+                    p->translate(totalW, 0);
+                    TextPainter::paintText(p, *ctx.font, *ctx.bmp, a,
+                                           canvas, ctx.resolver,
+                                           ctx.colors, ctx.gammasets);
+                    p->restore();
+                    return;
+                }
+            }
         }
         TextPainter::paintText(p, *ctx.font, *ctx.bmp, a, canvas,
                                ctx.resolver, ctx.colors, ctx.gammasets);
