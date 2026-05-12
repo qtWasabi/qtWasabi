@@ -289,16 +289,49 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     // paints it as a regular layer.
     if (t == QStringLiteral("status") && ctx.host) {
         // SkinXml lowercases attr names; look up the lower-case form.
+        const QString playImg = node.attrs.value(QStringLiteral("playbitmap"));
+        const QString pauseImg = node.attrs.value(QStringLiteral("pausebitmap"));
+        const QString stopImg = node.attrs.value(QStringLiteral("stopbitmap"));
         QString img;
-        if      (ctx.host->isPlaying())
-            img = node.attrs.value(QStringLiteral("playbitmap"));
-        else if (ctx.host->isPaused())
-            img = node.attrs.value(QStringLiteral("pausebitmap"));
-        else
-            img = node.attrs.value(QStringLiteral("stopbitmap"));
+        if      (ctx.host->isPlaying()) img = playImg;
+        else if (ctx.host->isPaused())  img = pauseImg;
+        else                            img = stopImg;
         if (!img.isEmpty()) {
+            // Classic-Winamp status bitmaps often have different
+            // internal left padding (wa.play has 4 cols of padding,
+            // wa.pause has 0, wa.stop has 2).  Align all three so
+            // their leftmost visible column lands at the same x as
+            // the play bitmap's — this is what produces the uniform
+            // 3-px gap from the LED indicator strip that the upstream
+            // reference shows in every playback state.
+            auto firstVisibleCol = [&](const QString &id) -> int {
+                if (id.isEmpty()) return 0;
+                QImage im = ctx.bmp->imageFor(id);
+                if (im.isNull()) return 0;
+                im = im.convertToFormat(QImage::Format_ARGB32);
+                for (int x = 0; x < im.width(); ++x) {
+                    for (int y = 0; y < im.height(); ++y) {
+                        const QRgb px = im.pixel(x, y);
+                        const int r = qRed(px), g = qGreen(px), b = qBlue(px);
+                        const int mx = qMax(r, qMax(g, b));
+                        const int mn = qMin(r, qMin(g, b));
+                        if (qAlpha(px) > 0 && mx > 80 && (mx - mn) > 30)
+                            return x;
+                    }
+                }
+                return 0;
+            };
+            const int playFvc = firstVisibleCol(playImg);
+            const int myFvc = firstVisibleCol(img);
+            const int xShift = playFvc - myFvc;
             QHash<QString, QString> a = node.attrs;
             a.insert(QStringLiteral("image"), img);
+            if (xShift != 0) {
+                bool ok = false;
+                int x = a.value(QStringLiteral("x")).toInt(&ok);
+                if (!ok) x = 0;
+                a.insert(QStringLiteral("x"), QString::number(x + xShift));
+            }
             LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
         }
         return;
