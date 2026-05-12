@@ -86,9 +86,21 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
             k == QStringLiteral("songtitle") ||
             k == QStringLiteral("songinfo")) {
             const QString t = host->songTitle();
-            return t.isEmpty()
-                ? QStringLiteral("(no song loaded)")
-                : t;
+            if (t.isEmpty()) return QStringLiteral("(no song loaded)");
+            // Match Winamp's classic playlist-entry format
+            // "<N>. <title> (<M:SS>)" — what the BIGNUM songticker
+            // shows by convention.  The duration comes from the
+            // host; we hard-code the index to 1 until a real
+            // playlist model is wired up.
+            const qint64 dur = host->durationMs();
+            if (dur > 0) {
+                const qint64 s = dur / 1000;
+                return QStringLiteral("1. %1 (%2:%3)")
+                    .arg(t)
+                    .arg(s / 60)
+                    .arg(s % 60, 2, 10, QChar('0'));
+            }
+            return QStringLiteral("1. %1").arg(t);
         }
         if (k == QStringLiteral("filename"))
             return host->songFilename();
