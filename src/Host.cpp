@@ -84,7 +84,8 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
         }
         if (k == QStringLiteral("songname")  ||
             k == QStringLiteral("songtitle") ||
-            k == QStringLiteral("songinfo")) {
+            k == QStringLiteral("songinfo")  ||
+            k == QStringLiteral("songticker")) {
             const QString t = host->songTitle();
             if (t.isEmpty()) return QStringLiteral("(no song loaded)");
             // Match Winamp's classic playlist-entry format
@@ -110,7 +111,8 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
             return QString::number(host->bitrate());
         if (k == QStringLiteral("khz") ||
             k == QStringLiteral("samplerate") ||
-            k == QStringLiteral("songsamplerate"))
+            k == QStringLiteral("songsamplerate") ||
+            k == QStringLiteral("frequency"))
             return QString::number(host->sampleRate() / 1000);
         if (k == QStringLiteral("volume"))
             return QString::number(host->volume());

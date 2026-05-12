@@ -66,10 +66,22 @@ bool paintText(QPainter *p,
     if (w <= 0) w = isBitmap ? (fontDef->charWidth * 8) : 64;
     if (h <= 0) h = isBitmap ? fontDef->charHeight     : 16;
 
-    // Pick the string: resolver(display=) → default/text → empty.
+    // Pick the string: resolver(display=) → resolver(id=) →
+    // default/text → empty.  Many Wasabi skins (Winamp Modern PP,
+    // Bento, etc.) declare text widgets with `display=""` and rely
+    // on a Maki script doing `Bitrate.setXmlParam("text", "320")`
+    // to populate it at runtime.  Until SkinRuntime drives that,
+    // fall back to using the widget's `id` as a display key — every
+    // Modern skin follows the same naming convention (Bitrate,
+    // Frequency, Songticker, Time, …), so the same Host resolver
+    // that handles `display="songbitrate"` also handles `id="Bitrate"`.
     QString text;
     const QString display = attrs.value(QStringLiteral("display"));
     if (resolver && !display.isEmpty()) text = resolver(display);
+    if (text.isEmpty() && resolver) {
+        const QString id = attrs.value(QStringLiteral("id"));
+        if (!id.isEmpty()) text = resolver(id);
+    }
     if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
     if (text.isEmpty()) text = attrs.value(QStringLiteral("text"));
     if (text.isEmpty()) return true;

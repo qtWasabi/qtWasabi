@@ -412,12 +412,13 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             a.insert(QStringLiteral("display"),
                      QStringLiteral("songtitle"));
         }
-        // Ticker scrolling: <songticker ticker="1"> and <text
-        // ticker="1"> scroll their text leftward when the resolved
-        // string is wider than the widget rect.  Wraps with a small
-        // gap, looping continuously.
+        // Ticker scrolling: <songticker> is implicitly a ticker, and
+        // <text ticker="1"> opts into scrolling explicitly.  The text
+        // scrolls leftward when the resolved string is wider than the
+        // widget rect; wraps with a small gap; loops continuously.
         const bool isTicker =
-            a.value(QStringLiteral("ticker")) == QStringLiteral("1");
+            (t == QStringLiteral("songticker")) ||
+            (a.value(QStringLiteral("ticker")) == QStringLiteral("1"));
         if (isTicker && ctx.font && ctx.bmp) {
             // Resolve display string the same way TextPainter does
             // so we can measure its bitmap-font width.
