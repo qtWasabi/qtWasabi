@@ -807,13 +807,14 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
                            QStringLiteral("121"));
             w.attrs.remove(QStringLiteral("relaty"));
         } else if (w.id == QStringLiteral("player.normal.drawer.content")) {
-            // configtabs.m's main.onResize centres DrawerContent
-            // horizontally inside main:
+            // configtabs.m's main.onResize handler centres
+            // DrawerContent inside main:
             //   newXpos = w/2 - 163;
             //   DrawerContent.setXmlParam("x", newXpos);
-            // We don't dispatch onResize yet (Maki event firing for
-            // 4-arg layout events isn't wired up), so apply the
-            // centring statically.  Drop once onResize fires at load.
+            // dispatchInitialResize is wired in SkinRuntime + the Maki
+            // bridge but the handler currently reads the wrong arg
+            // slot (gets w=652 instead of 354); apply statically until
+            // the Maki event-arg ordering is sorted out.
             const int newX = layoutWidth / 2 - 163;
             w.attrs.insert(QStringLiteral("x"),
                            QString::number(newX));

@@ -127,6 +127,50 @@ int fireEventByName(int scriptId, const wchar_t *functionName) {
     return -1;
 }
 
+bool fireFourIntEvent(int scriptId, void *recv,
+                      const wchar_t *eventName,
+                      int a, int b, int c, int d) {
+    if (!eventName || !recv) return false;
+    int dlfid = -1; int nparams = 4;
+    const int base = VCPU::dlfBase(scriptId);
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (e->functionName &&
+            wcscmp(e->functionName, eventName) == 0) {
+            dlfid   = e->DLFid;
+            nparams = e->nparams;
+            break;
+        }
+    }
+    if (dlfid < 0) return false;
+    if (const char *t = ::getenv("WASABIQT_TRACE_MAKI")) {
+        char nb[64];
+        const wchar_t *wn = eventName;
+        int o = 0;
+        for (; wn[o] && o < (int)sizeof(nb)-1; ++o)
+            nb[o] = (wn[o] < 128) ? (char)wn[o] : '?';
+        nb[o] = 0;
+        ::fprintf(stderr,
+            "[maki] fire %s sid=%d a=%d b=%d c=%d d=%d np=%d\n",
+            nb, scriptId, a, b, c, d, nparams);
+    }
+    // Stack push order: arguments in REVERSE so callDLF's pop loop
+    // produces paramList[0]=a, paramList[1]=b, etc.  Matches what
+    // fireOnSetXuiParam does for its 2 args.
+    scriptVar v4{}; v4.type = SCRIPT_INT; v4.data.idata = d; VCPU::push(v4);
+    scriptVar v3{}; v3.type = SCRIPT_INT; v3.data.idata = c; VCPU::push(v3);
+    scriptVar v2{}; v2.type = SCRIPT_INT; v2.data.idata = b; VCPU::push(v2);
+    scriptVar v1{}; v1.type = SCRIPT_INT; v1.data.idata = a; VCPU::push(v1);
+
+    scriptVar recvVar{};
+    recvVar.type = SCRIPT_OBJECT;
+    recvVar.data.odata = static_cast<ScriptObject *>(recv);
+    setCurrentScriptId(scriptId);
+    VCPU::executeEvent(recvVar, dlfid, /*np*/ nparams, scriptId);
+    return true;
+}
+
 bool fireOnSetXuiParam(int scriptId,
                        const wchar_t *name, const wchar_t *value) {
     if (!name || !value) return false;

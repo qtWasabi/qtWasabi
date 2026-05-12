@@ -379,6 +379,18 @@ void collectXuiParams(const Layout::ResolvedWidget &w,
 }
 }  // namespace
 
+int SkinRuntime::dispatchInitialResize(int layoutW, int layoutH) {
+    if (!m_d->layoutRootObject) return 0;
+    int fired = 0;
+    for (int sid : m_d->loadedScripts) {
+        if (Maki::fireFourIntEvent(sid, m_d->layoutRootObject,
+                                   L"onResize",
+                                   0, 0, layoutW, layoutH))
+            ++fired;
+    }
+    return fired;
+}
+
 int SkinRuntime::dispatchXuiParams(const Layout::ResolvedWidget &root) {
     QList<QPair<QString, QString>> params;
     collectXuiParams(root, params);

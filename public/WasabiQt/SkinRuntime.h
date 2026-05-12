@@ -61,6 +61,15 @@ public:
     // that don't have an onSetXuiParam handler ignore the event.
     int dispatchXuiParams(const Layout::ResolvedWidget &root);
 
+    // Fire main.onResize(0, 0, layoutW, layoutH) on the layout root
+    // for every loaded script.  Real Wasabi fires this whenever the
+    // layout is resized; at load time we issue an initial event so
+    // scripts that re-flow content based on the layout's actual size
+    // (configtabs.m centring DrawerContent, mainmenu.m clamping
+    // overlay widths) run without waiting for a real resize.  Returns
+    // the number of scripts whose handler fired.
+    int dispatchInitialResize(int layoutW, int layoutH);
+
     // Number of scripts the VM currently holds.  Includes scripts
     // that loaded but had errors during onScriptLoaded.
     int scriptCount() const;

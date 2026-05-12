@@ -82,6 +82,15 @@ int  fireEventByName(int scriptId, const wchar_t *functionName);
 bool fireOnSetXuiParam(int scriptId,
                        const wchar_t *name, const wchar_t *value);
 
+// Fire a four-int event (e.g. main.onResize(x, y, w, h)) on `scriptId`
+// against `recv` as the receiver.  Used to broadcast initial layout
+// dimensions after expansion so scripts that center / re-flow content
+// in onResize handlers (configtabs.m, mainmenu.m) run without waiting
+// for an actual resize event.  Returns true if a handler was found.
+bool fireFourIntEvent(int scriptId, void *recv,
+                      const wchar_t *eventName,
+                      int a, int b, int c, int d);
+
 // Diagnostic: list the DLF names registered for `scriptId` (one per
 // line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);
