@@ -213,6 +213,49 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
+    // <images source="volume|balance" images="<bitmap-id>"
+    //         imagesspacing="<stride>" w=... h=.../>
+    // Multi-frame bitmap strip indexed by a host-driven value.  Used
+    // by classic Winamp skins (DeClassified et al.) for the volume
+    // rail and balance rail — VOLUME.BMP / BALANCE.BMP are a vertical
+    // strip of 28 frames; the widget picks one based on volume (0..1)
+    // or balance (-1..+1) and blits it as the rail background.
+    if (t == QStringLiteral("images")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() <= 0 || r.height() <= 0) return;
+        QImage src = ctx.bmp->imageFor(
+            node.attrs.value(QStringLiteral("images")));
+        if (src.isNull()) return;
+        const int stride = node.attrs.value(
+            QStringLiteral("imagesspacing")).toInt();
+        if (stride <= 0) return;
+        const int frames = src.height() / stride;
+        if (frames <= 0) return;
+        // Resolve the source value.  Wasabi's `source=` names the
+        // value the widget is bound to.  We support the two classic
+        // bindings; everything else falls back to the middle frame.
+        double v = 0.5;
+        const QString src_ = node.attrs.value(
+            QStringLiteral("source")).toLower();
+        if (ctx.host) {
+            if (src_ == QStringLiteral("volume")) {
+                double p = ctx.host->sliderPosition(
+                    QStringLiteral("VOLUME"));
+                if (p >= 0.0) v = qBound(0.0, p, 1.0);
+            } else if (src_ == QStringLiteral("balance") ||
+                       src_ == QStringLiteral("pan")) {
+                double p = ctx.host->sliderPosition(
+                    QStringLiteral("PAN"));
+                // Balance: -1..+1 → 0..1
+                if (p >= -1.0) v = qBound(0.0, (p + 1.0) * 0.5, 1.0);
+            }
+        }
+        int frame = qBound(0, int(v * (frames - 1) + 0.5), frames - 1);
+        const QRect srcRect(0, frame * stride, src.width(), r.height());
+        p->drawImage(r, src, srcRect);
+        return;
+    }
+
     if (t == QStringLiteral("button")          ||
         t == QStringLiteral("togglebutton")    ||
         t == QStringLiteral("nstatesbutton")) {
