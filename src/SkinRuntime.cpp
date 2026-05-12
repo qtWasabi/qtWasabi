@@ -27,6 +27,7 @@ namespace WasabiQt {
 void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
                               void *scriptObjectHandle);
 void clearWidgetRegistry();
+void setLayoutRootScriptObject(void *handle);
 }
 
 namespace WasabiQt {
@@ -46,6 +47,12 @@ struct SkinRuntime::Impl {
     // wchar_t* exposed to the bindings layer stays valid until
     // destroyAll() runs.
     std::vector<std::wstring> scriptParams;
+
+    // Synthetic ScriptObject for the layout root, returned by the
+    // bindings' getParentLayout().  See SkinRuntimeBridge.cpp for
+    // the rationale — titlebar.m's resizeObjects centring math
+    // depends on the layout's full w/h.
+    void *layoutRootObject = nullptr;
 
     // Loaded VM script ids, in load order.
     QList<int> loadedScripts;
@@ -78,6 +85,10 @@ struct SkinRuntime::Impl {
         systemObjects.clear();
         for (void *h : widgetObjects) Maki::destroyWidgetScriptObject(h);
         widgetObjects.clear();
+        if (layoutRootObject) {
+            Maki::destroyWidgetScriptObject(layoutRootObject);
+            layoutRootObject = nullptr;
+        }
         scriptPaths.clear();
         // Free script blobs only AFTER the VM has dropped them via
         // removeScript above, otherwise the codeBlock pointer in the
@@ -112,6 +123,12 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
 
     // 1) Build the widget-object table.
     registerWidgets(root, m_d->widgetObjects);
+
+    // 1a) Bind a layout-root pseudo so getParentLayout() returns the
+    // layout's full w/h (e.g. 354 for the player's normal layout)
+    // rather than the calling widget's own bounds.
+    m_d->layoutRootObject = Maki::createWidgetScriptObject(&root);
+    setLayoutRootScriptObject(m_d->layoutRootObject);
 
     // 2) Load every <script file=…/> the skin references.  Use the
     // ScriptRef list (carries both file + param) when present; fall

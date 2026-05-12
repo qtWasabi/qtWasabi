@@ -51,6 +51,11 @@ public:
     // bitmap.  Pulls the source through `bmpReg` once and caches.
     QImage glyph(const QString &fontId, QChar ch, BitmapRegistry &bmpReg);
 
+    // Drop the cached char-table images.  Embedders call this after
+    // the active gammaset changes — without it, glyphs keep the
+    // previous theme's tint.
+    void invalidateGlyphCache() { m_charTableCache.clear(); }
+
 private:
     QHash<QString, BitmapFontDef> m_defs;
     QHash<QString, QImage>        m_charTableCache;  // by font id

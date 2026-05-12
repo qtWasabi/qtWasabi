@@ -15,6 +15,7 @@
 
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/ColorRegistry.h>
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/GammasetRegistry.h>
 
@@ -51,11 +52,23 @@ public:
     const Layout::ResolvedWidget &tree() const { return m_tree; }
     BitmapRegistry               &registry()   { return m_registry; }
     FontRegistry                 &fonts()      { return m_fonts; }
+    ColorRegistry                &colors()     { return m_colors; }
     GammasetRegistry             &gammasets()  { return m_gammasets; }
 
     // Switch to a named gammaset (Color Theme).  Empty/unknown name
     // means "Default" (identity transform).  Triggers a repaint.
     void setActiveGammaset(const QString &name);
+
+    // Re-run computeWindowRegion against the current tree.  Call
+    // this after mutating widget positions (e.g. a static
+    // runKnownScripts pass that moves a drawer) so the region
+    // mask stays in sync with where the chrome actually paints.
+    // load() does an initial compute itself.
+    void rebuildWindowRegion();
+
+    // The currently-computed window region (for embedders that
+    // override paintEvent and want to apply the same clip).
+    const QRegion &windowRegion() const { return m_windowRegion; }
 
     // Embedder hook: resolve a <text display="…"/> key to a live
     // string at paint time.  Returning an empty string falls back
@@ -80,6 +93,7 @@ protected:
 private:
     Layout::ResolvedWidget m_tree;
     BitmapRegistry         m_registry;
+    ColorRegistry          m_colors;
     FontRegistry           m_fonts;
     GammasetRegistry       m_gammasets;
     QSize                  m_nativeSize { 354, 280 };

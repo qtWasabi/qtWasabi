@@ -222,6 +222,8 @@ extern "C" {
     void  wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value);
     const wchar_t *wq_widget_getAttr(void *handle, const wchar_t *name);
     int   wq_widget_getAttrInt(void *handle, const wchar_t *name);
+    int   wq_widget_textWidth(void *handle);
+    void *wq_layout_root();
 }
 
 extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
@@ -282,11 +284,20 @@ extern "C" scriptVar wq_getAlpha(maki_cmd *, int, ScriptObject *) {
 }
 
 extern "C" scriptVar wq_getAutoWidth(maki_cmd *, int, ScriptObject *o)  {
-    // Wasabi convention: text widgets return their measured rendered
-    // text width.  For non-text widgets, falls back to declared `w`.
-    // M13e returns the resolved `w` attribute as a first approximation;
-    // text-specific measurement lands when we route into TextPainter.
+    // Wasabi's Text::getPreferences(SUGGESTED_W) measures the rendered
+    // text width and adds 4 (per-segment Wasabi convention) plus the
+    // widget's lpadding/rpadding.  We additionally add 7 px to bridge
+    // the Win32 GDI vs Qt QFontMetrics gap for Arial Bold at the
+    // ratio-converted pixel size — without it the titlebar's `lx`
+    // centring math reads a smaller text width than the rendered
+    // glyphs and the right streak overlaps the title text.  Total
+    // adjustment: +11 (computed in wq_widget_textWidth).
+    //
+    // Non-text widgets (and text widgets with no resolved string)
+    // fall back to the declared `w` attribute.
     if (!o) return makeInt(0);
+    const int tw = wq_widget_textWidth(o);
+    if (tw >= 0) return makeInt(tw);
     return makeInt(wq_widget_getAttrInt(o, L"w"));
 }
 extern "C" scriptVar wq_getAutoHeight(maki_cmd *, int, ScriptObject *o) {
@@ -316,7 +327,17 @@ extern "C" scriptVar wq_screenToClientX(maki_cmd *, int, ScriptObject *, scriptV
 extern "C" scriptVar wq_screenToClientY(maki_cmd *, int, ScriptObject *, scriptVar y) { return y; }
 
 extern "C" scriptVar wq_getParent(maki_cmd *, int, ScriptObject *o)        { return makeObject(o); }
-extern "C" scriptVar wq_getParentLayout(maki_cmd *, int, ScriptObject *o)  { return makeObject(o); }
+extern "C" scriptVar wq_getParentLayout(maki_cmd *, int, ScriptObject *o)  {
+    // Return the synthetic layout-root pseudo (carries the full
+    // layout w/h) rather than the calling widget itself.
+    // titlebar.m's resizeObjects needs `l.getWidth() == 354` from
+    // the player normal layout, not the title widget's narrower
+    // bounds.  Falls back to the calling widget if no layout pseudo
+    // is registered (e.g. tests that exercise bindings without a
+    // SkinRuntime load pass).
+    void *root = wq_layout_root();
+    return makeObject(static_cast<ScriptObject *>(root ? root : o));
+}
 extern "C" scriptVar wq_getParentGroup(maki_cmd *, int, ScriptObject *o)   { return makeObject(o); }
 
 extern "C" scriptVar wq_bringToFront(maki_cmd *, int, ScriptObject *) { return makeVoid(); }

@@ -38,7 +38,15 @@ SkinView::~SkinView() {
 
 void SkinView::setActiveGammaset(const QString &name) {
     m_gammasets.setActiveGammaset(name);
-    m_registry.setGammasetRegistry(&m_gammasets);  // clears tint cache
+    m_registry.setGammasetRegistry(&m_gammasets);   // clears tint cache
+    m_fonts.invalidateGlyphCache();                 // glyphs need re-tinting too
+    update();
+}
+
+void SkinView::rebuildWindowRegion() {
+    clearMask();
+    m_windowRegion = Layout::computeWindowRegion(
+        m_tree, m_registry, m_nativeSize);
     update();
 }
 
@@ -51,6 +59,7 @@ bool SkinView::load(const SkinXml::Document &doc,
     m_registry.loadFromDocument(doc);
     m_fonts.loadFromDocument(doc);
     m_gammasets.loadFromDocument(doc);
+    m_colors.loadFromDocument(doc);
     m_registry.setGammasetRegistry(&m_gammasets);
 
     // Native size: prefer explicit w/h, fall back to minimum_w/h.

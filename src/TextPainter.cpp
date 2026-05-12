@@ -4,6 +4,8 @@
 #include <WasabiQt/TextPainter.h>
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/ColorRegistry.h>
+#include <WasabiQt/GammasetRegistry.h>
 
 #include <QColor>
 #include <QFont>
@@ -40,7 +42,9 @@ bool paintText(QPainter *p,
                FontRegistry &fontReg, BitmapRegistry &bmpReg,
                const QHash<QString, QString> &attrs,
                const QSize &containerSize,
-               const DisplayResolver &resolver) {
+               const DisplayResolver &resolver,
+               const ColorRegistry *colors,
+               const GammasetRegistry *gammasets) {
     const QString fontId = attrs.value(QStringLiteral("font"));
     if (fontId.isEmpty()) return false;
 
@@ -104,10 +108,13 @@ bool paintText(QPainter *p,
     QFont qf(fontId);
     const int fontsize = attrInt(attrs, QStringLiteral("fontsize"), 12);
     // Wasabi `fontsize` is a Win32 lfHeight (character cell height);
-    // Qt's setPixelSize is the EM bounding box.  The two metrics
-    // differ by roughly 4/7 — see libwasabiq Phase 8.5.  Without
-    // this conversion, Arial 14 renders ~1.7x too tall.
-    const int qpx = qMax(1, (fontsize * 4 + 3) / 7);
+    // Qt's setPixelSize is the EM bounding box.  Pixel-sampled
+    // against the WACUP reference (354x164 native): bold "WACUP"
+    // glyphs span 37 px at fontsize=14, which Qt setPixelSize(10)
+    // hits exactly — a 5/7 ratio.  Earlier 4/7 came from a deleted
+    // hand-tuned C++ titlebar's setPixelSize(8) magic for Win32 GDI's
+    // narrower character-cell rendering of Arial Bold.
+    const int qpx = qMax(1, (fontsize * 5 + 3) / 7);
     qf.setPixelSize(qpx);
     if (attrBool(attrs, QStringLiteral("bold")))   qf.setBold(true);
     if (attrBool(attrs, QStringLiteral("italic"))) qf.setItalic(true);
@@ -117,11 +124,15 @@ bool paintText(QPainter *p,
     if (attrBool(attrs, QStringLiteral("antialias")))
         p->setRenderHint(QPainter::TextAntialiasing, true);
 
-    // Color: accepted forms are "r,g,b" or a named id (skipped — would
-    // need a color registry).  Default white so something shows.
+    // Colour: literal "r,g,b" or a named id registered via
+    // `<color id="X" gammagroup="Y" value="r,g,b"/>`.  Named ids
+    // resolve through the active gammaset so Color Themes affect
+    // text colour the same way they affect bitmap chrome.
     const QString colorStr = attrs.value(QStringLiteral("color"));
     QColor color(Qt::white);
-    if (colorStr.contains(QChar(','))) {
+    if (colors) {
+        color = colors->resolve(colorStr, gammasets, QColor(Qt::white));
+    } else if (colorStr.contains(QChar(','))) {
         const auto parts = colorStr.split(QChar(','));
         if (parts.size() == 3)
             color = QColor(parts[0].toInt(), parts[1].toInt(), parts[2].toInt());
@@ -133,7 +144,18 @@ bool paintText(QPainter *p,
     else if (align == QStringLiteral("right"))  qFlag |= Qt::AlignRight;
     else                                        qFlag |= Qt::AlignLeft;
 
-    p->drawText(QRect(x, y, w, h), qFlag, text);
+    // Wasabi's Text::onPaint draws left-aligned text at
+    // `r.left + 2 - shadowx + lpadding` (Src/Wasabi/api/skin/widgets/
+    // text.cpp:804).  The +2 inset is what gives the titlebar's
+    // WACUP its breathing room from the left streak.  Apply only
+    // for left-aligned text — Qt's natural centre/right alignment
+    // already handles the others.
+    QRect drawRect(x, y, w, h);
+    if ((qFlag & Qt::AlignHorizontal_Mask) == Qt::AlignLeft) {
+        const int shadowX = attrInt(attrs, QStringLiteral("shadowx"), 0);
+        drawRect.translate(2 - qMax(0, shadowX), 0);
+    }
+    p->drawText(drawRect, qFlag, text);
     p->restore();
     return true;
 }

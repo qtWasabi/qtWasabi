@@ -22,6 +22,8 @@ namespace WasabiQt {
 
 class BitmapRegistry;
 class FontRegistry;
+class ColorRegistry;
+class GammasetRegistry;
 
 namespace TextPainter {
 
@@ -39,7 +41,9 @@ bool paintText(QPainter *p,
                FontRegistry &fontReg, BitmapRegistry &bmpReg,
                const QHash<QString, QString> &attrs,
                const QSize &containerSize,
-               const DisplayResolver &resolver = {});
+               const DisplayResolver &resolver = {},
+               const ColorRegistry *colors = nullptr,
+               const GammasetRegistry *gammasets = nullptr);
 
 }  // namespace TextPainter
 }  // namespace WasabiQt

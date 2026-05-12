@@ -16,6 +16,7 @@ set(WASABIQT_SOURCES
     SkinXml.cpp
     Layout.cpp
     BitmapRegistry.cpp
+    ColorRegistry.cpp
     FontRegistry.cpp
     GammasetRegistry.cpp
     SkinRuntime.cpp

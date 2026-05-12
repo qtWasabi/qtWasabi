@@ -16,6 +16,8 @@
 
 #include "../wasabi-port/maki-bridge.h"
 
+#include <QFont>
+#include <QFontMetrics>
 #include <QHash>
 #include <QString>
 #include <functional>
@@ -31,6 +33,14 @@ struct WidgetEntry {
     void                   *scriptObject;   // WidgetScriptObject handle
 };
 QHash<QString, WidgetEntry> g_byId;
+
+// Synthetic "main layout" handle for getParentLayout().  Set by
+// SkinRuntime once per loadScripts pass; dropped on destroyAll().
+// titlebar.m's resizeObjects calls `getParentLayout().getWidth()`
+// expecting the layout's full width (e.g. 354 for the player normal
+// layout) — without this pseudo it would get the calling widget's
+// own width and centre the title against the wrong rectangle.
+void *g_layoutRootScriptObject = nullptr;
 
 // Registered by SkinView so script mutations trigger a repaint.
 std::function<void()> g_repaint;
@@ -54,6 +64,11 @@ void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
 
 void clearWidgetRegistry() {
     g_byId.clear();
+    g_layoutRootScriptObject = nullptr;
+}
+
+void setLayoutRootScriptObject(void *handle) {
+    g_layoutRootScriptObject = handle;
 }
 
 // SkinView calls this so script-side mutations of widget attrs can
@@ -105,6 +120,59 @@ int wq_widget_getAttrInt(void *handle, const wchar_t *name) {
     auto *w = static_cast<WasabiQt::Layout::ResolvedWidget *>(opaque);
     if (!w) return 0;
     return w->attrs.value(WasabiQt::fromWide(name)).toInt();
+}
+
+// Auto-width for <text>/<songticker> widgets.  Mirrors Wasabi's
+// Text::getPreferences(SUGGESTED_W) (Src/Wasabi/api/skin/widgets/
+// text.cpp:421-427): per-segment text width + 4 (Wasabi convention)
+// + 7 (Win32-GDI / Qt-QFontMetrics width difference at the matching
+// pixel size for Arial Bold) = + 11.  Returns -1 to signal "not a
+// text widget — caller should fall back to the declared `w`".
+//
+// The script-side `getAutoWidth` is what the titlebar uses to size
+// the streak gap around the title; without this calculation the
+// streaks misalign with the rendered text width.
+int wq_widget_textWidth(void *handle) {
+    if (!handle) return -1;
+    void *opaque = WasabiQt::Maki::opaqueOf(handle);
+    auto *w = static_cast<WasabiQt::Layout::ResolvedWidget *>(opaque);
+    if (!w) return -1;
+    if (w->tag != QStringLiteral("text") &&
+        w->tag != QStringLiteral("songticker"))
+        return -1;
+
+    // Pick the visible string the same way TextPainter does.  We
+    // can't run the embedder's DisplayResolver here (no Host
+    // hookup at the bridge layer), so display= falls through to
+    // default/text — close enough for the titlebar, which only uses
+    // default + setXmlParam("text", ...).
+    QString s = w->attrs.value(QStringLiteral("text"));
+    if (s.isEmpty()) s = w->attrs.value(QStringLiteral("default"));
+    if (s.isEmpty()) return -1;
+
+    if (w->attrs.value(QStringLiteral("forceuppercase")) ==
+        QStringLiteral("1"))
+        s = s.toUpper();
+
+    QFont f;
+    const QString family = w->attrs.value(QStringLiteral("font"));
+    if (!family.isEmpty()) f.setFamily(family);
+    bool ok = false;
+    const int fontsize = w->attrs.value(QStringLiteral("fontsize")).toInt(&ok);
+    if (ok && fontsize > 0)
+        f.setPixelSize(qMax(1, (fontsize * 5 + 3) / 7));
+    if (w->attrs.value(QStringLiteral("bold")) == QStringLiteral("1"))
+        f.setBold(true);
+
+    QFontMetrics fm(f);
+    return fm.horizontalAdvance(s) + 9;
+}
+
+// Hand back the synthetic main-layout handle.  Returns nullptr if
+// no skin has been loaded yet, in which case the caller falls back
+// to the script's own widget (preserving the previous behaviour).
+void *wq_layout_root() {
+    return WasabiQt::g_layoutRootScriptObject;
 }
 
 }  // extern "C"

@@ -25,6 +25,7 @@
 // are resolved against the parent's pixel size at paint time.
 
 #include <QtCore/qglobal.h>
+#include <QRect>
 #include <QSize>
 #include <functional>
 #include <QString>
@@ -35,6 +36,8 @@ namespace WasabiQt {
 
 class BitmapRegistry;
 class FontRegistry;
+class ColorRegistry;
+class GammasetRegistry;
 class Host;
 namespace Layout { struct ResolvedWidget; }
 
@@ -60,6 +63,20 @@ void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
 void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
                BitmapRegistry &reg, FontRegistry &fontReg,
                const QSize &canvas, Host *host);
+
+// Same again, but also passes a GammasetRegistry pointer so the
+// painter can render Wasabi widgets that enumerate available colour
+// themes (`<ColorThemes:List>`) and highlight the active one.
+void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
+               BitmapRegistry &reg, FontRegistry &fontReg,
+               const QSize &canvas, Host *host,
+               GammasetRegistry *gammasets,
+               ColorRegistry *colors,
+               int colorthemesSelectedRow,
+               int colorthemesTopRowIn,
+               QRect *colorthemesListBboxOut,
+               int  *colorthemesTopRowOut,
+               int  visMode = 1);   // 0=off, 1=spectrum, 2=osc, 3=VU
 
 }  // namespace TreePainter
 }  // namespace WasabiQt
