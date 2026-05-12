@@ -119,8 +119,16 @@ bool paintText(QPainter *p,
             if (i < text.size() - 1)
                 lineW += trailingSpace(text.at(i));
         }
+        // Wasabi's text widget reserves `hSpacing + 1` of right
+        // padding for right-aligned bitmap-font text — it's the
+        // "trailing hSpacing after the last char" that Wasabi's
+        // upstream Text::onPaint adds before measuring against the
+        // widget's right edge.  Derives from the font's own metrics,
+        // so different skins / fonts adapt automatically.
         const int timePadRight =
-            attrs.contains(QStringLiteral("timecolonwidth")) ? 4 : 0;
+            (align == QStringLiteral("right"))
+                ? fontDef->hSpacing + 1
+                : 0;
         int drawX = x;
         if      (align == QStringLiteral("center"))
             drawX = x + (w - lineW) / 2;
