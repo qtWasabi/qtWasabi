@@ -252,8 +252,14 @@ extern "C" scriptVar wq_setDelay(maki_cmd *, int, ScriptObject *, scriptVar) {
     return makeVoid();
 }
 
-extern "C" scriptVar wq_show(maki_cmd *, int, ScriptObject *) { return makeVoid(); }
-extern "C" scriptVar wq_hide(maki_cmd *, int, ScriptObject *) { return makeVoid(); }
+extern "C" scriptVar wq_show(maki_cmd *, int, ScriptObject *o) {
+    if (o) wq_widget_setAttr(o, L"visible", L"1");
+    return makeVoid();
+}
+extern "C" scriptVar wq_hide(maki_cmd *, int, ScriptObject *o) {
+    if (o) wq_widget_setAttr(o, L"visible", L"0");
+    return makeVoid();
+}
 extern "C" scriptVar wq_stop(maki_cmd *, int, ScriptObject *) { return makeVoid(); }
 
 // GuiObject / Group / Layer / Layout / Container — geometry stubs.
@@ -277,12 +283,20 @@ extern "C" scriptVar wq_getObject(maki_cmd *, int, ScriptObject *,
     return wq_findObject(nullptr, 0, nullptr, id);
 }
 
-extern "C" scriptVar wq_setVisible(maki_cmd *, int, ScriptObject *, scriptVar) {
+extern "C" scriptVar wq_setVisible(maki_cmd *, int, ScriptObject *o, scriptVar v) {
+    if (!o) return makeVoid();
+    const bool on = (v.type == SCRIPT_BOOLEAN || v.type == SCRIPT_INT)
+                        ? (v.data.idata != 0) : true;
+    wq_widget_setAttr(o, L"visible", on ? L"1" : L"0");
     return makeVoid();
 }
 
-extern "C" scriptVar wq_getVisible(maki_cmd *, int, ScriptObject *) {
-    return makeBoolean(1);
+extern "C" scriptVar wq_getVisible(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeBoolean(0);
+    const wchar_t *v = wq_widget_getAttr(o, L"visible");
+    // visible defaults to "1" when unset.
+    if (!v || !*v) return makeBoolean(1);
+    return makeBoolean(wcscmp(v, L"0") != 0);
 }
 
 extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,

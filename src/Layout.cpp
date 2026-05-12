@@ -806,31 +806,14 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
             w.attrs.insert(QStringLiteral("y"),
                            QStringLiteral("121"));
             w.attrs.remove(QStringLiteral("relaty"));
-        } else if (w.id == QStringLiteral("player.normal.drawer.eq")) {
-            // configdrawer.xml ships the EQ page with `visible="0"`;
-            // pbswitch.maki turns it on as the default-selected
-            // tab.  Force it visible so the EQ shows in the drawer
-            // chrome at startup without the script.
-            w.attrs.insert(QStringLiteral("visible"),
-                           QStringLiteral("1"));
-        } else if (w.id == QStringLiteral("colorthemes") &&
-                   w.tag == QStringLiteral("colorthemes_list")) {
-            // configtabs.m::OpenDrawer calls `ColorThemes.show()`
-            // when the drawer goes from closed → open.  Without
-            // the script, force the list visible so when the user
-            // switches to the Color Themes tab the gammaset names
-            // render.  The list's parent (drawer.colorthemes)
-            // controls overall page visibility.
-            w.attrs.insert(QStringLiteral("visible"),
-                           QStringLiteral("1"));
         } else if (w.id == QStringLiteral("player.normal.drawer.content")) {
-            // Mirror configtabs.m's `main.onResize` centering:
-            //   newXpos = w/2 - 163;        // 326-wide content
+            // configtabs.m's main.onResize centres DrawerContent
+            // horizontally inside main:
+            //   newXpos = w/2 - 163;
             //   DrawerContent.setXmlParam("x", newXpos);
-            // Without this the drawer content sits flush-left and
-            // the EQ panel is visibly offset from the drawer's
-            // centre.  layoutWidth here is the player's full width
-            // (e.g. 354 → x = 14).
+            // We don't dispatch onResize yet (Maki event firing for
+            // 4-arg layout events isn't wired up), so apply the
+            // centring statically.  Drop once onResize fires at load.
             const int newX = layoutWidth / 2 - 163;
             w.attrs.insert(QStringLiteral("x"),
                            QString::number(newX));
