@@ -6,7 +6,9 @@
 #include <WasabiQt/SkinXml.h>
 
 #include <QChar>
+#include <QDir>
 #include <QImage>
+#include <QImageReader>
 #include <QPoint>
 
 namespace WasabiQt {
@@ -34,6 +36,7 @@ void collectFonts(const SkinXml::Element &el,
 int FontRegistry::loadFromDocument(const SkinXml::Document &doc) {
     m_defs.clear();
     m_charTableCache.clear();
+    m_skinDir = doc.skinDir;
     collectFonts(doc.root, m_defs);
     return m_defs.size();
 }
@@ -113,7 +116,17 @@ QImage FontRegistry::glyph(const QString &fontId, QChar ch,
 
     QImage table = m_charTableCache.value(fontId);
     if (table.isNull()) {
+        // Two conventions for <bitmapfont file="X">:
+        //   1) Modern style: X is a <bitmap id="..."/> registered in
+        //      the BitmapRegistry (typically "bitmapfont.<font>").
+        //   2) Classic style: X is a relative file path to the image
+        //      (e.g. "skin/numfont.png"), no <bitmap> indirection.
+        // Try registry first; fall back to loading from the skin dir.
         table = bmpReg.imageFor(def->bitmapId);
+        if (table.isNull() && !m_skinDir.isEmpty()) {
+            QImageReader r(QDir(m_skinDir).filePath(def->bitmapId));
+            table = r.read();
+        }
         if (table.isNull()) return {};
         m_charTableCache.insert(fontId, table);
     }

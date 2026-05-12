@@ -88,10 +88,12 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
         if (k == QStringLiteral("filename"))
             return host->songFilename();
         if (k == QStringLiteral("kbps") ||
-            k == QStringLiteral("bitrate"))
+            k == QStringLiteral("bitrate") ||
+            k == QStringLiteral("songbitrate"))
             return QString::number(host->bitrate());
         if (k == QStringLiteral("khz") ||
-            k == QStringLiteral("samplerate"))
+            k == QStringLiteral("samplerate") ||
+            k == QStringLiteral("songsamplerate"))
             return QString::number(host->sampleRate() / 1000);
         if (k == QStringLiteral("volume"))
             return QString::number(host->volume());

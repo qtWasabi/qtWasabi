@@ -59,6 +59,7 @@ public:
 private:
     QHash<QString, BitmapFontDef> m_defs;
     QHash<QString, QImage>        m_charTableCache;  // by font id
+    QString                       m_skinDir;
 };
 
 }  // namespace WasabiQt
