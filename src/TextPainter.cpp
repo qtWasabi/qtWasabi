@@ -85,22 +85,28 @@ bool paintText(QPainter *p,
         // narrower than digits — Winamp's classic BIGNUM has a slim
         // colon glyph (6 px) inside a 9-px cell, and the skin advances
         // the cursor by 6 instead of 9 to remove the dead space.
-        // `timecolonwidth` is the colon's *visual* width (drawn glyph
-        // size).  The colon still occupies one charWidth-wide cell —
-        // the dot just sits centred inside it — so the inter-char
-        // advance stays constant.  Mirrors how Winamp/WACUP lay out
-        // BIGNUM time displays.
-        const int colW = attrInt(attrs,
+        // Wasabi's BIGNUM time-display convention (measured against
+        // upstream DeClassified at 275×116):
+        //   * colon occupies a wider cell than digits — charWidth + 2
+        //     px — and the dot itself (`timecolonwidth`) sits right-
+        //     anchored inside that cell.
+        //   * the seconds digit reserves a small fixed right margin
+        //     (~4 px) so it doesn't hug the LCD frame.
+        const int colDotW = attrInt(attrs,
             QStringLiteral("timecolonwidth"), fontDef->charWidth);
-        auto charAdvance = [&](QChar) {
-            return fontDef->charWidth;
+        const int colCellW = fontDef->charWidth + 2;
+        auto charAdvance = [&](QChar c) {
+            return c == u':' ? colCellW : fontDef->charWidth;
         };
         int lineW = 0;
         for (int i = 0; i < text.size(); ++i) {
             if (i > 0) lineW += fontDef->hSpacing;
             lineW += charAdvance(text.at(i));
         }
-        const int timePadRight = 0;
+        // Reserve a small fixed right margin on time displays so the
+        // last digit doesn't sit flush against the LCD frame.
+        const int timePadRight =
+            attrs.contains(QStringLiteral("timecolonwidth")) ? 4 : 0;
         int drawX = x;
         if      (align == QStringLiteral("center"))
             drawX = x + (w - lineW) / 2;
@@ -165,18 +171,19 @@ bool paintText(QPainter *p,
         for (int i = 0; i < text.size(); ++i) {
             const QChar ch = text.at(i);
             if (ch == u':' && colonIsBlank) {
-                // Two compact dots stacked at thirds of charHeight,
-                // sized to the digit-stroke thickness so they read as
-                // colon rather than `=`.  Matches DeClassified/WACUP.
-                const int dotH = qMax(2, fontDef->charHeight / 7);
-                const int dotW = qMax(dotH, qMin(3, colW - 2));
-                const int dotX = cx + (colW - dotW) / 2;
-                const int t1   = drawY + fontDef->charHeight / 3 - dotH / 2;
-                const int t2   = drawY + (fontDef->charHeight * 2) / 3 - dotH / 2;
-                if (::getenv("WASABIQT_TRACE_TIME"))
-                    fprintf(stderr, "[time] dotX=%d t1=%d t2=%d dotW=%d dotH=%d "
-                            "xform=(%g,%g)\n", dotX, t1, t2, dotW, dotH,
-                            p->transform().dx(), p->transform().dy());
+                // 3-wide × 1-tall colon dots, two stacked at thirds
+                // of the digit cell.  Sits centred inside the colon's
+                // wider cell — measured to land where the upstream
+                // reference's grid dots sit.
+                const int dotH = 1;
+                const int dotW = 3;
+                // Dots sit at the *right* end of the colon's wider
+                // cell — measured against the upstream reference's
+                // pixel positions on DeClassified, the dot starts at
+                // cx + (colCellW - dotW), not centred.
+                const int dotX = cx + colCellW - dotW;
+                const int t1   = drawY + fontDef->charHeight / 3;
+                const int t2   = drawY + (fontDef->charHeight * 2) / 3;
                 p->save();
                 p->setRenderHint(QPainter::Antialiasing, false);
                 p->setRenderHint(QPainter::SmoothPixmapTransform, false);
@@ -187,8 +194,8 @@ bool paintText(QPainter *p,
                 QImage glyph = fontReg.glyph(fontId, ch, bmpReg);
                 if (!glyph.isNull()) {
                     int gx = cx;
-                    if (ch == u':' && colW < fontDef->charWidth)
-                        gx -= (fontDef->charWidth - colW) / 2;
+                    if (ch == u':' && colDotW < fontDef->charWidth)
+                        gx -= (fontDef->charWidth - colDotW) / 2;
                     p->drawImage(QPoint(gx, drawY), glyph);
                 }
             }
