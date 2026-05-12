@@ -95,9 +95,19 @@ bool paintText(QPainter *p,
             if (i > 0) lineW += fontDef->hSpacing;
             lineW += charAdvance(text.at(i));
         }
+        // When a `timecolonwidth` is set the widget is a time
+        // display; Wasabi reserves about one charWidth of right
+        // padding on those so the seconds don't hug the LCD frame.
+        // Without it, classic skins (DeClassified, base 2.91) look
+        // visually wrong vs the upstream reference.
+        const int timePadRight =
+            attrs.contains(QStringLiteral("timecolonwidth"))
+                ? fontDef->charWidth : 0;
         int drawX = x;
-        if      (align == QStringLiteral("center")) drawX = x + (w - lineW) / 2;
-        else if (align == QStringLiteral("right"))  drawX = x + (w - lineW);
+        if      (align == QStringLiteral("center"))
+            drawX = x + (w - lineW) / 2;
+        else if (align == QStringLiteral("right"))
+            drawX = x + (w - lineW - timePadRight);
         int drawY = y + (h - fontDef->charHeight) / 2;
         if (drawY < y) drawY = y;
         // For classic-style NUMBERS.BMP fonts the colon glyph isn't
@@ -157,17 +167,19 @@ bool paintText(QPainter *p,
         for (int i = 0; i < text.size(); ++i) {
             const QChar ch = text.at(i);
             if (ch == u':' && colonIsBlank) {
-                // Draw two centred dots in the colW slot.  Sizing
-                // mirrors Winamp 2: two ~2px-tall dots, one at
-                // ~1/3 and one at ~2/3 of charHeight.
-                const int dotSize = qMax(1, fontDef->charHeight / 5);
-                const int dotX = cx + (colW - dotSize) / 2;
-                const int t1   = drawY + fontDef->charHeight / 3 - dotSize / 2;
-                const int t2   = drawY + fontDef->charHeight * 2 / 3 - dotSize / 2;
+                // 7-segment-style colon: two short horizontal bars
+                // (roughly the digit-stroke thickness) stacked at the
+                // two thirds of charHeight.  Mirrors how Winamp/WACUP
+                // render the colon in BIGNUM time displays.
+                const int dotH = qMax(2, fontDef->charHeight / 6);
+                const int dotW = qMax(dotH, colW - 2);
+                const int dotX = cx + (colW - dotW) / 2;
+                const int t1   = drawY + fontDef->charHeight / 3 - dotH / 2;
+                const int t2   = drawY + fontDef->charHeight * 2 / 3 + dotH / 2 - dotH;
                 p->save();
                 p->setRenderHint(QPainter::Antialiasing, false);
-                p->fillRect(QRect(dotX, t1, dotSize, dotSize), dotColor);
-                p->fillRect(QRect(dotX, t2, dotSize, dotSize), dotColor);
+                p->fillRect(QRect(dotX, t1, dotW, dotH), dotColor);
+                p->fillRect(QRect(dotX, t2, dotW, dotH), dotColor);
                 p->restore();
             } else {
                 QImage glyph = fontReg.glyph(fontId, ch, bmpReg);
