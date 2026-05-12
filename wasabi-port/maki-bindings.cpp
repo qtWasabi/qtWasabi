@@ -113,6 +113,7 @@ extern "C" scriptVar wq_isTransparencyAvailable(maki_cmd *, int, ScriptObject *)
 namespace WasabiQt::Maki {
     const wchar_t *currentScriptParam();
     void setCurrentScriptId(int);
+    int  currentScriptId();
 }
 
 extern "C" scriptVar wq_getParam(maki_cmd *, int /*vsd*/, ScriptObject *) {
@@ -189,10 +190,41 @@ extern "C" scriptVar wq_setPublicInt(maki_cmd *, int, ScriptObject *,
     return makeVoid();
 }
 
+// Qt-side bridge accessors — see src/SkinRuntimeBridge.cpp.
+// Forward-declared up here so wq_getScriptGroup can use them.
+extern "C" {
+    void *wq_widget_findById(const wchar_t *id);
+    void  wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value);
+    const wchar_t *wq_widget_getAttr(void *handle, const wchar_t *name);
+    int   wq_widget_getAttrInt(void *handle, const wchar_t *name);
+    int   wq_widget_textWidth(void *handle);
+    void *wq_layout_root();
+    void *wq_script_owner(int sid);
+}
+
 extern "C" scriptVar wq_getScriptGroup(maki_cmd *, int, ScriptObject *o) {
-    // Returns the script's enclosing group.  For M13d, just return
-    // the receiver (the SystemObject) — findObject on it walks every
-    // widget.  The widget tree integration lands in M13e.
+    // The script's enclosing <group>/<groupdef> — recorded at parse
+    // time, resolved at load time, looked up here by the currently-
+    // dispatching script id.  Scripts call this to get a handle they
+    // can run findObject/getObject on for sibling widgets, plus call
+    // getWidth/getHeight against the group's own bounds.
+    //
+    // Fallbacks (in priority order):
+    //   1) the parse-time owner-group widget
+    //   2) the layout root (so global findObject still works — same
+    //      behaviour the old hand-coded fallback provided)
+    //   3) the receiver (the SystemObject — preserves the very-old
+    //      M13d behaviour as a last resort so we never hand back a
+    //      null group and crash callers that don't null-check)
+    const int sid = WasabiQt::Maki::currentScriptId();
+    void *owner = (sid >= 0) ? wq_script_owner(sid) : nullptr;
+    void *root  = wq_layout_root();
+    if (std::getenv("WASABIQT_TRACE_MAKI"))
+        std::fprintf(stderr,
+                     "[maki] getScriptGroup sid=%d owner=%p root=%p recv=%p\n",
+                     sid, owner, root, (void *)o);
+    if (owner) return makeObject(static_cast<ScriptObject *>(owner));
+    if (root)  return makeObject(static_cast<ScriptObject *>(root));
     return makeObject(o);
 }
 
@@ -215,16 +247,6 @@ extern "C" scriptVar wq_stop(maki_cmd *, int, ScriptObject *) { return makeVoid(
 
 // GuiObject / Group / Layer / Layout / Container — geometry stubs.
 // Real widget integration in M13e.
-
-// Qt-side bridge accessors — see src/SkinRuntimeBridge.cpp.
-extern "C" {
-    void *wq_widget_findById(const wchar_t *id);
-    void  wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value);
-    const wchar_t *wq_widget_getAttr(void *handle, const wchar_t *name);
-    int   wq_widget_getAttrInt(void *handle, const wchar_t *name);
-    int   wq_widget_textWidth(void *handle);
-    void *wq_layout_root();
-}
 
 extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
                                     scriptVar id) {

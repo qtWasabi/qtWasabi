@@ -41,6 +41,10 @@ struct Element {
 struct ScriptRef {
     QString file;     // path relative to skin root
     QString param;    // per-script param string ("" when omitted)
+    // Id of the closest enclosing <groupdef>/<group>/<container>/<layout>
+    // ancestor (if any).  Used to resolve `getScriptGroup()` at runtime
+    // — without it, scripts can't address their sibling widgets.
+    QString ownerGroupId;
 };
 
 struct Document {

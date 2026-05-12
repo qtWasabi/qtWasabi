@@ -42,6 +42,13 @@ QHash<QString, WidgetEntry> g_byId;
 // own width and centre the title against the wrong rectangle.
 void *g_layoutRootScriptObject = nullptr;
 
+// Per-script owner-widget handle, keyed by sid.  Populated by
+// SkinRuntime::loadScripts from each ScriptRef's ownerGroupId.
+// wq_getScriptGroup reads this back keyed on the currently-dispatching
+// sid so scripts get their enclosing <group> rather than the
+// SystemObject.
+QHash<int, void *> g_scriptOwner;
+
 // Registered by SkinView so script mutations trigger a repaint.
 std::function<void()> g_repaint;
 
@@ -65,10 +72,21 @@ void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
 void clearWidgetRegistry() {
     g_byId.clear();
     g_layoutRootScriptObject = nullptr;
+    g_scriptOwner.clear();
 }
 
 void setLayoutRootScriptObject(void *handle) {
     g_layoutRootScriptObject = handle;
+}
+
+void setScriptOwnerWidget(int sid, void *scriptObjectHandle) {
+    if (!scriptObjectHandle) g_scriptOwner.remove(sid);
+    else                     g_scriptOwner.insert(sid, scriptObjectHandle);
+}
+
+void *scriptOwnerScriptObject(int sid) {
+    auto it = g_scriptOwner.constFind(sid);
+    return it == g_scriptOwner.constEnd() ? nullptr : it.value();
 }
 
 // SkinView calls this so script-side mutations of widget attrs can
@@ -173,6 +191,13 @@ int wq_widget_textWidth(void *handle) {
 // to the script's own widget (preserving the previous behaviour).
 void *wq_layout_root() {
     return WasabiQt::g_layoutRootScriptObject;
+}
+
+// Lookup the owner widget for `sid`.  Returns nullptr if no owner
+// was registered (e.g. for top-level scripts), in which case the
+// caller falls back to the layout root or the receiver.
+void *wq_script_owner(int sid) {
+    return WasabiQt::scriptOwnerScriptObject(sid);
 }
 
 }  // extern "C"

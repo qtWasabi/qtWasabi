@@ -28,6 +28,7 @@ void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
                               void *scriptObjectHandle);
 void clearWidgetRegistry();
 void setLayoutRootScriptObject(void *handle);
+void setScriptOwnerWidget(int sid, void *scriptObjectHandle);
 }
 
 namespace WasabiQt {
@@ -115,6 +116,38 @@ void registerWidgets(Layout::ResolvedWidget &w,
     }
     for (auto &c : w.children) registerWidgets(c, out);
 }
+
+// Look for the first widget in the resolved tree that matches an
+// owner-group id captured at parse time.  Matches in order of
+// specificity:
+//   1) exact widget id  (most common — the script is inside a
+//      <group> instance the embedder named explicitly)
+//   2) tag name  (the groupdef is instantiated as `<groupdef.id …/>`)
+//   3) inherit_group attribute  (the instance referenced the groupdef
+//      from a generic <group inherit_group="groupdef.id"/>)
+// Returns nullptr if no match — caller then falls back to the layout
+// root.
+Layout::ResolvedWidget *findOwnerWidget(Layout::ResolvedWidget &root,
+                                        const QString &gid) {
+    if (gid.isEmpty()) return nullptr;
+    Layout::ResolvedWidget *byId = nullptr;
+    Layout::ResolvedWidget *byTag = nullptr;
+    Layout::ResolvedWidget *byInherit = nullptr;
+    std::function<void(Layout::ResolvedWidget &)> walk =
+        [&](Layout::ResolvedWidget &w) {
+        if (!byId       && w.id  == gid) byId = &w;
+        if (!byTag      && w.tag == gid) byTag = &w;
+        if (!byInherit  &&
+            w.attrs.value(QStringLiteral("inherit_group")) == gid)
+            byInherit = &w;
+        for (auto &c : w.children) walk(c);
+    };
+    walk(root);
+    if (byId)      return byId;
+    if (byTag)     return byTag;
+    if (byInherit) return byInherit;
+    return nullptr;
+}
 }  // namespace
 
 int SkinRuntime::loadScripts(const SkinXml::Document &doc,
@@ -162,6 +195,9 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
             // backing entries we already created the first time.
             m_d->systemObjects.append(nullptr);   // null = duplicate
             m_d->scriptParams.push_back({});
+            // The first instance already registered the owner.
+            // Identical (file, param) means the owner-group hint is
+            // also the same — leave the existing mapping alone.
             continue;
         }
         const QString abs = QDir(doc.skinDir).filePath(relPath);
@@ -229,6 +265,27 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         m_d->loadedScripts.append(sid);
         m_d->scriptPaths.append(relPath);
         m_d->systemObjects.append(sysObj);
+
+        // Resolve the parse-time ownerGroupId hint to a real widget
+        // in the resolved tree and register it so wq_getScriptGroup
+        // can hand it back during dispatch.
+        if (!ref.ownerGroupId.isEmpty()) {
+            if (Layout::ResolvedWidget *owner =
+                    findOwnerWidget(root, ref.ownerGroupId)) {
+                const QString &oid = !owner->id.isEmpty()
+                                       ? owner->id
+                                       : ref.ownerGroupId;
+                void *handle = m_d->widgetObjects.value(oid, nullptr);
+                if (!handle) {
+                    // No bound handle (owner had no id).  Create a
+                    // fresh handle so the script can call its methods.
+                    handle = Maki::createWidgetScriptObject(owner);
+                    if (!oid.isEmpty())
+                        m_d->widgetObjects.insert(oid, handle);
+                }
+                setScriptOwnerWidget(sid, handle);
+            }
+        }
 
         // Register the per-script `param=` string with the bindings
         // layer.  Backed by an std::wstring we own for the runtime's

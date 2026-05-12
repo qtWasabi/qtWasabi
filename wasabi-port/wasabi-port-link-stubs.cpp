@@ -157,6 +157,7 @@ const wchar_t *currentScriptParam() {
 }
 
 void setCurrentScriptId(int scriptId) { g_currentScript = scriptId; }
+int  currentScriptId() { return g_currentScript; }
 }  // namespace
 
 SystemObject *ScriptObjectManager::getSystemObject(int id) {

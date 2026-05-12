@@ -66,6 +66,7 @@ void registerScriptSystemObject(int scriptId, void *systemObjectHandle);
 void registerScriptParam(int scriptId, const wchar_t *param);
 const wchar_t *currentScriptParam();
 void setCurrentScriptId(int scriptId);
+int  currentScriptId();
 
 // Walk `scriptId`'s DLF table, find the entry with the given UTF-16
 // function name (e.g. L"onScriptLoaded"), and fire it via

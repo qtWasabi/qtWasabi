@@ -85,9 +85,41 @@ QByteArray wrapInSyntheticRoot(const QByteArray &content) {
 struct Parser {
     Document    *doc;
     QStringList  fileStack;     // for include-cycle detection
+    // Stack of enclosing scope ids — pushed when entering a <groupdef>,
+    // <group>, <container>, or <layout> with an id.  Used to set
+    // ScriptRef::ownerGroupId on every <script> encountered.
+    QStringList  scopeStack;
     QString      relativeFromSkin(const QString &absPath) const {
         return QDir(doc->skinDir).relativeFilePath(absPath);
     }
+
+    // Is this tag a "scope" — i.e. something a script inside it would
+    // consider as its enclosing group?
+    static bool isScopeTag(const QString &tag) {
+        return tag == QStringLiteral("groupdef") ||
+               tag == QStringLiteral("group") ||
+               tag == QStringLiteral("container") ||
+               tag == QStringLiteral("layout");
+    }
+
+    // RAII-ish: push the element's id (when any + scope-tag) on entry,
+    // pop on destruction.  Returns the depth pushed (0 or 1).
+    struct ScopeGuard {
+        QStringList *stack;
+        int          pushed;
+        ScopeGuard(QStringList *s, const QString &tag,
+                   const QHash<QString, QString> &attrs)
+            : stack(s), pushed(0) {
+            if (isScopeTag(tag)) {
+                const QString id = attrs.value(QStringLiteral("id"));
+                if (!id.isEmpty()) {
+                    stack->append(id);
+                    pushed = 1;
+                }
+            }
+        }
+        ~ScopeGuard() { while (pushed-- > 0) stack->removeLast(); }
+    };
 
     bool readFile(const QString &absPath, Element &parent, QString *errMsg) {
         if (fileStack.contains(absPath)) {
@@ -175,6 +207,7 @@ struct Parser {
                            a.value().toString());
         }
         ++doc->elementCount;
+        ScopeGuard scope(&scopeStack, tag, e.attrs);
         if (!readChildrenInto(xml, e, relPath, errMsg)) return false;
 
         if (tag == QStringLiteral("name")     && !e.text.isEmpty())
@@ -190,6 +223,11 @@ struct Parser {
                 ScriptRef ref;
                 ref.file  = f;
                 ref.param = e.attrs.value(QStringLiteral("param"));
+                // ScopeGuard for `<script>` doesn't push (script isn't
+                // a scope tag), so scopeStack still reflects the
+                // ENCLOSING scope at this point.
+                if (!scopeStack.isEmpty())
+                    ref.ownerGroupId = scopeStack.last();
                 doc->scripts << ref;
             }
         }
@@ -242,6 +280,8 @@ struct Parser {
             }
             ++doc->elementCount;
 
+            ScopeGuard scope(&scopeStack, tag, e.attrs);
+
             // Recurse.
             if (!readChildrenInto(xml, e, relPath, errMsg)) return false;
 
@@ -259,6 +299,8 @@ struct Parser {
                     ScriptRef ref;
                     ref.file  = f;
                     ref.param = e.attrs.value(QStringLiteral("param"));
+                    if (!scopeStack.isEmpty())
+                        ref.ownerGroupId = scopeStack.last();
                     doc->scripts << ref;
                 }
             }
