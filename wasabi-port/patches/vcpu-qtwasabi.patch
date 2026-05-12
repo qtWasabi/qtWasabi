@@ -1,5 +1,3 @@
-diff --git a/vcpu.cpp b/vcpu.cpp
-index 1002ee57..9737cef9 100644
 --- a/vcpu.cpp
 +++ b/vcpu.cpp
 @@ -6,6 +6,11 @@
@@ -14,7 +12,7 @@ index 1002ee57..9737cef9 100644
  #include <api/wndmgr/msgbox.h>
  #include <api/script/objecttable.h>
  #include <api/syscb/callbacks/consolecb.h>
-@@ -932,6 +937,27 @@ void VCPU::runCode(int scriptId, int pointer, int np) {
+@@ -932,6 +937,27 @@
      p+=sizeof(opcode);
      VIP+=sizeof(opcode);
  
@@ -42,7 +40,7 @@ index 1002ee57..9737cef9 100644
      switch (opcode) {
        case OPCODE_PUSH: {
          int id; // var id
-@@ -996,6 +1022,22 @@ void VCPU::runCode(int scriptId, int pointer, int np) {
+@@ -996,6 +1022,22 @@
            VIP += sizeof(int);
            np &= 0xFFFF;
          } else np = -1;
@@ -65,7 +63,7 @@ index 1002ee57..9737cef9 100644
          scriptVar r = callDLF(e, np);
          VCPUscriptVar vr;
          vr.scriptId = VSD;
-@@ -1638,13 +1680,41 @@ scriptVar VCPU::callDLF(VCPUdlfEntry *e, int np) {
+@@ -1638,13 +1680,57 @@
  
    //traceState(object, e);
  
@@ -104,6 +102,22 @@ index 1002ee57..9737cef9 100644
 +      }
 +    }
 +    if (bogus) {
++      // qtWasabi: emit the function name + sid context when
++      // WASABIQT_TRACE_NULLCALL=1, so we know which binding is being
++      // invoked with a null receiver — saves wading through a 1000-
++      // line CALLM trace to map ip back to a method name.
++      if (const char *t = ::getenv("WASABIQT_TRACE_NULLCALL");
++          t && *t == '1' && e && e->functionName) {
++        char nb[128];
++        const wchar_t *wn = e->functionName;
++        int o = 0;
++        for (; wn[o] && o < (int)sizeof(nb)-1; ++o)
++          nb[o] = (wn[o] < 128) ? (char)wn[o] : '?';
++        nb[o] = 0;
++        ::fprintf(stderr,
++            "[nullcall] sid=%d ip=%d method=%s\n",
++            VCPU::VSD, VCPU::VIP, nb);
++      }
 +      Script::guruMeditation(SOM::getSystemObjectByScriptId(VCPU::VSD), GURU_NULLCALLED, L"Null object called", object.varId);
 +      cpuidstack.pop(&VCC);
 +      cpuidstack.pop(&VIP);
