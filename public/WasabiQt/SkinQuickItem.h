@@ -108,6 +108,22 @@ public:
                      Layout::ImageSizeResolver imageSize = nullptr,
                      void *imageSizeUserdata = nullptr) const;
 
+    // Re-run computeWindowRegion against the current tree.  Embedders
+    // call this after mutating widget positions / visibility so the
+    // QQuickWindow's input-region mask stays in sync with what the
+    // chrome actually paints.  Loading the skin already does it once.
+    void rebuildWindowRegion();
+    const QRegion &windowRegion() const { return m_windowRegion; }
+
+    // Auto-shrink the QQuickWindow to the painted-region's bounding
+    // box after every repaint.  Same idea as SkinView — when a Maki
+    // mutation slides a drawer off-screen the layout's native size
+    // stays the same but the visible chrome ends earlier; auto-shrink
+    // resizes the window so the desktop doesn't bleed through.  Off
+    // by default; qtamp opts in.
+    void setAutoShrinkToRegion(bool on) { m_autoShrink = on; }
+    bool autoShrinkToRegion() const     { return m_autoShrink; }
+
     // Fire `onLeftClick` Maki handlers along the alpha-hit-list at the
     // given local point; returns the id that consumed the click (empty
     // if nothing did).  Convenience for QML embedders that want the
@@ -120,6 +136,13 @@ protected:
     // frame whenever update() has been queued.  We build a fresh node
     // tree each call; texture caching is owned by the QQuickWindow.
     QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override;
+
+    // Paint hook — subclasses override to pass extra state to
+    // TreePainter (gammasets, colorthemes selection, vis mode).
+    // Default implementation paints with just Host (or resolver).
+    // Called from updatePaintNode into a transparent QImage buffer;
+    // the result is uploaded as a QSGTexture.
+    virtual void paintInto(QPainter *p, const QSize &canvas);
 
     // Alpha-aware QQuickItem hit-test.  Walks the resolved tree at the
     // local point and asks the cached painted-alpha map whether the
@@ -158,6 +181,10 @@ private:
     bool   m_dragging = false;
     QPoint m_dragOriginGlobal;
     QPoint m_dragWindowStart;
+    // Cached window region from the last rebuildWindowRegion call.
+    QRegion m_windowRegion;
+    // Auto-shrink to painted extent toggle (off by default).
+    bool   m_autoShrink = false;
 };
 
 }  // namespace WasabiQt

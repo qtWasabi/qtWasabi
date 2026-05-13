@@ -60,7 +60,14 @@ void SkinQuickItem::resizeLayoutTo(const QSize &size) {
     m_tree.attrs.insert(QStringLiteral("h"),
                         QString::number(size.height()));
     setSize(QSizeF(size));
+    // Also resize the hosting QQuickWindow so the OS surface grows to
+    // the new layout.  Auto-shrink in updatePaintNode will trim back
+    // down to the painted extent on the next frame if it's smaller.
+    if (auto *w = window()) {
+        w->resize(size);
+    }
     m_alphaCache.clear();
+    rebuildWindowRegion();
     emit layoutNativeSizeChanged();
     update();
 }
@@ -91,6 +98,7 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     m_nativeSize = QSize(w, h);
     setSize(QSizeF(m_nativeSize));
     m_alphaCache.clear();
+    rebuildWindowRegion();
 
     emit layoutNativeSizeChanged();
     update();
@@ -112,6 +120,40 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
 // the QImage-painter with per-widget QSGNodes (layer → QSGSimpleTextureNode,
 // text → QSGGeometryNode per glyph, grid → 3-slice, vis → custom
 // geometry, etc.).
+void SkinQuickItem::paintInto(QPainter *p, const QSize &canvas) {
+    if (m_host) {
+        TreePainter::paintTree(p, m_tree, m_registry, m_fonts,
+                                canvas, m_host);
+    } else {
+        TreePainter::paintTree(p, m_tree, m_registry, m_fonts,
+                                canvas, m_resolver);
+    }
+}
+
+void SkinQuickItem::rebuildWindowRegion() {
+    m_windowRegion = Layout::computeWindowRegion(
+        m_tree, m_registry, m_nativeSize);
+    if (auto *w = window()) {
+        // QQuickWindow::setMask routes to wl_surface.set_input_region
+        // on Wayland (Qt 6), to the conventional shape mask on X11/
+        // Windows.  Empty region = rectangular window.
+        if (m_windowRegion.isEmpty()) w->setMask(QRegion());
+        else                          w->setMask(m_windowRegion);
+    }
+    update();
+}
+
+// Bottom-most row with a non-zero alpha pixel — auto-shrink target.
+static int paintedBottomEdge(const QImage &alpha) {
+    if (alpha.isNull()) return -1;
+    for (int y = alpha.height() - 1; y >= 0; --y) {
+        for (int x = 0; x < alpha.width(); ++x) {
+            if (qAlpha(alpha.pixel(x, y)) > 16) return y + 1;
+        }
+    }
+    return -1;
+}
+
 QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     if (m_nativeSize.isEmpty()) return nullptr;
     auto *win = window();
@@ -122,12 +164,23 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     buf.fill(Qt::transparent);
     {
         QPainter bp(&buf);
-        if (m_host) {
-            TreePainter::paintTree(&bp, m_tree, m_registry, m_fonts,
-                                    sz, m_host);
-        } else {
-            TreePainter::paintTree(&bp, m_tree, m_registry, m_fonts,
-                                    sz, m_resolver);
+        paintInto(&bp, sz);
+    }
+
+    // Auto-shrink: trim the QQuickWindow's height to the painted
+    // chrome's bottom edge so transparent areas below the chrome
+    // don't bleed through to the desktop.  Never grow — Maki-driven
+    // setTargetH owns that case via resizeLayoutTo.  8-px hysteresis
+    // avoids sub-pixel jitter for widgets that paint at the edge.
+    if (m_autoShrink && !buf.isNull()) {
+        const int bottom = paintedBottomEdge(buf);
+        if (bottom > 0 && win && bottom + 8 <= win->height()) {
+            if (::getenv("WASABIQT_TRACE_MAKI"))
+                ::fprintf(stderr,
+                    "[autoshrink] %dx%d -> %dx%d (painted bottom)\n",
+                    win->width(), win->height(),
+                    win->width(), bottom);
+            win->resize(win->width(), bottom);
         }
     }
 
