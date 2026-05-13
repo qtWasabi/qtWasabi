@@ -66,6 +66,13 @@ public:
     // load() does an initial compute itself.
     void rebuildWindowRegion();
 
+    // Update the layout's native size — used by Maki Layout.setTarget*
+    // + gotoTarget chains (drawer scripts that grow the window when
+    // expanding).  Resizes the widget, syncs the layout root's w/h
+    // attrs so relatw/relath children re-flow, and recomputes the
+    // window region against the new bounds.
+    void resizeLayoutTo(const QSize &size);
+
     // The currently-computed window region (for embedders that
     // override paintEvent and want to apply the same clip).
     const QRegion &windowRegion() const { return m_windowRegion; }

@@ -269,6 +269,9 @@ void wq_layout_goto_target() {
             if (h < 0) h = root->attrs.value(QStringLiteral("h")).toInt();
         }
     }
+    if (::getenv("WASABIQT_TRACE_MAKI"))
+        ::fprintf(stderr, "[maki] gotoTarget w=%d h=%d (raw target=%d,%d)\n",
+                  w, h, WasabiQt::g_targetW, WasabiQt::g_targetH);
     if (w > 0 && h > 0) WasabiQt::g_skinResize(w, h);
     WasabiQt::g_targetW = WasabiQt::g_targetH = -1;
     WasabiQt::g_targetX = WasabiQt::g_targetY = -1;

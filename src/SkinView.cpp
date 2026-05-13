@@ -50,6 +50,20 @@ void SkinView::rebuildWindowRegion() {
     update();
 }
 
+void SkinView::resizeLayoutTo(const QSize &size) {
+    if (!size.isValid() || size.width() <= 0 || size.height() <= 0)
+        return;
+    m_nativeSize = size;
+    // Sync the layout root's w/h attrs so relatw/relath children
+    // resolve against the new size on the next paint.
+    m_tree.attrs.insert(QStringLiteral("w"),
+                        QString::number(size.width()));
+    m_tree.attrs.insert(QStringLiteral("h"),
+                        QString::number(size.height()));
+    resize(size);
+    rebuildWindowRegion();
+}
+
 bool SkinView::load(const SkinXml::Document &doc,
                     const QString &containerId,
                     const QString &layoutId,
