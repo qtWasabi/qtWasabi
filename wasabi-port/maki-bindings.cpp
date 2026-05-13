@@ -609,6 +609,16 @@ extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *,
                                       scriptVar, scriptVar) {
     return makeObject(configDummy());
 }
+// SkinObject.getAttribute(name) — Bento's std.mi defines XUI params
+// via newAttribute() at script load + retrieves them via
+// getAttribute() at use time.  Without this binding the script's
+// `someattrib.getData()` chain falls through with a null receiver
+// (15+ gurus per Bento init).  Returns configDummy so the chained
+// getData / setData reads route through our existing stubs.
+extern "C" scriptVar wq_getAttribute(maki_cmd *, int, ScriptObject *,
+                                      scriptVar) {
+    return makeObject(configDummy());
+}
 extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *, scriptVar) {
     return makeVoid();
 }
@@ -767,6 +777,8 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getItem",                 1, (void *)wq_getItem},
         {L"getGroup",                1, (void *)wq_getItem},
         {L"newAttribute",            2, (void *)wq_newAttribute},
+        {L"getAttribute",            1, (void *)wq_getAttribute},
+        {L"getattribute",            1, (void *)wq_getAttribute},
         {L"setData",                 1, (void *)wq_setData},
         {L"getData",                 0, (void *)wq_getData},
         {L"getInt",                  1, (void *)wq_getInt},

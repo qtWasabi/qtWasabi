@@ -82,7 +82,7 @@
          scriptVar r = callDLF(e, np);
          VCPUscriptVar vr;
          vr.scriptId = VSD;
-@@ -1638,13 +1689,57 @@
+@@ -1638,13 +1689,64 @@
  
    //traceState(object, e);
  
@@ -112,8 +112,15 @@
 +      (object.v.type < SCRIPT_INT) || (object.v.type > SCRIPT_STRING);
 +  bool bogus = (object.v.data.odata == NULL) || !typeIsObjectShaped;
 +  if (bogus) {
-+    static const char *fb_env = getenv("WASABIQT_CONFIG_FALLBACK");
-+    if (fb_env && *fb_env == '1') {
++    // qtWasabi: redirect null/non-object receivers to configDummy
++    // by default — scripts that call a method on an unbound
++    // _predecl global (Config, attribute objects, etc.) get a
++    // safe no-op rather than a guru meditation.  Drops Bento's
++    // startup gurus from ~12 to 3 and unblocks the attribute /
++    // getData chains every modern skin uses.  Set
++    // WASABIQT_NO_CONFIG_FALLBACK=1 to disable for debug.
++    static const char *fb_off = getenv("WASABIQT_NO_CONFIG_FALLBACK");
++    if (!(fb_off && *fb_off == '1')) {
 +      if (void *dummy = wq_config_dummy_get()) {
 +        object.v.type = SCRIPT_OBJECT;
 +        object.v.data.odata = (ScriptObject *)dummy;
@@ -147,7 +154,7 @@
    }
  #ifndef _DEBUG
    try
-@@ -1881,17 +1990,45 @@
+@@ -1881,17 +1997,45 @@
  // -------------------------------------------------------------
  void VCPU::killOrphan(int id) {
    int pos;
