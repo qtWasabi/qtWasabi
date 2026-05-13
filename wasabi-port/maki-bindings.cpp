@@ -247,6 +247,11 @@ extern "C" {
     int   wq_widget_textWidth(void *handle);
     void *wq_layout_root();
     void *wq_script_owner(int sid);
+    int   wq_playback_status();
+}
+
+extern "C" scriptVar wq_getStatus(maki_cmd *, int, ScriptObject *) {
+    return makeInt(wq_playback_status());
 }
 
 extern "C" scriptVar wq_getScriptGroup(maki_cmd *, int, ScriptObject *o) {
@@ -654,6 +659,7 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"findWac",                 1, (void *)wq_findWac},
         {L"newDynamicContainer",     1, (void *)wq_newDynamicContainer},
         {L"setFontSize",             1, (void *)wq_setFontSize},
+        {L"getStatus",               0, (void *)wq_getStatus},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;

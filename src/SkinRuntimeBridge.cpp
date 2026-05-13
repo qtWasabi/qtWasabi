@@ -57,6 +57,12 @@ QHash<int, void *> g_scriptOwner;
 // Registered by SkinView so script mutations trigger a repaint.
 std::function<void()> g_repaint;
 
+// Registered by SkinView so Maki scripts can query the host's
+// playback state via getStatus().  Maki convention: 1=playing,
+// -1=paused, 0=stopped.  Default returns 0 so scripts that gate
+// behaviour on play state get the safe "stopped" reading.
+std::function<int()> g_playbackStatus;
+
 QString fromWide(const wchar_t *s) {
     return s ? QString::fromWCharArray(s) : QString();
 }
@@ -98,6 +104,11 @@ void *scriptOwnerScriptObject(int sid) {
 // kick a repaint.  Pass nullptr to disable.
 void registerSkinRepaintCallback(std::function<void()> cb) {
     g_repaint = std::move(cb);
+}
+
+// SkinView calls this so Maki getStatus() reads through to the host.
+void registerSkinPlaybackStatusCallback(std::function<int()> cb) {
+    g_playbackStatus = std::move(cb);
 }
 
 }  // namespace WasabiQt
@@ -203,6 +214,12 @@ void *wq_layout_root() {
 // caller falls back to the layout root or the receiver.
 void *wq_script_owner(int sid) {
     return WasabiQt::scriptOwnerScriptObject(sid);
+}
+
+// Host playback status (1 playing, -1 paused, 0 stopped) — used by
+// Maki's getStatus().  Returns 0 when no callback has been registered.
+int wq_playback_status() {
+    return WasabiQt::g_playbackStatus ? WasabiQt::g_playbackStatus() : 0;
 }
 
 }  // extern "C"

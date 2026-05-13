@@ -94,4 +94,11 @@ private:
 // Pass an empty std::function to unregister.
 void registerSkinRepaintCallback(std::function<void()> cb);
 
+// Register a callback the Maki getStatus() binding queries on each
+// dispatch.  Return values follow the Wasabi convention:
+//   1 = playing, -1 = paused, 0 = stopped.
+// Pass an empty std::function to unregister (getStatus() then
+// returns 0).
+void registerSkinPlaybackStatusCallback(std::function<int()> cb);
+
 }  // namespace WasabiQt
