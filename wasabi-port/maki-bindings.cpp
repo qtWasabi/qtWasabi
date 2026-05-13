@@ -223,8 +223,14 @@ extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
         return makeVoid();
     std::wstring k = std::wstring(sec.data.sdata) + L"|" +
                      std::wstring(key.data.sdata);
-    int v = (val.type >= SCRIPT_INT && val.type <= SCRIPT_DOUBLE)
-              ? val.data.idata : 0;
+    int v = 0;
+    switch (val.type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: v = val.data.idata; break;
+        case SCRIPT_FLOAT:   v = static_cast<int>(val.data.fdata); break;
+        case SCRIPT_DOUBLE:  v = static_cast<int>(val.data.ddata); break;
+        default: v = 0;
+    }
     privateIntStore()[k] = v;
     return makeVoid();
 }
@@ -657,10 +663,16 @@ extern "C" scriptVar wq_newDynamicContainer(maki_cmd *, int, ScriptObject *o,
 // Text.setFontSize / Layer.setFontSize — mutate fontsize= attr.
 extern "C" scriptVar wq_setFontSize(maki_cmd *, int, ScriptObject *o, scriptVar v) {
     if (!o) return makeVoid();
+    int n = 0;
+    switch (v.type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: n = v.data.idata; break;
+        case SCRIPT_FLOAT:   n = static_cast<int>(v.data.fdata); break;
+        case SCRIPT_DOUBLE:  n = static_cast<int>(v.data.ddata); break;
+        default: n = 0;
+    }
     wchar_t buf[16];
-    std::swprintf(buf, 16, L"%d",
-                  (v.type >= SCRIPT_INT && v.type <= SCRIPT_DOUBLE)
-                    ? v.data.idata : 0);
+    std::swprintf(buf, 16, L"%d", n);
     wq_widget_setAttr(o, L"fontsize", buf);
     return makeVoid();
 }
