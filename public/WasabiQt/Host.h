@@ -75,6 +75,15 @@ public:
     //    host the skin in a real window override these.
     virtual bool    close()    { return false; }
     virtual bool    minimize() { return false; }
+    virtual bool    maximize() { return false; }
+    // Toggle "shade" / compact mode — many skins map this to the
+    // middle titlebar button.  Default no-op-true so dispatchAction
+    // consumes the click instead of falling through to a window drag.
+    virtual bool    toggleShade() { return true; }
+    // Show the system menu / context menu.  Default no-op-true.
+    virtual bool    showSystemMenu(QWidget *embedder = nullptr) {
+        Q_UNUSED(embedder); return true;
+    }
 
     // ── Sliders.  Returns a normalised position [0..1] for the
     //    given action keyword, or a negative value if the action

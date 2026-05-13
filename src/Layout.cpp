@@ -639,9 +639,10 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
     // glyph advance + 4 per-segment (Wasabi convention) + 7 px to
     // bridge the Win32-GDI / Qt-QFontMetrics gap for Arial Bold at
     // the converted pixel size — the same constants libwasabiq
-    // applies (see commits 5fac3c25 + 7cf705eb).  Without these,
-    // the streak gap math runs against a smaller text width than
-    // is actually painted and the right streak overlaps the title.
+    // applies (StandardBindings.cpp's getAutoWidth, +11 total).
+    // Without these, the streak gap math runs against a smaller
+    // text width than is actually painted and the right streak
+    // overlaps the title text.
     int textWidth = 0;
     if (title) {
         QString s = title->attrs.value(QStringLiteral("text"));
@@ -657,13 +658,21 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
             bool ok = false;
             const int fontsize = title->attrs.value(
                 QStringLiteral("fontsize")).toInt(&ok);
-            if (ok && fontsize > 0)
-                f.setPixelSize(qMax(1, (fontsize * 5 + 3) / 7));
+            if (ok && fontsize > 0) {
+                int rn = 6, rd = 7;
+                if (const char *r = ::getenv("WASABIQT_FONT_RATIO")) {
+                    int a = 0, b = 0;
+                    if (sscanf(r, "%d,%d", &a, &b) == 2 && a > 0 && b > 0) {
+                        rn = a; rd = b;
+                    }
+                }
+                f.setPixelSize(qMax(1, (fontsize * rn + rd/2) / rd));
+            }
             if (title->attrs.value(QStringLiteral("bold")) ==
                 QStringLiteral("1"))
                 f.setBold(true);
             QFontMetrics fm(f);
-            textWidth = fm.horizontalAdvance(s) + 9;
+            textWidth = fm.horizontalAdvance(s) + 11;
         }
     }
     if (textWidth <= 0) textWidth = 50;

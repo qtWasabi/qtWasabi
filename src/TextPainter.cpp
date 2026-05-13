@@ -248,7 +248,19 @@ bool paintText(QPainter *p,
     // hits exactly — a 5/7 ratio.  Earlier 4/7 came from a deleted
     // hand-tuned C++ titlebar's setPixelSize(8) magic for Win32 GDI's
     // narrower character-cell rendering of Arial Bold.
-    const int qpx = qMax(1, (fontsize * 5 + 3) / 7);
+    // Wasabi fontsize → Qt setPixelSize.  Default 6/7 matches the
+    // WACUP titlebar reference (Arial Bold 14 → 12px) much better
+    // than the prior 5/7 (which rendered at 10px and looked thin
+    // compared to GDI's native rendering).  WASABIQT_FONT_RATIO=N,D
+    // overrides for ad-hoc tuning.
+    int rn = 6, rd = 7;
+    if (const char *r = ::getenv("WASABIQT_FONT_RATIO")) {
+        int a = 0, b = 0;
+        if (sscanf(r, "%d,%d", &a, &b) == 2 && a > 0 && b > 0) {
+            rn = a; rd = b;
+        }
+    }
+    const int qpx = qMax(1, (fontsize * rn + rd/2) / rd);
     qf.setPixelSize(qpx);
     if (attrBool(attrs, QStringLiteral("bold")))   qf.setBold(true);
     if (attrBool(attrs, QStringLiteral("italic"))) qf.setItalic(true);

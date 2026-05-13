@@ -134,6 +134,25 @@ bool dispatchAction(const QString &action, Host *host,
     }
     if (a == QLatin1String("CLOSE"))    return host->close();
     if (a == QLatin1String("MINIMIZE")) return host->minimize();
+    if (a == QLatin1String("MAXIMIZE")) return host->maximize();
+    // SWITCH = winshade toggle (compact mode).  Real Winamp shrinks
+    // the player to a thin strip; absent that, mark the click
+    // handled so it doesn't fall through to a window drag.
+    if (a == QLatin1String("SWITCH"))   return host->toggleShade();
+    if (a == QLatin1String("SHADE"))    return host->toggleShade();
+    // SYSMENU = open the system menu (right-click style).  Default
+    // routes to Host::showSystemMenu(embedder) so embedders that
+    // ship a QMenu can pop it; default returns true to consume.
+    if (a == QLatin1String("SYSMENU"))  return host->showSystemMenu(embedder);
+    // MENU/MENUHOTKEY_* are menubar-driven; default-consume so they
+    // don't fall through.  Embedders that ship a real menubar
+    // override these (e.g. via dispatchAction in their subclass).
+    if (a == QLatin1String("MENU"))     return true;
+    if (a.startsWith(QLatin1String("MENUHOTKEY_")))    return true;
+    if (a.startsWith(QLatin1String("ML_MENUHOTKEY_"))) return true;
+    if (a.startsWith(QLatin1String("PL_MENUHOTKEY_"))) return true;
+    // VID_FS = toggle fullscreen video.  Default no-op-consume.
+    if (a == QLatin1String("VID_FS"))   return true;
     return false;
 }
 
