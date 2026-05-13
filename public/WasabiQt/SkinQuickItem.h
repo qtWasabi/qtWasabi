@@ -26,6 +26,7 @@
 
 #include <QHash>
 #include <QImage>
+#include <QList>
 #include <QPointer>
 #include <QQuickItem>
 #include <QSize>
@@ -97,6 +98,23 @@ public:
     const Layout::ResolvedWidget *
     topmostWidgetAt(QPoint pointInLayout, bool actionOnly = false) const;
 
+    // Like topmostWidgetAt but returns EVERY opaque-at-point widget in
+    // z-order (topmost first).  Caller iterates and tries Maki
+    // fireWidgetEvent on each — first one whose handler dispatches
+    // consumes the click.  Generalises the deep-walk pattern for
+    // chrome layers without script bindings.
+    QList<const Layout::ResolvedWidget *>
+    alphaHitTestList(QPoint pointInLayout, bool actionOnly = false,
+                     Layout::ImageSizeResolver imageSize = nullptr,
+                     void *imageSizeUserdata = nullptr) const;
+
+    // Fire `onLeftClick` Maki handlers along the alpha-hit-list at the
+    // given local point; returns the id that consumed the click (empty
+    // if nothing did).  Convenience for QML embedders that want the
+    // canonical Wasabi click dispatch without re-implementing the
+    // walk.  Public so MouseArea handlers can call it.
+    Q_INVOKABLE QString dispatchClickAt(QPointF localPoint);
+
 protected:
     // Scene Graph entry point — called on the GUI thread once per
     // frame whenever update() has been queued.  We build a fresh node
@@ -109,6 +127,14 @@ protected:
     // transparent areas correctly pass clicks through to the widgets
     // visually behind them.
     bool contains(const QPointF &point) const override;
+
+    // Phase 6: route mouse press through the alpha-hit-list +
+    // Maki onLeftClick dispatch.  Empty-area clicks initiate a window
+    // drag via QWindow::startSystemMove on Wayland (or a manual
+    // setPosition fallback elsewhere).
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseMoveEvent (QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
 
 signals:
     void layoutNativeSizeChanged();
@@ -128,6 +154,10 @@ private:
     // tree's lifetime).  Each entry is a tiny grayscale alpha buffer
     // at the widget's painted size.
     mutable QHash<const Layout::ResolvedWidget *, QImage> m_alphaCache;
+    // Drag state for empty-area window move (titlebar drag).
+    bool   m_dragging = false;
+    QPoint m_dragOriginGlobal;
+    QPoint m_dragWindowStart;
 };
 
 }  // namespace WasabiQt

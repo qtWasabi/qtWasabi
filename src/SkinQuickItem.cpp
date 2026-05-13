@@ -8,13 +8,17 @@
 #include <WasabiQt/TreePainter.h>
 #include <WasabiQt/Host.h>
 
+#include <QHash>
 #include <QImage>
 #include <QMetaObject>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPointer>
 #include <QQuickWindow>
 #include <QSGSimpleTextureNode>
 #include <QSGTexture>
+#include <QSet>
+#include <QWindow>
 
 namespace WasabiQt {
 
@@ -167,15 +171,163 @@ bool SkinQuickItem::contains(const QPointF &point) const {
     return qAlpha(px) > 16;
 }
 
+// Shared recursive walker: collect every visible non-container widget
+// at `p` whose painted alpha (composite buffer) is non-zero, topmost
+// first.  Same filter rules as SkinView::alphaHitListRec.
+namespace {
+void alphaHitListRec(const Layout::ResolvedWidget &w,
+                      QPoint p, QPoint origin, QSize canvas,
+                      bool actionOnly,
+                      const QImage &alphaBuf,
+                      Layout::ImageSizeResolver imageSize,
+                      void *imageSizeUserdata,
+                      QList<const Layout::ResolvedWidget *> &out) {
+    if (w.attrs.value(QStringLiteral("visible")) ==
+        QStringLiteral("0")) return;
+
+    auto attrBool = [](const QHash<QString, QString> &a, const QString &k) {
+        const QString v = a.value(k);
+        return v == QStringLiteral("1") ||
+               v.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+    };
+    auto resolveRect = [&](const QHash<QString, QString> &a, QSize parent) {
+        int x = a.value(QStringLiteral("x")).toInt();
+        int y = a.value(QStringLiteral("y")).toInt();
+        int rw = a.value(QStringLiteral("w")).toInt();
+        int rh = a.value(QStringLiteral("h")).toInt();
+        if (attrBool(a, QStringLiteral("relatx"))) x = parent.width()  + x;
+        if (attrBool(a, QStringLiteral("relaty"))) y = parent.height() + y;
+        if (attrBool(a, QStringLiteral("relatw"))) rw = parent.width()  + rw;
+        if (attrBool(a, QStringLiteral("relath"))) rh = parent.height() + rh;
+        return QRect(x, y, rw, rh);
+    };
+
+    const QRect r = resolveRect(w.attrs, canvas);
+    QPoint childOrigin = origin;
+    QSize childCanvas = canvas;
+    if (w.tag != QStringLiteral("layout"))
+        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
+    if (r.width()  > 0) childCanvas.setWidth (r.width());
+    if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
+        alphaHitListRec(*it, p, childOrigin, childCanvas, actionOnly,
+                         alphaBuf, imageSize, imageSizeUserdata, out);
+
+    const bool isContainer =
+        w.tag == QStringLiteral("group") ||
+        w.tag == QStringLiteral("container") ||
+        w.tag == QStringLiteral("layout") ||
+        w.tag == QStringLiteral("groupdef") ||
+        w.tag.startsWith(QStringLiteral("wasabi_"));
+    if (isContainer) return;
+    if (actionOnly && !w.attrs.contains(QStringLiteral("action"))) return;
+    if (w.id.isEmpty() && w.tag != QStringLiteral("button") &&
+        w.tag != QStringLiteral("togglebutton") &&
+        w.tag != QStringLiteral("nstatesbutton") &&
+        w.tag != QStringLiteral("slider"))
+        return;
+
+    int width  = r.width();
+    int height = r.height();
+    if ((width <= 0 || height <= 0) && imageSize) {
+        const QString img = w.attrs.value(QStringLiteral("image"));
+        if (!img.isEmpty()) {
+            const QSize is = imageSize(img, imageSizeUserdata);
+            if (width  <= 0) width  = is.width();
+            if (height <= 0) height = is.height();
+        }
+    }
+    if (width <= 0 || height <= 0) return;
+    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
+    if (!bbox.contains(p)) return;
+
+    if (!alphaBuf.isNull() &&
+        p.x() >= 0 && p.x() < alphaBuf.width() &&
+        p.y() >= 0 && p.y() < alphaBuf.height()) {
+        const QRgb px = alphaBuf.pixel(p.x(), p.y());
+        if (qAlpha(px) <= 16) return;
+    }
+    out.append(&w);
+}
+}  // namespace
+
 const Layout::ResolvedWidget *
 SkinQuickItem::topmostWidgetAt(QPoint pointInLayout, bool actionOnly) const {
-    // Delegate to Layout::hitTest for now; phase 4 adds an alpha-aware
-    // wrapper that walks deeper when the topmost-bbox widget has a
-    // transparent pixel at the click.
-    QRect outBbox;
-    Layout::ImageSizeResolver imgRes = nullptr;   // skin embedder may supply
-    return Layout::hitTest(m_tree, pointInLayout, actionOnly,
-                            imgRes, nullptr, &outBbox);
+    auto it = m_alphaCache.constFind(&m_tree);
+    const QImage &buf = (it == m_alphaCache.constEnd()) ? QImage() : *it;
+    QList<const Layout::ResolvedWidget *> hits;
+    alphaHitListRec(m_tree, pointInLayout, QPoint(0,0), m_nativeSize,
+                     actionOnly, buf, nullptr, nullptr, hits);
+    return hits.isEmpty() ? nullptr : hits.first();
+}
+
+QList<const Layout::ResolvedWidget *>
+SkinQuickItem::alphaHitTestList(QPoint pointInLayout, bool actionOnly,
+                                 Layout::ImageSizeResolver imageSize,
+                                 void *imageSizeUserdata) const {
+    auto it = m_alphaCache.constFind(&m_tree);
+    const QImage &buf = (it == m_alphaCache.constEnd()) ? QImage() : *it;
+    QList<const Layout::ResolvedWidget *> out;
+    alphaHitListRec(m_tree, pointInLayout, QPoint(0,0), m_nativeSize,
+                     actionOnly, buf, imageSize, imageSizeUserdata, out);
+    return out;
+}
+
+QString SkinQuickItem::dispatchClickAt(QPointF localPoint) {
+    const QPoint p = localPoint.toPoint();
+    const auto hits = alphaHitTestList(p, /*actionOnly=*/false);
+    for (const auto *w : hits) {
+        if (!w || w->id.isEmpty()) continue;
+        const int fired = fireWidgetEvent(w->id, L"onLeftClick");
+        if (fired > 0) return w->id;
+    }
+    return QString();
+}
+
+// ── Mouse handling ──────────────────────────────────────────────────
+
+void SkinQuickItem::mousePressEvent(QMouseEvent *e) {
+    if (e->button() != Qt::LeftButton) { QQuickItem::mousePressEvent(e); return; }
+    const QPointF lp = e->position();
+    const QString consumedId = dispatchClickAt(lp);
+    if (!consumedId.isEmpty()) {
+        update();
+        e->accept();
+        return;
+    }
+    // Empty-area click → start window drag.  Wayland prefers
+    // QWindow::startSystemMove; on other platforms fall back to manual
+    // tracking via mouseMove.
+    if (auto *w = window()) {
+        if (w->startSystemMove()) {
+            e->accept();
+            return;
+        }
+        m_dragging = true;
+        m_dragOriginGlobal = e->globalPosition().toPoint();
+        m_dragWindowStart  = w->position();
+        e->accept();
+        return;
+    }
+    QQuickItem::mousePressEvent(e);
+}
+
+void SkinQuickItem::mouseMoveEvent(QMouseEvent *e) {
+    if (m_dragging) {
+        if (auto *w = window()) {
+            const QPoint d = e->globalPosition().toPoint() - m_dragOriginGlobal;
+            w->setPosition(m_dragWindowStart + d);
+        }
+        e->accept();
+        return;
+    }
+    QQuickItem::mouseMoveEvent(e);
+}
+
+void SkinQuickItem::mouseReleaseEvent(QMouseEvent *e) {
+    m_dragging = false;
+    QQuickItem::mouseReleaseEvent(e);
 }
 
 }  // namespace WasabiQt
