@@ -791,22 +791,7 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
     // lives just above the drawer's bottom edge.
     std::function<void(ResolvedWidget &)> walk =
         [&](ResolvedWidget &w) {
-        if (w.id == QStringLiteral("player.normal.drawer")) {
-            // configtabs.m::OpenDrawer sets drawer y=-147 with
-            // relaty=1 → for layout h=280 that is y=133.  The 10
-            // px difference vs the player.main bottom (y=143)
-            // tucks the drawer's top into the player chrome's
-            // toggle notch — without it, the area below the
-            // CONFIG text shows the chrome's transparent notch
-            // instead of the drawer chrome.
-            w.attrs.insert(QStringLiteral("y"),
-                           QStringLiteral("133"));
-            w.attrs.remove(QStringLiteral("relaty"));
-        } else if (w.id == QStringLiteral("player.normal.drawer.shadow")) {
-            w.attrs.insert(QStringLiteral("y"),
-                           QStringLiteral("121"));
-            w.attrs.remove(QStringLiteral("relaty"));
-        } else if (w.id == QStringLiteral("player.normal.drawer.content")) {
+        if (w.id == QStringLiteral("player.normal.drawer.content")) {
             // configtabs.m's main.onResize handler centres
             // DrawerContent inside main:
             //   newXpos = w/2 - 163;

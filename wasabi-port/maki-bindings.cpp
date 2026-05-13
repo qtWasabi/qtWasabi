@@ -180,14 +180,50 @@ extern "C" scriptVar wq_navigateUrlBrowser(maki_cmd *, int, ScriptObject *,
     return makeVoid();
 }
 
+// Tiny in-memory key-value store for (section, key) → int.  Real Wasabi
+// persists to winamp.ini; we keep an in-process map so getPrivateInt
+// reads back what setPrivateInt wrote during the same session.
+// configtabs.maki reads back DrawerOpen and ConfigTab in onScriptLoaded
+// to decide whether to call OpenDrawer; pre-seeding DrawerOpen=1 lets
+// the script open the drawer via real Maki dispatch (drawer y=-147,
+// button.open.hide, …) instead of needing static fallbacks.
+static std::unordered_map<std::wstring, int> &privateIntStore() {
+    static std::unordered_map<std::wstring, int> m{
+        // Default qtamp preferences mirror what we used to force
+        // statically in runKnownScripts: drawer is open by default,
+        // EQ tab is selected.  Override at runtime by setting these
+        // before SkinRuntime::dispatchOnScriptLoaded fires.
+        { L"winamp5|DrawerOpen", 1 },
+        { L"winamp5|ConfigTab",  1 },
+    };
+    return m;
+}
+
 extern "C" scriptVar wq_getPrivateInt(maki_cmd *, int, ScriptObject *,
-                                       scriptVar /*sec*/, scriptVar /*key*/,
+                                       scriptVar sec, scriptVar key,
                                        scriptVar def) {
+    if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
+        key.type != SCRIPT_STRING || !key.data.sdata)
+        return def;
+    std::wstring k = std::wstring(sec.data.sdata) + L"|" +
+                     std::wstring(key.data.sdata);
+    auto &m = privateIntStore();
+    auto it = m.find(k);
+    if (it != m.end()) return makeInt(it->second);
     return def;
 }
 
 extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
-                                       scriptVar, scriptVar, scriptVar) {
+                                       scriptVar sec, scriptVar key,
+                                       scriptVar val) {
+    if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
+        key.type != SCRIPT_STRING || !key.data.sdata)
+        return makeVoid();
+    std::wstring k = std::wstring(sec.data.sdata) + L"|" +
+                     std::wstring(key.data.sdata);
+    int v = (val.type >= SCRIPT_INT && val.type <= SCRIPT_DOUBLE)
+              ? val.data.idata : 0;
+    privateIntStore()[k] = v;
     return makeVoid();
 }
 
