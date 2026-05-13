@@ -153,16 +153,17 @@ extern "C" scriptVar wq_stringToInteger(maki_cmd *, int, ScriptObject *,
 
 extern "C" scriptVar wq_integerToString(maki_cmd *, int, ScriptObject *,
                                          scriptVar i) {
-    // Maki uses idata for any numeric value that fits in an int —
-    // SOM::makeInt does the same.  Stamping the type as SCRIPT_DOUBLE
-    // after arithmetic doesn't move the bits into ddata.  Accept all
-    // numeric types and read from idata; only reject string / object.
-    int v;
+    // VCPU arithmetic (OPCODE_SUB / MUL / DIV) stores the result in
+    // `ddata` and sets type = SCRIPT_DOUBLE.  Reading idata for those
+    // returns the low 32 bits of the IEEE-754 representation, which
+    // is almost always 0 — that's why our Maki handlers used to
+    // setXmlParam("x", "0").  Read the correct field per type.
+    int v = 0;
     switch (i.type) {
         case SCRIPT_INT:
-        case SCRIPT_FLOAT:
-        case SCRIPT_DOUBLE:
         case SCRIPT_BOOLEAN: v = i.data.idata; break;
+        case SCRIPT_FLOAT:   v = static_cast<int>(i.data.fdata); break;
+        case SCRIPT_DOUBLE:  v = static_cast<int>(i.data.ddata); break;
         default: return makeString(L"0");
     }
     wchar_t buf[32];
@@ -446,7 +447,15 @@ extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
         char nb[128], vb[256];
         wq_wide_to_ascii(name.data.sdata, nb, sizeof(nb));
         wq_wide_to_ascii(val, vb, sizeof(vb));
-        std::fprintf(stderr, "[maki] setXmlParam(%s, %s)\n", nb, vb);
+        // Include the receiver's id so the trace tells us which
+        // widget got mutated — same name/value pair often appears for
+        // multiple widgets in the same dispatch pass, and without an
+        // id you can't tell which one fired.
+        char idb[128] = "?";
+        const wchar_t *wid = wq_widget_getAttr(o, L"id");
+        if (wid) wq_wide_to_ascii(wid, idb, sizeof(idb));
+        std::fprintf(stderr, "[maki] setXmlParam id=%s (%s, %s)\n",
+                      idb, nb, vb);
     }
     wq_widget_setAttr(o, name.data.sdata, val);
     return makeVoid();

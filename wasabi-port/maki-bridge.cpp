@@ -189,13 +189,29 @@ bool fireFourIntEvent(int scriptId, void *recv,
             "[maki] fire %s sid=%d a=%d b=%d c=%d d=%d np=%d\n",
             nb, scriptId, a, b, c, d, nparams);
     }
-    // Stack push order: in DECL order (first arg first) so executeEvent's
-    // pop loop produces plist[0]=last, plist[N-1]=first, then runEvent
-    // re-pushes them so the handler's pop-in-reverse-decl-order matches.
-    scriptVar v1{}; v1.type = SCRIPT_INT; v1.data.idata = a; VCPU::push(v1);
-    scriptVar v2{}; v2.type = SCRIPT_INT; v2.data.idata = b; VCPU::push(v2);
-    scriptVar v3{}; v3.type = SCRIPT_INT; v3.data.idata = c; VCPU::push(v3);
-    scriptVar v4{}; v4.type = SCRIPT_INT; v4.data.idata = d; VCPU::push(v4);
+    // Stack push order: DECL order (first arg first), so after
+    // executeEvent's pop loop + runEvent's re-push, the handler's
+    // top-of-stack at entry holds the LAST declared arg.  Wasabi
+    // bytecode pops args in reverse-decl order, so this lines up.
+    //
+    // WASABIQT_PUSH_ORDER=revdecl flips this for experimentation
+    // against handlers that encode the opposite convention; the four
+    // shipped test skins (WinampModernPP, Winamp Modern, DeClassified,
+    // Bento, Big Bento) all run zero-guru in either mode, so the
+    // choice is mostly about which set of bytecode emitters expect
+    // which order.
+    const bool reverseDecl =
+        ::getenv("WASABIQT_PUSH_ORDER") &&
+        std::strcmp(::getenv("WASABIQT_PUSH_ORDER"), "revdecl") == 0;
+    scriptVar va{}; va.type = SCRIPT_INT; va.data.idata = a;
+    scriptVar vb{}; vb.type = SCRIPT_INT; vb.data.idata = b;
+    scriptVar vc{}; vc.type = SCRIPT_INT; vc.data.idata = c;
+    scriptVar vd{}; vd.type = SCRIPT_INT; vd.data.idata = d;
+    if (reverseDecl) {
+        VCPU::push(vd); VCPU::push(vc); VCPU::push(vb); VCPU::push(va);
+    } else {
+        VCPU::push(va); VCPU::push(vb); VCPU::push(vc); VCPU::push(vd);
+    }
 
     scriptVar recvVar{};
     recvVar.type = SCRIPT_OBJECT;
