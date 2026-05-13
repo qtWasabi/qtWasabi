@@ -72,6 +72,11 @@ std::function<void(int, int)> g_skinResize;
 // Pending target values stashed by setTarget{W,H,X,Y} before
 // gotoTarget consumes them.
 int g_targetW = -1, g_targetH = -1, g_targetX = -1, g_targetY = -1;
+// Set by an embedder's animated-resize handler before its tween
+// completes — suppresses the synchronous onTargetReached firing the
+// bridge would otherwise do, so the embedder can fire it itself when
+// the tween lands.
+bool g_animatedResizePending = false;
 
 QString fromWide(const wchar_t *s) {
     return s ? QString::fromWCharArray(s) : QString();
@@ -123,6 +128,17 @@ void registerSkinPlaybackStatusCallback(std::function<int()> cb) {
 
 void registerSkinResizeCallback(std::function<void(int, int)> cb) {
     g_skinResize = std::move(cb);
+}
+
+void beginAnimatedResize() {
+    g_animatedResizePending = true;
+}
+
+void fireTargetReached() {
+    if (!g_layoutRootScriptObject) return;
+    g_animatedResizePending = false;
+    Maki::fireZeroArgEventOnObject(
+        g_layoutRootScriptObject, L"onTargetReached");
 }
 
 int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName) {
@@ -275,17 +291,35 @@ void wq_layout_goto_target() {
     if (w > 0 && h > 0) WasabiQt::g_skinResize(w, h);
     WasabiQt::g_targetW = WasabiQt::g_targetH = -1;
     WasabiQt::g_targetX = WasabiQt::g_targetY = -1;
+    // Fire onTargetReached only if the embedder's resize callback
+    // didn't claim it'd fire it later (the animated path sets this
+    // flag while it's still tweening, then clears + fires on tick
+    // completion via wq_fire_target_reached).
+    if (WasabiQt::g_animatedResizePending) return;
+
     // Synthesise the animation-complete event the script expects.
     // drawer.m's __main.onTargetReached() reads __drawer_direction
     // and fires onDoneOpeningDrawer / onDoneClosingDrawer — the close
     // chain in turn hides AVSGroup so the chrome doesn't render
     // through it once the window has shrunk back.  Real Wasabi fires
-    // this when its animation thread completes; ours has no animation
-    // so we fire immediately after the resize takes effect.
+    // this when its animation thread completes; the default snap
+    // path fires immediately.
     if (WasabiQt::g_layoutRootScriptObject) {
         WasabiQt::Maki::fireZeroArgEventOnObject(
             WasabiQt::g_layoutRootScriptObject, L"onTargetReached");
     }
+}
+
+// Embedder-driven async-resize completion.  An animated resize
+// callback sets `g_animatedResizePending = true` synchronously when
+// it starts the tween, suppressing the bridge's auto-fired
+// onTargetReached.  When the tween finishes, the embedder calls this
+// to deliver the event the scripts expect.
+void wq_fire_target_reached() {
+    if (!WasabiQt::g_layoutRootScriptObject) return;
+    WasabiQt::g_animatedResizePending = false;
+    WasabiQt::Maki::fireZeroArgEventOnObject(
+        WasabiQt::g_layoutRootScriptObject, L"onTargetReached");
 }
 
 }  // extern "C"

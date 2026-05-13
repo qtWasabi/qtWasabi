@@ -10,6 +10,7 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPointer>
+#include <QVariantAnimation>
 
 namespace WasabiQt {
 
@@ -73,6 +74,34 @@ void SkinView::resizeLayoutTo(const QSize &size) {
                         QString::number(size.height()));
     resize(size);
     rebuildWindowRegion();
+}
+
+void SkinView::animatedResizeLayoutTo(const QSize &target, int durationMs) {
+    if (!target.isValid() || target.width() <= 0 || target.height() <= 0)
+        return;
+    const QSize from = m_nativeSize;
+    if (from == target || durationMs <= 0) {
+        resizeLayoutTo(target);
+        fireTargetReached();
+        return;
+    }
+    if (!m_resizeAnim) {
+        m_resizeAnim = new QVariantAnimation(this);
+        m_resizeAnim->setEasingCurve(QEasingCurve::OutCubic);
+        QObject::connect(m_resizeAnim, &QVariantAnimation::valueChanged,
+            this, [this](const QVariant &v) {
+                resizeLayoutTo(v.toSize());
+            });
+        QObject::connect(m_resizeAnim, &QVariantAnimation::finished,
+            this, []() { fireTargetReached(); });
+    } else {
+        m_resizeAnim->stop();
+    }
+    m_resizeAnim->setStartValue(from);
+    m_resizeAnim->setEndValue(target);
+    m_resizeAnim->setDuration(durationMs);
+    beginAnimatedResize();
+    m_resizeAnim->start();
 }
 
 bool SkinView::load(const SkinXml::Document &doc,

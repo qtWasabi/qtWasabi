@@ -25,6 +25,8 @@
 #include <QWidget>
 #include <functional>
 
+class QVariantAnimation;
+
 namespace WasabiQt::SkinXml { struct Document; }
 
 namespace WasabiQt {
@@ -73,6 +75,15 @@ public:
     // attrs so relatw/relath children re-flow, and recomputes the
     // window region against the new bounds.
     void resizeLayoutTo(const QSize &size);
+
+    // Tween the layout size from current to `size` over `durationMs`.
+    // Pumps resizeLayoutTo on each animation tick (60 fps via
+    // QVariantAnimation) and fires Maki `onTargetReached` on
+    // completion via `fireTargetReached()`.  Mirrors real Wasabi's
+    // gotoTarget-with-setTargetSpeed semantics.  Embedders register
+    // this as their skin-resize callback when they want animated
+    // drawer / window transitions.
+    void animatedResizeLayoutTo(const QSize &size, int durationMs = 200);
 
     // The currently-computed window region (for embedders that
     // override paintEvent and want to apply the same clip).
@@ -149,6 +160,11 @@ private:
     // and sampled by alphaHitTest().  One image per skin paint —
     // hit-tests check pixels directly without re-rendering.
     mutable QImage         m_paintedAlpha;
+    // Owned by animatedResizeLayoutTo; lazily created.  Tweens the
+    // layout's native size.  Held as a child QObject so it auto-
+    // destructs with the view.  QVariantAnimation header isn't
+    // included here; pulled in by the .cpp.
+    QVariantAnimation     *m_resizeAnim = nullptr;
 };
 
 }  // namespace WasabiQt
