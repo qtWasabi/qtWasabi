@@ -779,16 +779,17 @@ void applyTo(ResolvedWidget &root, int layoutWidth) {
 void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
     knownscripts::applyTo(root, layoutWidth);
 
-    // Position the config drawer below the player chrome.  The
-    // drawer's XML declares `y="-263" relaty="1"` which lands it at
-    // y=17 inside a 280-tall layout — directly under the chrome
-    // and so visually hidden behind player.main.  Real Wasabi's
-    // pbswitch.maki sets a runtime y when the user toggles the
-    // CONFIG button; until SkinRuntime drives that, place the
-    // drawer right below player.main (h=126 + y=17 ≈ 143) so its
-    // EQ / Options / Color-Themes pages are visible.  Same shape
-    // hint (ahead of the chrome bottom) for drawer.shadow which
-    // lives just above the drawer's bottom edge.
+    // The single remaining skin-specific hardcode: Modern's
+    // drawer.content centring.  configtabs.m's main.onResize handler
+    // drives this dynamically in real Wasabi (`newXpos = w/2 - 163`)
+    // but our 4-int Maki event dispatch (dispatchInitialResize) doesn't
+    // yet feed args into the handler's prologue correctly — the
+    // executeEvent plist arrives with the right values but the
+    // bytecode handler reads constants from somewhere else.  Until
+    // that's resolved, apply the centring statically.  All other
+    // Modern drawer state (drawer.y, drawer.button.open.visible,
+    // drawer.eq.visible, …) is now Maki-driven via configtabs's
+    // OpenDrawer + the privateIntStore DrawerOpen=1 default.
     std::function<void(ResolvedWidget &)> walk =
         [&](ResolvedWidget &w) {
         if (w.id == QStringLiteral("player.normal.drawer.content")) {
