@@ -16,6 +16,7 @@
 #include <QHash>
 #include <QPainter>
 #include <QRect>
+#include <QSet>
 #include <QSize>
 #include <QString>
 
@@ -742,7 +743,71 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         return;
     }
 
-    // <vis>, <albumart>, ... — painted in later milestones.
+    // <animatedlayer> — Wasabi's sprite-strip animated layer.  Until
+    // we wire a frame-pump timer, render the static `image=` (first
+    // frame) the same way a plain <layer> would.  Most chrome usages
+    // of AnimatedLayer in Modern PP use it as a static layer with a
+    // few-frame "breathing" effect that's invisible when missing.
+    if (t == QStringLiteral("animatedlayer")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() > 0 || r.height() > 0 ||
+            !node.attrs.value(QStringLiteral("image")).isEmpty()) {
+            LayerPainter::paintLayer(p, *ctx.bmp, node.attrs, canvas);
+        }
+        for (const auto &child : node.children)
+            paintRecursive(p, child, ctx, canvas);
+        return;
+    }
+
+    // <albumart> — render the embedder-supplied album cover, scaled
+    // to the widget's bbox.  Falls back to a single-colour placeholder
+    // tile when no Host or no track is loaded.  Skin scripts that
+    // want a default cover can <layer image="..."/> behind the
+    // <AlbumArt> as a sibling, which still paints normally.
+    if (t == QStringLiteral("albumart")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        int w = r.width(), h = r.height();
+        if (w <= 0 || h <= 0) {
+            // <AlbumArt> commonly sizes itself off the parent canvas
+            // via relat*/no-explicit-size; fall through silently when
+            // we can't determine bounds.
+            for (const auto &child : node.children)
+                paintRecursive(p, child, ctx, canvas);
+            return;
+        }
+        QImage art;
+        if (ctx.host) art = ctx.host->albumArt();
+        if (art.isNull()) {
+            p->save();
+            p->fillRect(QRect(r.x(), r.y(), w, h), QColor(40, 40, 48));
+            p->restore();
+        } else {
+            const QImage scaled = art.scaled(
+                w, h, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+            const int dx = r.x() + (w - scaled.width())  / 2;
+            const int dy = r.y() + (h - scaled.height()) / 2;
+            p->drawImage(dx, dy, scaled);
+        }
+        for (const auto &child : node.children)
+            paintRecursive(p, child, ctx, canvas);
+        return;
+    }
+
+    // Debug: log every tag we don't handle so Phase 7 inventory is
+    // mechanical.  Suppress containers (they're handled below) and
+    // the leaf nodes already covered above.
+    if (::getenv("WASABIQT_TRACE_UNKNOWN_TAGS")) {
+        static QSet<QString> seen;
+        if (!seen.contains(t)) {
+            seen.insert(t);
+            ::fprintf(stderr, "[paint] unhandled tag: %s (id=%s)\n",
+                      t.toLocal8Bit().constData(),
+                      node.id.toLocal8Bit().constData());
+        }
+    }
+    // <vis>, <edit>, <guilist>, <treelist>, <scrollbar>, <popup>, ...
+    // — painted in later milestones.  Recurse so any children that we
+    // DO know how to render still get reached.
     for (const auto &child : node.children)
         paintRecursive(p, child, ctx, canvas);
 }

@@ -29,6 +29,7 @@
 //
 
 #include <QtCore/qglobal.h>
+#include <QImage>
 #include <QString>
 #include <QUrl>
 #include <functional>
@@ -88,6 +89,13 @@ public:
     //    audio.  Default returns 0 (silent / no audio tap).
     //    Embedders that wire QAudioBufferOutput / similar override.
     virtual double audioLevel() const { return 0.0; }
+
+    // ── Album art for <albumart> widgets.  Returns an embedded cover
+    //    for the current track, or an empty QImage to fall back to
+    //    the renderer's placeholder.  Default: empty.  Embedders
+    //    integrate with their tag parser (e.g. TagLib / Qt6
+    //    QMediaMetaData::CoverArtImage) and return the QImage here.
+    virtual QImage albumArt() const { return QImage(); }
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;
