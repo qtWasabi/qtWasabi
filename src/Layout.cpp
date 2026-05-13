@@ -788,37 +788,16 @@ void applyTo(ResolvedWidget &root, int layoutWidth) {
 void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
     knownscripts::applyTo(root, layoutWidth);
 
-    // The single remaining skin-specific hardcode: Modern's
-    // drawer.content centring.  configtabs.m's main.onResize handler
-    // drives this dynamically in real Wasabi (`newXpos = w/2 - 163`)
-    // but our 4-int Maki event dispatch (dispatchInitialResize) doesn't
-    // yet feed args into the handler's prologue correctly — the
-    // executeEvent plist arrives with the right values but the
-    // bytecode handler reads constants from somewhere else.  Until
-    // that's resolved, apply the centring statically.  All other
-    // Modern drawer state (drawer.y, drawer.button.open.visible,
-    // drawer.eq.visible, …) is now Maki-driven via configtabs's
-    // OpenDrawer + the privateIntStore DrawerOpen=1 default.
-    std::function<void(ResolvedWidget &)> walk =
-        [&](ResolvedWidget &w) {
-        if (w.id == QStringLiteral("player.normal.drawer.content")) {
-            // configtabs.m's main.onResize handler centres
-            // DrawerContent inside main:
-            //   newXpos = w/2 - 163;
-            //   DrawerContent.setXmlParam("x", newXpos);
-            // dispatchInitialResize is wired in SkinRuntime + the Maki
-            // bridge but neither push order produces the expected
-            // w=354 in the handler — multiple onResize handlers may
-            // be stomping or another wrinkle in the event-arg path.
-            // Apply statically until that's sorted; gated by
-            // WASABIQT_FIRE_RESIZE=1 to try the Maki path.
-            const int newX = layoutWidth / 2 - 163;
-            w.attrs.insert(QStringLiteral("x"),
-                           QString::number(newX));
-        }
-        for (auto &c : w.children) walk(c);
-    };
-    walk(root);
+    // (The `player.normal.drawer.content` centring hardcode used to
+    // live here as a static substitute for configtabs.m's onResize
+    // handler.  It's gone now — fixing SOM::makeInt/makeFloat/
+    // makeDouble to be type-aware unblocked the real Maki bytecode
+    // path: `w/2 - 163` now correctly evaluates to 14 inside the
+    // VM and setXmlParam("x", "14") lands on drawer.content via the
+    // dispatchInitialResize chain.  Embedders that prefer not to
+    // fire onResize at load time can leave dispatchInitialResize off
+    // and the drawer stays uncentered, but the static hardcode is
+    // no longer needed for either path.)
 
     // Resolve `autowidthsource=` into a real `w` attribute on any
     // group/widget that has it but no explicit `w`.  Wasabi normally

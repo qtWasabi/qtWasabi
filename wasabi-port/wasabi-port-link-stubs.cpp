@@ -112,10 +112,58 @@ int ScriptObjectManager::compBe(scriptVar *v1, scriptVar *v2) {
     return compB(v1, v2) || compEq(v1, v2);
 }
 
-int    ScriptObjectManager::makeInt    (scriptVar *v) { return v ? v->data.idata : 0; }
-float  ScriptObjectManager::makeFloat  (scriptVar *v) { return v ? v->data.fdata : 0.0f; }
-double ScriptObjectManager::makeDouble (scriptVar *v) { return v ? v->data.ddata : 0.0; }
-bool   ScriptObjectManager::makeBoolean(scriptVar *v) { return v && v->data.idata != 0; }
+// Type-aware numeric coercion.  scriptVar is a tagged union — reading
+// data.ddata when the value was stored as an INT (data.idata=N) yields
+// the bit pattern of N reinterpreted as a double, not the int value.
+// VCPU's arithmetic opcodes (SUB/DIV/MUL/ADD) feed mixed-type operands
+// through makeDouble: if one is DOUBLE (result of prior arithmetic)
+// and the other is INT (literal constant from the bytecode), the
+// shim's wrong-field read silently produced denormal garbage and the
+// subtraction came out wrong — that's why configtabs.m's
+// `w/2 - 163` evaluated to 177 instead of 14 (the SUB consumed 163
+// as a denormal ~8e-322).
+int ScriptObjectManager::makeInt(scriptVar *v) {
+    if (!v) return 0;
+    switch (v->type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return v->data.idata;
+        case SCRIPT_FLOAT:   return static_cast<int>(v->data.fdata);
+        case SCRIPT_DOUBLE:  return static_cast<int>(v->data.ddata);
+        default:             return 0;
+    }
+}
+float ScriptObjectManager::makeFloat(scriptVar *v) {
+    if (!v) return 0.0f;
+    switch (v->type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return static_cast<float>(v->data.idata);
+        case SCRIPT_FLOAT:   return v->data.fdata;
+        case SCRIPT_DOUBLE:  return static_cast<float>(v->data.ddata);
+        default:             return 0.0f;
+    }
+}
+double ScriptObjectManager::makeDouble(scriptVar *v) {
+    if (!v) return 0.0;
+    switch (v->type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return static_cast<double>(v->data.idata);
+        case SCRIPT_FLOAT:   return static_cast<double>(v->data.fdata);
+        case SCRIPT_DOUBLE:  return v->data.ddata;
+        default:             return 0.0;
+    }
+}
+bool ScriptObjectManager::makeBoolean(scriptVar *v) {
+    if (!v) return false;
+    switch (v->type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return v->data.idata != 0;
+        case SCRIPT_FLOAT:   return v->data.fdata != 0.0f;
+        case SCRIPT_DOUBLE:  return v->data.ddata != 0.0;
+        case SCRIPT_OBJECT:  return v->data.odata != nullptr;
+        case SCRIPT_STRING:  return v->data.sdata && *v->data.sdata != 0;
+        default:             return false;
+    }
+}
 int    ScriptObjectManager::isNumeric  (scriptVar *v) {
     if (!v) return 0;
     return (v->type == SCRIPT_INT || v->type == SCRIPT_FLOAT ||
