@@ -33,6 +33,8 @@
 #include <QString>
 #include <functional>
 
+class QVariantAnimation;
+
 namespace WasabiQt::SkinXml { struct Document; }
 
 namespace WasabiQt {
@@ -74,6 +76,11 @@ public:
     // / gotoTarget chain).  Updates m_nativeSize, syncs the layout root
     // w/h attrs so relatw/relath children re-flow, and queues a paint.
     void resizeLayoutTo(const QSize &size);
+
+    // Same as resizeLayoutTo but tweens from current to target over
+    // durationMs using QVariantAnimation; fires fireTargetReached()
+    // on completion.  Mirrors SkinView's identically-named helper.
+    void animatedResizeLayoutTo(const QSize &target, int durationMs = 200);
 
     // Embedder hook: resolve a <text display="…"/> key to a live string
     // at paint time.  Returning an empty string falls back to the
@@ -185,6 +192,8 @@ private:
     QRegion m_windowRegion;
     // Auto-shrink to painted extent toggle (off by default).
     bool   m_autoShrink = false;
+    // Lazily-created resize-tween animation (parented to this).
+    QVariantAnimation *m_resizeAnim = nullptr;
 };
 
 }  // namespace WasabiQt
