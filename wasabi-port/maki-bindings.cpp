@@ -265,6 +265,9 @@ extern "C" scriptVar wq_stop(maki_cmd *, int, ScriptObject *) { return makeVoid(
 // GuiObject / Group / Layer / Layout / Container — geometry stubs.
 // Real widget integration in M13e.
 
+// Forward decl — body lives further down with the Config stubs.
+static ScriptObject *configDummy();
+
 extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
                                     scriptVar id) {
     if (id.type != SCRIPT_STRING || !id.data.sdata)
@@ -275,6 +278,14 @@ extern "C" scriptVar wq_findObject(maki_cmd *, int, ScriptObject *,
         wq_wide_to_ascii(id.data.sdata, nb, sizeof(nb));
         std::fprintf(stderr, "[maki] findObject(%s) -> %p\n", nb, handle);
     }
+    // When the id isn't in our resolved tree (typically a sub-page
+    // groupdef that gets dynamically instantiated by a `switchto` action,
+    // a shade-mode widget that's not in the normal layout, or a
+    // platform widget like `sysmenu` we don't expose), hand back the
+    // configDummy so scripts that bind locals via findObject + then
+    // call methods on them stay non-null.  Methods on configDummy are
+    // no-ops, harmless for widgets we don't render anyway.
+    if (!handle) handle = configDummy();
     return makeObject(static_cast<ScriptObject *>(handle));
 }
 
@@ -485,6 +496,20 @@ extern "C" scriptVar wq_getLayoutByName(maki_cmd *, int, ScriptObject *o,
     return makeObject(static_cast<ScriptObject *>(root ? root : o));
 }
 
+// Wac/Container singleton lookups — hand back the layout-root pseudo
+// so chained calls (.getLayout(...).getWidth() etc.) succeed.
+extern "C" scriptVar wq_getContainer(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar /*name*/) {
+    void *root = wq_layout_root();
+    return makeObject(static_cast<ScriptObject *>(root ? root : o));
+}
+
+extern "C" scriptVar wq_findWac(maki_cmd *, int, ScriptObject *o,
+                                  scriptVar /*guid*/) {
+    void *root = wq_layout_root();
+    return makeObject(static_cast<ScriptObject *>(root ? root : o));
+}
+
 // ── method registry ─────────────────────────────────────────────
 
 namespace WasabiQt::Maki {
@@ -568,6 +593,9 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"setEnabled",              1, (void *)wq_setEnabled},
         {L"getPosition",             0, (void *)wq_getPosition},
         {L"getLayout",               1, (void *)wq_getLayoutByName},
+        {L"getContainer",            1, (void *)wq_getContainer},
+        {L"getCurContainer",         0, (void *)wq_getParentLayout},
+        {L"findWac",                 1, (void *)wq_findWac},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;
