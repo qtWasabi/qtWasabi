@@ -127,6 +127,31 @@ int fireEventByName(int scriptId, const wchar_t *functionName) {
     return -1;
 }
 
+int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName) {
+    if (!recv || !eventName) return 0;
+    int fired = 0;
+    // Walk every DLF entry, find handlers whose function name matches.
+    // executeEvent walks the receiver's vcpu_getAssignedVariable list
+    // to find handlers actually bound to this receiver, so we don't
+    // need to pre-filter by script — broadcast across all sids and let
+    // executeEvent decide.
+    const int n = VCPU::DLFentryTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || !e->functionName) continue;
+        if (wcscmp(e->functionName, eventName) != 0) continue;
+        // Don't double-fire a handler we already dispatched on this
+        // sid (multiple DLF entries can name the same handler).
+        scriptVar v{};
+        v.type = SCRIPT_OBJECT;
+        v.data.odata = static_cast<ScriptObject *>(recv);
+        setCurrentScriptId(e->scriptId);
+        VCPU::executeEvent(v, e->DLFid, 0, e->scriptId);
+        ++fired;
+    }
+    return fired;
+}
+
 bool fireFourIntEvent(int scriptId, void *recv,
                       const wchar_t *eventName,
                       int a, int b, int c, int d) {

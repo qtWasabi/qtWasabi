@@ -91,6 +91,13 @@ bool fireFourIntEvent(int scriptId, void *recv,
                       const wchar_t *eventName,
                       int a, int b, int c, int d);
 
+// Fire a zero-arg event (e.g. btnOpen.onLeftClick()) against `recv`
+// as the receiver, broadcasting across every loaded script.  Used for
+// click / mouse-button event dispatch — any script that bound a
+// .onLeftClick handler to a widget that lives at `recv` receives the
+// event.  Returns the number of scripts whose handler fired.
+int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName);
+
 // Diagnostic: list the DLF names registered for `scriptId` (one per
 // line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);

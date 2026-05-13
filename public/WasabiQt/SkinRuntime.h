@@ -70,6 +70,7 @@ public:
     // the number of scripts whose handler fired.
     int dispatchInitialResize(int layoutW, int layoutH);
 
+
     // Number of scripts the VM currently holds.  Includes scripts
     // that loaded but had errors during onScriptLoaded.
     int scriptCount() const;
@@ -100,5 +101,15 @@ void registerSkinRepaintCallback(std::function<void()> cb);
 // Pass an empty std::function to unregister (getStatus() then
 // returns 0).
 void registerSkinPlaybackStatusCallback(std::function<int()> cb);
+
+// Fire a Maki event by name against the widget at `widgetId`, looked
+// up case-insensitively in the global SkinRuntimeBridge widget
+// registry.  Used by embedders to dispatch input events (button
+// clicks, hovers, …) to the per-widget event handlers any loaded
+// script bound via `widget.onLeftClick() {}` syntax.  Returns the
+// number of script handlers that fired.  Common event names:
+// `onLeftClick`, `onLeftButtonDown`, `onRightClick`,
+// `onMouseMove`, `onMouseEnter`, `onMouseLeave`.
+int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName);
 
 }  // namespace WasabiQt

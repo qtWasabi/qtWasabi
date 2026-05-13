@@ -111,6 +111,13 @@ void registerSkinPlaybackStatusCallback(std::function<int()> cb) {
     g_playbackStatus = std::move(cb);
 }
 
+int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName) {
+    if (widgetId.isEmpty() || !eventName) return 0;
+    auto it = g_byId.constFind(widgetId.toLower());
+    if (it == g_byId.constEnd()) return 0;
+    return Maki::fireZeroArgEventOnObject(it->scriptObject, eventName);
+}
+
 }  // namespace WasabiQt
 
 // ── Bridge accessors used by wasabi-port/maki-bindings.cpp ──────
