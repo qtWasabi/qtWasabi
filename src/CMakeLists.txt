@@ -25,8 +25,10 @@ set(WASABIQT_SOURCES
     TreePainter.cpp
     TextPainter.cpp
     SkinView.cpp
+    SkinQuickItem.cpp
     Host.cpp
     ${PROJECT_SOURCE_DIR}/public/WasabiQt/SkinView.h
+    ${PROJECT_SOURCE_DIR}/public/WasabiQt/SkinQuickItem.h
     Bootstrap.cpp
     # Q_OBJECT public headers — listed so AUTOMOC generates their
     # moc_*.cpp files inside this target (otherwise downstream link
@@ -66,7 +68,9 @@ foreach(_target wasabiqt wasabiqt_static)
         PUBLIC
             Qt6::Core
             Qt6::Gui
-            Qt6::Widgets)
+            Qt6::Widgets
+            Qt6::Quick
+            Qt6::Qml)
 
     target_compile_features(${_target} PUBLIC cxx_std_20)
 endforeach()

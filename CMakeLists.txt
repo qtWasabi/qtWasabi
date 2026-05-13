@@ -15,7 +15,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Qt6 (Core, Gui, Widgets, Multimedia for vis hooks).
 # WasabiQT targets the LATEST Qt6 — no fallback to 6.0/6.1 era.
-find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets Quick Qml)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

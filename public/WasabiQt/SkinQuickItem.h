@@ -1,0 +1,133 @@
+#pragma once
+//
+// SkinQuickItem — Qt Quick / Scene Graph renderer for a Wasabi skin.
+//
+// Replaces the QPainter-based SkinView/TreePainter/LayerPainter/TextPainter
+// stack with a single custom QQuickItem that builds a QSGNode tree from
+// the resolved widget tree.  Hosted in a QQuickWindow (frameless,
+// transparent) by the embedder.  Reuses the same Host abstraction,
+// SkinXml parser, SkinRuntime/Maki VM, BitmapRegistry, FontRegistry,
+// ColorRegistry, and GammasetRegistry as the old SkinView.
+//
+// Why the switch: alpha-aware hit-test (override contains()), real
+// animations (QPropertyAnimation on per-widget properties), correct
+// Wayland window shape via wl_surface.set_input_region (via
+// QWindow::setMask), and a path to render every Wasabi widget tag
+// without per-skin glue.
+//
+// API mirrors SkinView's surface so embedders can migrate incrementally.
+//
+
+#include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/ColorRegistry.h>
+#include <WasabiQt/FontRegistry.h>
+#include <WasabiQt/GammasetRegistry.h>
+#include <WasabiQt/Layout.h>
+
+#include <QHash>
+#include <QImage>
+#include <QPointer>
+#include <QQuickItem>
+#include <QSize>
+#include <QString>
+#include <functional>
+
+namespace WasabiQt::SkinXml { struct Document; }
+
+namespace WasabiQt {
+
+class Host;
+
+class SkinQuickItem : public QQuickItem {
+    Q_OBJECT
+    Q_PROPERTY(QSize layoutNativeSize READ layoutNativeSize NOTIFY
+               layoutNativeSizeChanged)
+public:
+    explicit SkinQuickItem(QQuickItem *parent = nullptr);
+    ~SkinQuickItem() override;
+
+    // Adopt a parsed skin document, expand the named layout, and
+    // populate the bitmap registry from it.  Returns false (and sets
+    // errMsg) if the container or layout isn't found.
+    bool load(const SkinXml::Document &doc,
+              const QString &containerId,
+              const QString &layoutId = QStringLiteral("normal"),
+              QString *errMsg = nullptr);
+
+    // The native size of the loaded layout (w x h from XML, falling
+    // back to minimum_w x minimum_h, or default).
+    QSize layoutNativeSize() const { return m_nativeSize; }
+
+    // Access the parsed tree + asset registries.
+    const Layout::ResolvedWidget &tree() const { return m_tree; }
+    BitmapRegistry               &registry()   { return m_registry; }
+    FontRegistry                 &fonts()      { return m_fonts; }
+    ColorRegistry                &colors()     { return m_colors; }
+    GammasetRegistry             &gammasets()  { return m_gammasets; }
+
+    // Switch to a named gammaset (Color Theme).  Empty/unknown name
+    // means "Default" (identity transform).  Triggers a repaint.
+    void setActiveGammaset(const QString &name);
+
+    // Resize the layout to a new size (e.g. from a Maki Layout.setTarget*
+    // / gotoTarget chain).  Updates m_nativeSize, syncs the layout root
+    // w/h attrs so relatw/relath children re-flow, and queues a paint.
+    void resizeLayoutTo(const QSize &size);
+
+    // Embedder hook: resolve a <text display="…"/> key to a live string
+    // at paint time.  Returning an empty string falls back to the
+    // widget's `default=` attribute.
+    using DisplayResolver = std::function<QString(const QString &)>;
+    void setDisplayResolver(DisplayResolver r) {
+        m_resolver = std::move(r);
+        update();
+    }
+
+    // Bind an embedder Host so paint pulls live display strings + slider
+    // thumb positions straight from it.  Takes precedence over a manual
+    // setDisplayResolver.  Pass nullptr to detach.
+    void  setHost(Host *h) { m_host = h; update(); }
+    Host *host() const     { return m_host; }
+
+    // Alpha-aware hit-test: returns the topmost widget at `pointInLayout`
+    // whose painted alpha at that point is non-zero.  Falls back to a
+    // bbox-only topmost match when the painted-alpha cache hasn't been
+    // populated yet (first frame).  Used by qtamp's mousePressEvent in
+    // place of the prior deep-walk fallback.
+    const Layout::ResolvedWidget *
+    topmostWidgetAt(QPoint pointInLayout, bool actionOnly = false) const;
+
+protected:
+    // Scene Graph entry point — called on the GUI thread once per
+    // frame whenever update() has been queued.  We build a fresh node
+    // tree each call; texture caching is owned by the QQuickWindow.
+    QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override;
+
+    // Alpha-aware QQuickItem hit-test.  Walks the resolved tree at the
+    // local point and asks the cached painted-alpha map whether the
+    // widget at that point is opaque.  This makes the chrome layers'
+    // transparent areas correctly pass clicks through to the widgets
+    // visually behind them.
+    bool contains(const QPointF &point) const override;
+
+signals:
+    void layoutNativeSizeChanged();
+
+private:
+    Layout::ResolvedWidget m_tree;
+    BitmapRegistry         m_registry;
+    ColorRegistry          m_colors;
+    FontRegistry           m_fonts;
+    GammasetRegistry       m_gammasets;
+    QSize                  m_nativeSize { 354, 280 };
+    DisplayResolver        m_resolver;
+    Host                  *m_host = nullptr;
+
+    // Painted-alpha cache used by contains() — populated when we paint
+    // each widget.  Keyed on ResolvedWidget* pointer (stable for the
+    // tree's lifetime).  Each entry is a tiny grayscale alpha buffer
+    // at the widget's painted size.
+    mutable QHash<const Layout::ResolvedWidget *, QImage> m_alphaCache;
+};
+
+}  // namespace WasabiQt
