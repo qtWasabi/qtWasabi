@@ -275,6 +275,17 @@ void wq_layout_goto_target() {
     if (w > 0 && h > 0) WasabiQt::g_skinResize(w, h);
     WasabiQt::g_targetW = WasabiQt::g_targetH = -1;
     WasabiQt::g_targetX = WasabiQt::g_targetY = -1;
+    // Synthesise the animation-complete event the script expects.
+    // drawer.m's __main.onTargetReached() reads __drawer_direction
+    // and fires onDoneOpeningDrawer / onDoneClosingDrawer — the close
+    // chain in turn hides AVSGroup so the chrome doesn't render
+    // through it once the window has shrunk back.  Real Wasabi fires
+    // this when its animation thread completes; ours has no animation
+    // so we fire immediately after the resize takes effect.
+    if (WasabiQt::g_layoutRootScriptObject) {
+        WasabiQt::Maki::fireZeroArgEventOnObject(
+            WasabiQt::g_layoutRootScriptObject, L"onTargetReached");
+    }
 }
 
 }  // extern "C"
