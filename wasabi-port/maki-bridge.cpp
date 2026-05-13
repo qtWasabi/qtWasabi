@@ -129,22 +129,31 @@ int fireEventByName(int scriptId, const wchar_t *functionName) {
 
 int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName) {
     if (!recv || !eventName) return 0;
+    // Pre-check: does this receiver actually have any handler bound
+    // for this event?  Without the pre-check, an unrelated widget
+    // (e.g. a titlebar layer) consumes every click because many
+    // scripts have `someOtherWidget.onLeftClick { ... }` handlers in
+    // their DLF tables and executeEvent silently no-ops on receivers
+    // they're not bound to.  We need to return 0 in that case so the
+    // caller can fall through to its default behaviour (window drag).
     int fired = 0;
-    // Walk every DLF entry, find handlers whose function name matches.
-    // executeEvent walks the receiver's vcpu_getAssignedVariable list
-    // to find handlers actually bound to this receiver, so we don't
-    // need to pre-filter by script — broadcast across all sids and let
-    // executeEvent decide.
     const int n = VCPU::DLFentryTable.getNumItems();
     for (int i = 0; i < n; ++i) {
         VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
         if (!e || !e->functionName) continue;
         if (wcscmp(e->functionName, eventName) != 0) continue;
-        // Don't double-fire a handler we already dispatched on this
-        // sid (multiple DLF entries can name the same handler).
+        // Check if THIS receiver has a (varId, scriptId) pair in
+        // eventsTable matching this DLFid — that's executeEvent's
+        // inner-loop condition, but we want to know the answer
+        // without firing.
+        auto *wso = static_cast<ScriptObject *>(recv);
+        int next = 0, evIdx = 0, inh = 0;
+        int varId = wso->vcpu_getAssignedVariable(
+            0, e->scriptId, e->DLFid, &next, &evIdx, &inh);
+        if (varId < 0) continue;  // not bound to this receiver
         scriptVar v{};
         v.type = SCRIPT_OBJECT;
-        v.data.odata = static_cast<ScriptObject *>(recv);
+        v.data.odata = wso;
         setCurrentScriptId(e->scriptId);
         VCPU::executeEvent(v, e->DLFid, 0, e->scriptId);
         ++fired;
