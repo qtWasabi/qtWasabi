@@ -102,6 +102,14 @@ void registerSkinRepaintCallback(std::function<void()> cb);
 // returns 0).
 void registerSkinPlaybackStatusCallback(std::function<int()> cb);
 
+// Register a callback Maki Layout.setTarget* + gotoTarget invokes
+// when scripts resize the layout (e.g. videoavs.m opening the
+// upper drawer calls main.setTargetH(taller); main.gotoTarget()).
+// The callback gets the requested (width, height); embedders typically
+// resize the SkinView widget and let the chrome reflow.  Pass an
+// empty std::function to unregister.
+void registerSkinResizeCallback(std::function<void(int w, int h)> cb);
+
 // Fire a Maki event by name against the widget at `widgetId`, looked
 // up case-insensitively in the global SkinRuntimeBridge widget
 // registry.  Used by embedders to dispatch input events (button

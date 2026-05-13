@@ -248,10 +248,46 @@ extern "C" {
     void *wq_layout_root();
     void *wq_script_owner(int sid);
     int   wq_playback_status();
+    void  wq_layout_set_target_w(int w);
+    void  wq_layout_set_target_h(int h);
+    void  wq_layout_set_target_x(int x);
+    void  wq_layout_set_target_y(int y);
+    void  wq_layout_goto_target();
 }
 
 extern "C" scriptVar wq_getStatus(maki_cmd *, int, ScriptObject *) {
     return makeInt(wq_playback_status());
+}
+
+// Layout.setTarget{X,Y,W,H} — stash pending values, applied by
+// gotoTarget.  All numeric, idata-shaped (Maki convention).
+extern "C" scriptVar wq_setTargetW(maki_cmd *, int, ScriptObject *,
+                                     scriptVar v) {
+    wq_layout_set_target_w(v.data.idata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_setTargetH(maki_cmd *, int, ScriptObject *,
+                                     scriptVar v) {
+    wq_layout_set_target_h(v.data.idata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_setTargetX(maki_cmd *, int, ScriptObject *,
+                                     scriptVar v) {
+    wq_layout_set_target_x(v.data.idata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_setTargetY(maki_cmd *, int, ScriptObject *,
+                                     scriptVar v) {
+    wq_layout_set_target_y(v.data.idata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_setTargetSpeed(maki_cmd *, int, ScriptObject *,
+                                         scriptVar) {
+    return makeVoid();  // We don't animate; speed is ignored.
+}
+extern "C" scriptVar wq_gotoTarget(maki_cmd *, int, ScriptObject *) {
+    wq_layout_goto_target();
+    return makeVoid();
 }
 
 extern "C" scriptVar wq_getScriptGroup(maki_cmd *, int, ScriptObject *o) {
@@ -660,6 +696,20 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"newDynamicContainer",     1, (void *)wq_newDynamicContainer},
         {L"setFontSize",             1, (void *)wq_setFontSize},
         {L"getStatus",               0, (void *)wq_getStatus},
+        // Layout target-animation (we apply immediately on
+        // gotoTarget; setTargetSpeed is ignored).
+        {L"setTargetX",              1, (void *)wq_setTargetX},
+        {L"setTargetY",              1, (void *)wq_setTargetY},
+        {L"setTargetW",              1, (void *)wq_setTargetW},
+        {L"setTargetH",              1, (void *)wq_setTargetH},
+        {L"setTargetSpeed",          1, (void *)wq_setTargetSpeed},
+        {L"gotoTarget",              0, (void *)wq_gotoTarget},
+        // Geometry getters that the drawer script reads back —
+        // already bound for groups, but Layout shares the lookup.
+        {L"getGuiW",                 0, (void *)wq_getWidth},
+        {L"getGuiH",                 0, (void *)wq_getHeight},
+        {L"getGuiX",                 0, (void *)wq_getLeft},
+        {L"getGuiY",                 0, (void *)wq_getTop},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;

@@ -63,6 +63,16 @@ std::function<void()> g_repaint;
 // behaviour on play state get the safe "stopped" reading.
 std::function<int()> g_playbackStatus;
 
+// Registered by SkinView so Maki Layout.setTarget* / gotoTarget can
+// resize the host window.  Drawer scripts use this pattern to grow /
+// shrink the player when the upper drawer opens; without a callback,
+// the layout's `h` attribute gets mutated by setTargetH but the
+// SkinView keeps its old size and the chrome paints clipped.
+std::function<void(int, int)> g_skinResize;
+// Pending target values stashed by setTarget{W,H,X,Y} before
+// gotoTarget consumes them.
+int g_targetW = -1, g_targetH = -1, g_targetX = -1, g_targetY = -1;
+
 QString fromWide(const wchar_t *s) {
     return s ? QString::fromWCharArray(s) : QString();
 }
@@ -109,6 +119,10 @@ void registerSkinRepaintCallback(std::function<void()> cb) {
 // SkinView calls this so Maki getStatus() reads through to the host.
 void registerSkinPlaybackStatusCallback(std::function<int()> cb) {
     g_playbackStatus = std::move(cb);
+}
+
+void registerSkinResizeCallback(std::function<void(int, int)> cb) {
+    g_skinResize = std::move(cb);
 }
 
 int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName) {
@@ -227,6 +241,37 @@ void *wq_script_owner(int sid) {
 // Maki's getStatus().  Returns 0 when no callback has been registered.
 int wq_playback_status() {
     return WasabiQt::g_playbackStatus ? WasabiQt::g_playbackStatus() : 0;
+}
+
+void wq_layout_set_target_w(int w) { WasabiQt::g_targetW = w; }
+void wq_layout_set_target_h(int h) { WasabiQt::g_targetH = h; }
+void wq_layout_set_target_x(int x) { WasabiQt::g_targetX = x; }
+void wq_layout_set_target_y(int y) { WasabiQt::g_targetY = y; }
+
+// gotoTarget — apply the stashed setTarget* values.  We don't animate
+// (real Wasabi uses setTargetSpeed); the embedder gets the final size
+// immediately.  Both w and h fall back to the current layout root w/h
+// when un-set so a script that only changes one dimension doesn't
+// accidentally collapse the other.
+void wq_layout_goto_target() {
+    if (!WasabiQt::g_skinResize) {
+        WasabiQt::g_targetW = WasabiQt::g_targetH = -1;
+        WasabiQt::g_targetX = WasabiQt::g_targetY = -1;
+        return;
+    }
+    int w = WasabiQt::g_targetW;
+    int h = WasabiQt::g_targetH;
+    // Fall back to the layout root's current attrs when un-set.
+    if (w < 0 || h < 0) {
+        if (auto *root = static_cast<WasabiQt::Layout::ResolvedWidget *>(
+                WasabiQt::Maki::opaqueOf(WasabiQt::g_layoutRootScriptObject))) {
+            if (w < 0) w = root->attrs.value(QStringLiteral("w")).toInt();
+            if (h < 0) h = root->attrs.value(QStringLiteral("h")).toInt();
+        }
+    }
+    if (w > 0 && h > 0) WasabiQt::g_skinResize(w, h);
+    WasabiQt::g_targetW = WasabiQt::g_targetH = -1;
+    WasabiQt::g_targetX = WasabiQt::g_targetY = -1;
 }
 
 }  // extern "C"
