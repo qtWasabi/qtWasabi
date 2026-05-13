@@ -280,24 +280,37 @@ static std::unordered_map<void *, TargetState> &targetMap() {
     return m;
 }
 
+// Coerce any numeric scriptVar to int, picking the right union field
+// based on its dynamic type.  Mirrors SOM::makeDouble's contract but
+// drops to int.  Returns 0 for non-numeric types.
+static inline int makeIntFromVar(const scriptVar &v) {
+    switch (v.type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return v.data.idata;
+        case SCRIPT_FLOAT:   return static_cast<int>(v.data.fdata);
+        case SCRIPT_DOUBLE:  return static_cast<int>(v.data.ddata);
+        default:             return 0;
+    }
+}
+
 extern "C" scriptVar wq_setTargetW(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    targetMap()[(void *)o].w = v.data.idata;
+    targetMap()[(void *)o].w = makeIntFromVar(v);
     return makeVoid();
 }
 extern "C" scriptVar wq_setTargetH(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    targetMap()[(void *)o].h = v.data.idata;
+    targetMap()[(void *)o].h = makeIntFromVar(v);
     return makeVoid();
 }
 extern "C" scriptVar wq_setTargetX(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    targetMap()[(void *)o].x = v.data.idata;
+    targetMap()[(void *)o].x = makeIntFromVar(v);
     return makeVoid();
 }
 extern "C" scriptVar wq_setTargetY(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    targetMap()[(void *)o].y = v.data.idata;
+    targetMap()[(void *)o].y = makeIntFromVar(v);
     return makeVoid();
 }
 extern "C" scriptVar wq_setTargetSpeed(maki_cmd *, int, ScriptObject *,
