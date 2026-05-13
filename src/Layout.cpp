@@ -812,9 +812,11 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
             //   newXpos = w/2 - 163;
             //   DrawerContent.setXmlParam("x", newXpos);
             // dispatchInitialResize is wired in SkinRuntime + the Maki
-            // bridge but the handler currently reads the wrong arg
-            // slot (gets w=652 instead of 354); apply statically until
-            // the Maki event-arg ordering is sorted out.
+            // bridge but neither push order produces the expected
+            // w=354 in the handler — multiple onResize handlers may
+            // be stomping or another wrinkle in the event-arg path.
+            // Apply statically until that's sorted; gated by
+            // WASABIQT_FIRE_RESIZE=1 to try the Maki path.
             const int newX = layoutWidth / 2 - 163;
             w.attrs.insert(QStringLiteral("x"),
                            QString::number(newX));

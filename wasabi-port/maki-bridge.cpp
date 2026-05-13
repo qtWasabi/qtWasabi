@@ -155,13 +155,13 @@ bool fireFourIntEvent(int scriptId, void *recv,
             "[maki] fire %s sid=%d a=%d b=%d c=%d d=%d np=%d\n",
             nb, scriptId, a, b, c, d, nparams);
     }
-    // Stack push order: arguments in REVERSE so callDLF's pop loop
-    // produces paramList[0]=a, paramList[1]=b, etc.  Matches what
-    // fireOnSetXuiParam does for its 2 args.
-    scriptVar v4{}; v4.type = SCRIPT_INT; v4.data.idata = d; VCPU::push(v4);
-    scriptVar v3{}; v3.type = SCRIPT_INT; v3.data.idata = c; VCPU::push(v3);
-    scriptVar v2{}; v2.type = SCRIPT_INT; v2.data.idata = b; VCPU::push(v2);
+    // Stack push order: in DECL order (first arg first) so executeEvent's
+    // pop loop produces plist[0]=last, plist[N-1]=first, then runEvent
+    // re-pushes them so the handler's pop-in-reverse-decl-order matches.
     scriptVar v1{}; v1.type = SCRIPT_INT; v1.data.idata = a; VCPU::push(v1);
+    scriptVar v2{}; v2.type = SCRIPT_INT; v2.data.idata = b; VCPU::push(v2);
+    scriptVar v3{}; v3.type = SCRIPT_INT; v3.data.idata = c; VCPU::push(v3);
+    scriptVar v4{}; v4.type = SCRIPT_INT; v4.data.idata = d; VCPU::push(v4);
 
     scriptVar recvVar{};
     recvVar.type = SCRIPT_OBJECT;

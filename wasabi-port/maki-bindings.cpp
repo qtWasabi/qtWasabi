@@ -510,6 +510,26 @@ extern "C" scriptVar wq_findWac(maki_cmd *, int, ScriptObject *o,
     return makeObject(static_cast<ScriptObject *>(root ? root : o));
 }
 
+// SystemObject.newDynamicContainer(name) — Wasabi creates a fresh
+// runtime container.  Hand back the layout-root pseudo so chained
+// .getLayout(...).findObject(...) calls succeed.
+extern "C" scriptVar wq_newDynamicContainer(maki_cmd *, int, ScriptObject *o,
+                                              scriptVar /*name*/) {
+    void *root = wq_layout_root();
+    return makeObject(static_cast<ScriptObject *>(root ? root : o));
+}
+
+// Text.setFontSize / Layer.setFontSize — mutate fontsize= attr.
+extern "C" scriptVar wq_setFontSize(maki_cmd *, int, ScriptObject *o, scriptVar v) {
+    if (!o) return makeVoid();
+    wchar_t buf[16];
+    std::swprintf(buf, 16, L"%d",
+                  (v.type >= SCRIPT_INT && v.type <= SCRIPT_DOUBLE)
+                    ? v.data.idata : 0);
+    wq_widget_setAttr(o, L"fontsize", buf);
+    return makeVoid();
+}
+
 // ── method registry ─────────────────────────────────────────────
 
 namespace WasabiQt::Maki {
@@ -596,6 +616,8 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getContainer",            1, (void *)wq_getContainer},
         {L"getCurContainer",         0, (void *)wq_getParentLayout},
         {L"findWac",                 1, (void *)wq_findWac},
+        {L"newDynamicContainer",     1, (void *)wq_newDynamicContainer},
+        {L"setFontSize",             1, (void *)wq_setFontSize},
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;
