@@ -25,8 +25,15 @@ SkinView::SkinView(QWidget *parent) : QWidget(parent) {
     QPointer<SkinView> self(this);
     registerSkinRepaintCallback([self]() {
         if (auto *v = self.data()) {
-            QMetaObject::invokeMethod(v, [v]() { v->update(); },
-                                      Qt::QueuedConnection);
+            QMetaObject::invokeMethod(v, [v]() {
+                // Maki mutated a widget attribute — recompute the
+                // window region (and auto-shrink if enabled) before
+                // repainting.  Without this, a script that hides the
+                // drawer via setXmlParam("y", "-263") moves the
+                // sysregion contributor off-screen but the QWidget's
+                // mask/size never refresh.
+                v->rebuildWindowRegion();
+            }, Qt::QueuedConnection);
         }
     });
 }
@@ -60,6 +67,38 @@ void SkinView::rebuildWindowRegion() {
     else
         setMask(m_windowRegion);
     update();
+}
+
+// Compute the bottom-most row with a non-zero alpha pixel.  Used by
+// auto-shrink to crop the OS window to the actual painted extent.
+namespace {
+int paintedBottomEdge(const QImage &alpha) {
+    if (alpha.isNull()) return -1;
+    for (int y = alpha.height() - 1; y >= 0; --y) {
+        for (int x = 0; x < alpha.width(); ++x) {
+            if (qAlpha(alpha.pixel(x, y)) > 16) return y + 1;
+        }
+    }
+    return -1;
+}
+}  // namespace
+
+void SkinView::setPaintedAlpha(QImage img) {
+    m_paintedAlpha = std::move(img);
+    if (!m_autoShrink || m_paintedAlpha.isNull()) return;
+
+    // Find the actual painted bottom edge and shrink the QWidget if
+    // it's significantly shorter than the current widget height.
+    // Never grow — Maki-driven setTargetH owns the layout-extension
+    // case via resizeLayoutTo.  An 8-px hysteresis avoids sub-pixel
+    // jitter when widgets paint at-or-near the layout edge.
+    const int bottom = paintedBottomEdge(m_paintedAlpha);
+    if (bottom > 0 && bottom + 8 <= height()) {
+        if (::getenv("WASABIQT_TRACE_MAKI"))
+            ::fprintf(stderr, "[autoshrink] %dx%d -> %dx%d (painted bottom)\n",
+                      width(), height(), width(), bottom);
+        resize(width(), bottom);
+    }
 }
 
 void SkinView::resizeLayoutTo(const QSize &size) {

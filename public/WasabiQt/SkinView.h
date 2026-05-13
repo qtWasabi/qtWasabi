@@ -89,6 +89,17 @@ public:
     // override paintEvent and want to apply the same clip).
     const QRegion &windowRegion() const { return m_windowRegion; }
 
+    // Auto-shrink the QWidget to the painted-region's bounding box
+    // after every rebuildWindowRegion.  When a drawer hides itself
+    // by moving off-screen (configtabs's `drawer.setXmlParam("y",
+    // "-263")` chain), the layout's native size stays the same but
+    // the visible chrome ends earlier.  Without auto-shrink the OS
+    // window keeps its full size and the bottom transparent area
+    // bleeds through to the desktop.  Off by default to preserve
+    // explicit Maki-driven layout sizes.
+    void setAutoShrinkToRegion(bool on) { m_autoShrink = on; }
+    bool autoShrinkToRegion() const     { return m_autoShrink; }
+
     // Alpha-aware hit-test: returns the topmost widget at the point
     // whose painted alpha is non-zero.  Walks the resolved tree in
     // paint-order-reverse (topmost first) and checks each widget's
@@ -122,8 +133,12 @@ public:
     // that paints with extra state like the ColorThemes list cache)
     // must call this from their paintEvent so alphaHitTest sees the
     // same frame the user is looking at.  Ownership: the QImage is
-    // copied/moved into our cache.
-    void setPaintedAlpha(QImage img) { m_paintedAlpha = std::move(img); }
+    // copied/moved into our cache.  Also drives auto-shrink when
+    // enabled — the painted alpha is the authoritative source for
+    // visible extent (sysregion alone isn't, because some skins use
+    // a sysregion rectangle larger than what their bitmaps actually
+    // cover).
+    void setPaintedAlpha(QImage img);
 
     // Embedder hook: resolve a <text display="…"/> key to a live
     // string at paint time.  Returning an empty string falls back
@@ -165,6 +180,8 @@ private:
     // destructs with the view.  QVariantAnimation header isn't
     // included here; pulled in by the .cpp.
     QVariantAnimation     *m_resizeAnim = nullptr;
+    // setAutoShrinkToRegion toggle.
+    bool                   m_autoShrink = false;
 };
 
 }  // namespace WasabiQt
