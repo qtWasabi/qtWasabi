@@ -35,8 +35,15 @@ SkinQuickItem::SkinQuickItem(QQuickItem *parent) : QQuickItem(parent) {
     QPointer<SkinQuickItem> self(this);
     registerSkinRepaintCallback([self]() {
         if (auto *v = self.data()) {
-            QMetaObject::invokeMethod(v, [v]() { v->update(); },
-                                      Qt::QueuedConnection);
+            // Recompute the window region synchronously so the next
+            // paint's clip reflects the just-mutated attr.  Maki
+            // script dispatch runs on the GUI thread, so a direct
+            // call is safe; the previous queued-update path left
+            // the region stale (with drawer.y from XML defaults
+            // instead of after-script values), producing the
+            // "white edge rectangles on the drawer" visual bug.
+            v->rebuildWindowRegion();
+            v->update();
         }
     });
 }
@@ -162,12 +169,25 @@ void SkinQuickItem::paintInto(QPainter *p, const QSize &canvas) {
 void SkinQuickItem::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
-    if (auto *w = window()) {
+    // Pushing setMask to a QQuickWindow on Wayfire/wlroots before
+    // its first frame has been committed prevents the xdg-toplevel
+    // from ever registering with the compositor.  Even after the
+    // window is mapped, setMask can race with the surface state and
+    // cause the window to disappear from foreign-toplevel
+    // enumeration.  Skin the mask off for QQuickWindow path entirely
+    // — the input region was a Phase 5 nice-to-have (click-through
+    // on transparent chrome), not a requirement.  The visual is
+    // unaffected because the QSGTexture upload already carries the
+    // chrome's alpha.  WASABIQT_INPUT_REGION=1 re-enables it.
+    if (::getenv("WASABIQT_INPUT_REGION") &&
+        ::getenv("WASABIQT_INPUT_REGION")[0] == '1') {
+      if (auto *w = window(); w && w->isVisible()) {
         // QQuickWindow::setMask routes to wl_surface.set_input_region
         // on Wayland (Qt 6), to the conventional shape mask on X11/
         // Windows.  Empty region = rectangular window.
         if (m_windowRegion.isEmpty()) w->setMask(QRegion());
         else                          w->setMask(m_windowRegion);
+      }
     }
     update();
 }
@@ -201,15 +221,27 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     // don't bleed through to the desktop.  Never grow — Maki-driven
     // setTargetH owns that case via resizeLayoutTo.  8-px hysteresis
     // avoids sub-pixel jitter for widgets that paint at the edge.
-    if (m_autoShrink && !buf.isNull()) {
+    //
+    // CRITICAL: only run after Wayfire has actually mapped the
+    // surface (`isExposed() == true`).  Resizing the QQuickWindow
+    // from inside the first updatePaintNode (before the surface has
+    // committed its first buffer) aborts the wayland commit and the
+    // window stays invisible on screen.  isExposed() goes true the
+    // moment the compositor signals the surface as visible.
+    if (m_autoShrink && !buf.isNull() && win && win->isExposed()) {
         const int bottom = paintedBottomEdge(buf);
-        if (bottom > 0 && win && bottom + 8 <= win->height()) {
+        if (bottom > 0 && bottom + 8 <= win->height()) {
             if (::getenv("WASABIQT_TRACE_MAKI"))
                 ::fprintf(stderr,
                     "[autoshrink] %dx%d -> %dx%d (painted bottom)\n",
                     win->width(), win->height(),
                     win->width(), bottom);
-            win->resize(win->width(), bottom);
+            // Defer the resize to after the current paint completes
+            // — calling resize() inside updatePaintNode can still
+            // race with the scene-graph thread on some platforms.
+            QMetaObject::invokeMethod(win, [win, bottom]() {
+                win->resize(win->width(), bottom);
+            }, Qt::QueuedConnection);
         }
     }
 

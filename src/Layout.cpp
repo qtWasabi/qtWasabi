@@ -1029,9 +1029,20 @@ namespace {
 // (1, -2, …) controls subtleties like alpha-edge anti-aliasing that
 // we don't yet implement — for now we treat all non-zero values
 // the same way (opaque pixels = part of region).
+// Phase: additive (sysregion="1" fillRects + layers) or
+// subtractive (sysregion="-N" cutouts).  paintRegionLayers walks
+// the tree twice: first pass marks the region, second pass cuts.
+// Without the two-pass split, a cutout inside one container could
+// be overwritten by a subsequent sibling container's fillRect (the
+// drawer's left-edge cutout vs player.main's fillRect — both walk
+// inside player.content.dummy.group, drawer first, so drawer
+// cutouts got re-filled by player.main).
+enum class RegionPass { Additive, Subtractive };
+
 void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
                        BitmapRegistry &reg, QSize canvas,
-                       bool &outFoundAny) {
+                       bool &outFoundAny,
+                       RegionPass pass) {
     if (w.attrs.value(QStringLiteral("visible")) ==
         QStringLiteral("0")) {
         return;
@@ -1070,7 +1081,7 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     };
     if (isContainer && r.width() > 0 && r.height() > 0) {
         const QString sr = regionAttr();
-        if (sr == QStringLiteral("1")) {
+        if (sr == QStringLiteral("1") && pass == RegionPass::Additive) {
             p.fillRect(r, Qt::black);
             outFoundAny = true;
         }
@@ -1119,18 +1130,23 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
             // negative value as a cutout (DestinationOut clears the
             // region buffer's alpha at those pixels).
             const bool cutoutMode = sr.startsWith(QChar('-'));
-            if (cutoutMode)
-                p.setCompositionMode(
-                    QPainter::CompositionMode_DestinationOut);
-            LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
-            if (cutoutMode)
-                p.setCompositionMode(QPainter::CompositionMode_SourceOver);
-            outFoundAny = true;
+            const bool runHere =
+                cutoutMode ? (pass == RegionPass::Subtractive)
+                           : (pass == RegionPass::Additive);
+            if (runHere) {
+                if (cutoutMode)
+                    p.setCompositionMode(
+                        QPainter::CompositionMode_DestinationOut);
+                LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
+                if (cutoutMode)
+                    p.setCompositionMode(QPainter::CompositionMode_SourceOver);
+                outFoundAny = true;
+            }
         }
     }
 
     for (const auto &c : w.children)
-        paintRegionLayers(p, c, reg, childCanvas, outFoundAny);
+        paintRegionLayers(p, c, reg, childCanvas, outFoundAny, pass);
 
     if (translate) p.restore();
 }
@@ -1189,7 +1205,17 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
         // mask bitmaps draw 1:1 without alpha bleeding.
         p.setRenderHint(QPainter::Antialiasing,            false);
         p.setRenderHint(QPainter::SmoothPixmapTransform,   false);
-        paintRegionLayers(p, root, registry, canvas, foundAny);
+        // Two-pass walk so cutouts (sysregion="-1" / "-2") run AFTER
+        // all additive regions are marked.  Single-pass walks would
+        // let a sibling's fillRect overwrite a prior cutout — that
+        // bug was the source of the "white rectangles on the left/
+        // right of the drawer" visual: drawer's edge cutouts ran
+        // first, then player.main's fillRect re-marked those pixels
+        // as in-region, defeating the cutout.
+        paintRegionLayers(p, root, registry, canvas, foundAny,
+                          RegionPass::Additive);
+        paintRegionLayers(p, root, registry, canvas, foundAny,
+                          RegionPass::Subtractive);
     }
     if (::getenv("WASABIQT_DEBUG_SYSREGION_DUMP")) {
         buf.save("/tmp/qtwasabi-region.png");
