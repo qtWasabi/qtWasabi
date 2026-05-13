@@ -136,6 +136,222 @@ void SkinView::paintEvent(QPaintEvent *) {
     p.setClipping(false);
     p.setCompositionMode(QPainter::CompositionMode_Source);
     p.drawImage(0, 0, buf);
+
+    // Stash the painted alpha for alphaHitTest().  Cheap (a few
+    // hundred kB for a 354x510 layout), refreshed each paint so the
+    // hit-test always reads the current frame's opacity.
+    m_paintedAlpha = std::move(buf);
+}
+
+namespace {
+// Recursively walk the resolved tree in paint order (children iterated
+// in REVERSE for topmost-first traversal).  For each widget that
+// contains the point AND has a non-zero alpha pixel at the point in
+// the painted-alpha cache, return it.  Mirrors Layout::hitTestRec's
+// recursion shape but with an alpha gate instead of just bbox containment.
+const Layout::ResolvedWidget *
+alphaHitRec(const Layout::ResolvedWidget &w,
+            QPoint p, QPoint origin, QSize canvas,
+            bool actionOnly,
+            const QImage &alphaBuf,
+            Layout::ImageSizeResolver imageSize,
+            void *imageSizeUserdata) {
+    using Layout::ResolvedWidget;
+
+    if (w.attrs.value(QStringLiteral("visible")) ==
+        QStringLiteral("0")) return nullptr;
+
+    auto attrBool = [](const QHash<QString, QString> &a, const QString &k) {
+        const QString v = a.value(k);
+        return v == QStringLiteral("1") ||
+               v.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+    };
+    auto resolveRect = [&](const QHash<QString, QString> &a, QSize parent) {
+        int x = a.value(QStringLiteral("x")).toInt();
+        int y = a.value(QStringLiteral("y")).toInt();
+        int rw = a.value(QStringLiteral("w")).toInt();
+        int rh = a.value(QStringLiteral("h")).toInt();
+        if (attrBool(a, QStringLiteral("relatx"))) x = parent.width()  + x;
+        if (attrBool(a, QStringLiteral("relaty"))) y = parent.height() + y;
+        if (attrBool(a, QStringLiteral("relatw"))) rw = parent.width()  + rw;
+        if (attrBool(a, QStringLiteral("relath"))) rh = parent.height() + rh;
+        return QRect(x, y, rw, rh);
+    };
+
+    const QRect r = resolveRect(w.attrs, canvas);
+    QPoint childOrigin = origin;
+    QSize childCanvas = canvas;
+    if (w.tag != QStringLiteral("layout")) {
+        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
+    }
+    if (r.width()  > 0) childCanvas.setWidth (r.width());
+    if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    // Try children first (topmost-first via reverse iteration).
+    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
+        if (auto *hit = alphaHitRec(*it, p, childOrigin, childCanvas,
+                                     actionOnly, alphaBuf,
+                                     imageSize, imageSizeUserdata))
+            return hit;
+    }
+
+    // Self-hit: filter by action= when requested, skip containers.
+    const bool isContainer =
+        w.tag == QStringLiteral("group") ||
+        w.tag == QStringLiteral("container") ||
+        w.tag == QStringLiteral("layout") ||
+        w.tag == QStringLiteral("groupdef") ||
+        w.tag.startsWith(QStringLiteral("wasabi_"));
+    if (isContainer) return nullptr;
+    if (actionOnly && !w.attrs.contains(QStringLiteral("action")))
+        return nullptr;
+    if (w.id.isEmpty() && w.tag != QStringLiteral("button") &&
+        w.tag != QStringLiteral("togglebutton") &&
+        w.tag != QStringLiteral("nstatesbutton") &&
+        w.tag != QStringLiteral("slider"))
+        return nullptr;
+
+    int width  = r.width();
+    int height = r.height();
+    if ((width <= 0 || height <= 0) && imageSize) {
+        const QString img = w.attrs.value(QStringLiteral("image"));
+        if (!img.isEmpty()) {
+            const QSize is = imageSize(img, imageSizeUserdata);
+            if (width  <= 0) width  = is.width();
+            if (height <= 0) height = is.height();
+        }
+    }
+    if (width <= 0 || height <= 0) return nullptr;
+    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
+    if (!bbox.contains(p)) return nullptr;
+
+    // Alpha gate: read the painted pixel at this point.  Non-zero
+    // alpha means this widget actually painted something opaque here,
+    // so the click is meant for it.  Transparent → keep looking
+    // (handled by the caller's tree walk; we just return nullptr).
+    if (!alphaBuf.isNull() &&
+        p.x() >= 0 && p.x() < alphaBuf.width() &&
+        p.y() >= 0 && p.y() < alphaBuf.height()) {
+        const QRgb px = alphaBuf.pixel(p.x(), p.y());
+        if (qAlpha(px) <= 16) return nullptr;
+    }
+
+    return &w;
+}
+}  // namespace
+
+const Layout::ResolvedWidget *
+SkinView::alphaHitTest(QPoint pointInLayout, bool actionOnly,
+                        Layout::ImageSizeResolver imageSize,
+                        void *imageSizeUserdata) const {
+    if (m_paintedAlpha.isNull()) {
+        // No alpha buffer yet (first frame) — fall through to bbox-only.
+        return Layout::hitTest(m_tree, pointInLayout, actionOnly,
+                                imageSize, imageSizeUserdata, nullptr);
+    }
+    return alphaHitRec(m_tree, pointInLayout, QPoint(0, 0),
+                        m_nativeSize, actionOnly, m_paintedAlpha,
+                        imageSize, imageSizeUserdata);
+}
+
+namespace {
+// Walk the tree top-down; collect every widget at `p` whose painted
+// alpha at p is non-zero (or every widget at p if alphaBuf is null).
+// Caller iterates topmost-first.  Mirrors alphaHitRec's filter rules
+// (containers skipped, action-only honoured, image-size resolved).
+void alphaHitListRec(const Layout::ResolvedWidget &w,
+                      QPoint p, QPoint origin, QSize canvas,
+                      bool actionOnly,
+                      const QImage &alphaBuf,
+                      Layout::ImageSizeResolver imageSize,
+                      void *imageSizeUserdata,
+                      QList<const Layout::ResolvedWidget *> &out) {
+    if (w.attrs.value(QStringLiteral("visible")) ==
+        QStringLiteral("0")) return;
+
+    auto attrBool = [](const QHash<QString, QString> &a, const QString &k) {
+        const QString v = a.value(k);
+        return v == QStringLiteral("1") ||
+               v.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
+    };
+    auto resolveRect = [&](const QHash<QString, QString> &a, QSize parent) {
+        int x = a.value(QStringLiteral("x")).toInt();
+        int y = a.value(QStringLiteral("y")).toInt();
+        int rw = a.value(QStringLiteral("w")).toInt();
+        int rh = a.value(QStringLiteral("h")).toInt();
+        if (attrBool(a, QStringLiteral("relatx"))) x = parent.width()  + x;
+        if (attrBool(a, QStringLiteral("relaty"))) y = parent.height() + y;
+        if (attrBool(a, QStringLiteral("relatw"))) rw = parent.width()  + rw;
+        if (attrBool(a, QStringLiteral("relath"))) rh = parent.height() + rh;
+        return QRect(x, y, rw, rh);
+    };
+
+    const QRect r = resolveRect(w.attrs, canvas);
+    QPoint childOrigin = origin;
+    QSize childCanvas = canvas;
+    if (w.tag != QStringLiteral("layout"))
+        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
+    if (r.width()  > 0) childCanvas.setWidth (r.width());
+    if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
+        alphaHitListRec(*it, p, childOrigin, childCanvas, actionOnly,
+                         alphaBuf, imageSize, imageSizeUserdata, out);
+
+    const bool isContainer =
+        w.tag == QStringLiteral("group") ||
+        w.tag == QStringLiteral("container") ||
+        w.tag == QStringLiteral("layout") ||
+        w.tag == QStringLiteral("groupdef") ||
+        w.tag.startsWith(QStringLiteral("wasabi_"));
+    if (isContainer) return;
+    if (actionOnly && !w.attrs.contains(QStringLiteral("action"))) return;
+    if (w.id.isEmpty() && w.tag != QStringLiteral("button") &&
+        w.tag != QStringLiteral("togglebutton") &&
+        w.tag != QStringLiteral("nstatesbutton") &&
+        w.tag != QStringLiteral("slider"))
+        return;
+
+    int width  = r.width();
+    int height = r.height();
+    if ((width <= 0 || height <= 0) && imageSize) {
+        const QString img = w.attrs.value(QStringLiteral("image"));
+        if (!img.isEmpty()) {
+            const QSize is = imageSize(img, imageSizeUserdata);
+            if (width  <= 0) width  = is.width();
+            if (height <= 0) height = is.height();
+        }
+    }
+    if (width <= 0 || height <= 0) return;
+    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
+    if (!bbox.contains(p)) return;
+
+    // Composite alpha gate: if the layout's painted alpha at p is
+    // transparent, NOTHING is opaque there — neither this widget nor
+    // any widget we'd add later.  Skip.  When alpha is opaque, we
+    // can't tell which widget painted that pixel without per-widget
+    // alpha, so add every bbox-containing widget — the caller picks
+    // the first one with a Maki handler / built-in action.
+    if (!alphaBuf.isNull() &&
+        p.x() >= 0 && p.x() < alphaBuf.width() &&
+        p.y() >= 0 && p.y() < alphaBuf.height()) {
+        const QRgb px = alphaBuf.pixel(p.x(), p.y());
+        if (qAlpha(px) <= 16) return;
+    }
+
+    out.append(&w);
+}
+}  // namespace
+
+QList<const Layout::ResolvedWidget *>
+SkinView::alphaHitTestList(QPoint pointInLayout, bool actionOnly,
+                            Layout::ImageSizeResolver imageSize,
+                            void *imageSizeUserdata) const {
+    QList<const Layout::ResolvedWidget *> out;
+    alphaHitListRec(m_tree, pointInLayout, QPoint(0, 0), m_nativeSize,
+                     actionOnly, m_paintedAlpha,
+                     imageSize, imageSizeUserdata, out);
+    return out;
 }
 
 }  // namespace WasabiQt

@@ -19,6 +19,7 @@
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/GammasetRegistry.h>
 
+#include <QList>
 #include <QRegion>
 #include <QString>
 #include <QWidget>
@@ -77,6 +78,42 @@ public:
     // override paintEvent and want to apply the same clip).
     const QRegion &windowRegion() const { return m_windowRegion; }
 
+    // Alpha-aware hit-test: returns the topmost widget at the point
+    // whose painted alpha is non-zero.  Walks the resolved tree in
+    // paint-order-reverse (topmost first) and checks each widget's
+    // painted pixels via the alpha cache populated during paintEvent.
+    // Falls back to Layout::hitTest when the alpha cache hasn't been
+    // populated yet (first frame).  Replaces qtamp's deep-walk click
+    // dispatch fallback: clicks now reach the visually-frontmost
+    // widget that actually paints an opaque pixel at the click point,
+    // even when chrome layers above are transparent there.
+    //
+    // The image-size resolver lets sized-by-image widgets (e.g. togglebuttons
+    // with just `image=`) resolve their bbox from the bitmap dimensions.
+    // Pass nullptr when only explicit w/h widgets matter.
+    const Layout::ResolvedWidget *
+    alphaHitTest(QPoint pointInLayout, bool actionOnly = false,
+                 Layout::ImageSizeResolver imageSize = nullptr,
+                 void *imageSizeUserdata = nullptr) const;
+
+    // Return every widget at `pointInLayout` whose painted alpha is
+    // non-zero, ordered topmost-first.  Used to model Wasabi's
+    // event-bubbling: when the topmost-opaque widget has no Maki
+    // handler bound (e.g. a chrome corner), the click can be
+    // re-tried on the next z-down widget.  This generalises the
+    // old per-skin deep-walk fallback.
+    QList<const Layout::ResolvedWidget *>
+    alphaHitTestList(QPoint pointInLayout, bool actionOnly = false,
+                     Layout::ImageSizeResolver imageSize = nullptr,
+                     void *imageSizeUserdata = nullptr) const;
+
+    // Subclasses that override paintEvent (e.g. qtamp's player window
+    // that paints with extra state like the ColorThemes list cache)
+    // must call this from their paintEvent so alphaHitTest sees the
+    // same frame the user is looking at.  Ownership: the QImage is
+    // copied/moved into our cache.
+    void setPaintedAlpha(QImage img) { m_paintedAlpha = std::move(img); }
+
     // Embedder hook: resolve a <text display="…"/> key to a live
     // string at paint time.  Returning an empty string falls back
     // to the widget's `default=` attribute.
@@ -107,6 +144,11 @@ private:
     DisplayResolver        m_resolver;
     Host                  *m_host = nullptr;
     QRegion                m_windowRegion;
+    // Painted-alpha cache for alpha-aware hit-test.  Captured during
+    // paintEvent (the same QImage we render to gets stored alpha-only)
+    // and sampled by alphaHitTest().  One image per skin paint —
+    // hit-tests check pixels directly without re-rendering.
+    mutable QImage         m_paintedAlpha;
 };
 
 }  // namespace WasabiQt
