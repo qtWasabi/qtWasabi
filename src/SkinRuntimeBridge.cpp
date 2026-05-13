@@ -32,6 +32,11 @@ struct WidgetEntry {
     Layout::ResolvedWidget *widget;
     void                   *scriptObject;   // WidgetScriptObject handle
 };
+// Widget lookup is case-insensitive — Wasabi's findObject matches ids
+// without regard to case, and Maki scripts mix case freely (XML has
+// `id="Songticker"` while scripts call `findObject("songticker")`).
+// Store under the lowercased id so a case-insensitive QHash lookup
+// requires no extra QString allocation per probe.
 QHash<QString, WidgetEntry> g_byId;
 
 // Synthetic "main layout" handle for getParentLayout().  Set by
@@ -64,9 +69,9 @@ QString fromWide(const wchar_t *s) {
 void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
                               void *scriptObjectHandle) {
     if (!w) return;
-    if (!id.isEmpty()) g_byId.insert(id, {w, scriptObjectHandle});
+    if (!id.isEmpty()) g_byId.insert(id.toLower(), {w, scriptObjectHandle});
     if (!w->instanceId.isEmpty() && w->instanceId != id)
-        g_byId.insert(w->instanceId, {w, scriptObjectHandle});
+        g_byId.insert(w->instanceId.toLower(), {w, scriptObjectHandle});
 }
 
 void clearWidgetRegistry() {
@@ -103,7 +108,7 @@ extern "C" {
 
 void *wq_widget_findById(const wchar_t *id) {
     if (!id) return nullptr;
-    auto it = WasabiQt::g_byId.constFind(WasabiQt::fromWide(id));
+    auto it = WasabiQt::g_byId.constFind(WasabiQt::fromWide(id).toLower());
     return it == WasabiQt::g_byId.constEnd() ? nullptr : it->scriptObject;
 }
 
