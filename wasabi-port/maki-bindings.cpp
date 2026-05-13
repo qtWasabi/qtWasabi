@@ -114,6 +114,7 @@ namespace WasabiQt::Maki {
     const wchar_t *currentScriptParam();
     void setCurrentScriptId(int);
     int  currentScriptId();
+    int  fireZeroArgEventOnObject(void *recv, const wchar_t *eventName);
 }
 
 extern "C" scriptVar wq_getParam(maki_cmd *, int /*vsd*/, ScriptObject *) {
@@ -259,34 +260,82 @@ extern "C" scriptVar wq_getStatus(maki_cmd *, int, ScriptObject *) {
     return makeInt(wq_playback_status());
 }
 
-// Layout.setTarget{X,Y,W,H} — stash pending values, applied by
-// gotoTarget.  All numeric, idata-shaped (Maki convention).
-extern "C" scriptVar wq_setTargetW(maki_cmd *, int, ScriptObject *,
+// Per-receiver setTarget{X,Y,W,H} + gotoTarget.  Maki scripts call
+// these on either the layout root (Layout) — to resize the host
+// window — or on individual widgets (Group/Layer) to animate their
+// position/size.  We can't tell the receiver class from a void*
+// ScriptObject, so we stash per-receiver state in a small map and
+// dispatch on gotoTarget: if the receiver is the layout root, fire
+// the host resize; otherwise mutate the widget's own x/y/w/h attrs.
+struct TargetState { int x = -1, y = -1, w = -1, h = -1; };
+static std::unordered_map<void *, TargetState> &targetMap() {
+    static std::unordered_map<void *, TargetState> m;
+    return m;
+}
+
+extern "C" scriptVar wq_setTargetW(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    wq_layout_set_target_w(v.data.idata);
+    targetMap()[(void *)o].w = v.data.idata;
     return makeVoid();
 }
-extern "C" scriptVar wq_setTargetH(maki_cmd *, int, ScriptObject *,
+extern "C" scriptVar wq_setTargetH(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    wq_layout_set_target_h(v.data.idata);
+    targetMap()[(void *)o].h = v.data.idata;
     return makeVoid();
 }
-extern "C" scriptVar wq_setTargetX(maki_cmd *, int, ScriptObject *,
+extern "C" scriptVar wq_setTargetX(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    wq_layout_set_target_x(v.data.idata);
+    targetMap()[(void *)o].x = v.data.idata;
     return makeVoid();
 }
-extern "C" scriptVar wq_setTargetY(maki_cmd *, int, ScriptObject *,
+extern "C" scriptVar wq_setTargetY(maki_cmd *, int, ScriptObject *o,
                                      scriptVar v) {
-    wq_layout_set_target_y(v.data.idata);
+    targetMap()[(void *)o].y = v.data.idata;
     return makeVoid();
 }
 extern "C" scriptVar wq_setTargetSpeed(maki_cmd *, int, ScriptObject *,
                                          scriptVar) {
     return makeVoid();  // We don't animate; speed is ignored.
 }
-extern "C" scriptVar wq_gotoTarget(maki_cmd *, int, ScriptObject *) {
-    wq_layout_goto_target();
+extern "C" scriptVar wq_gotoTarget(maki_cmd *, int, ScriptObject *o) {
+    auto &m = targetMap();
+    auto it = m.find((void *)o);
+    if (it == m.end()) return makeVoid();
+    const TargetState t = it->second;
+    m.erase(it);
+    // Layout root → host resize callback.
+    if (o == static_cast<ScriptObject *>(wq_layout_root())) {
+        if (t.w >= 0) wq_layout_set_target_w(t.w);
+        if (t.h >= 0) wq_layout_set_target_h(t.h);
+        if (t.x >= 0) wq_layout_set_target_x(t.x);
+        if (t.y >= 0) wq_layout_set_target_y(t.y);
+        wq_layout_goto_target();
+        return makeVoid();
+    }
+    // Widget — mutate its own x/y/w/h attrs.  No animation; the
+    // value snaps into place.
+    wchar_t buf[32];
+    if (t.x != -1) {
+        std::swprintf(buf, 32, L"%d", t.x);
+        wq_widget_setAttr(o, L"x", buf);
+    }
+    if (t.y != -1) {
+        std::swprintf(buf, 32, L"%d", t.y);
+        wq_widget_setAttr(o, L"y", buf);
+    }
+    if (t.w >= 0) {
+        std::swprintf(buf, 32, L"%d", t.w);
+        wq_widget_setAttr(o, L"w", buf);
+    }
+    if (t.h >= 0) {
+        std::swprintf(buf, 32, L"%d", t.h);
+        wq_widget_setAttr(o, L"h", buf);
+    }
+    // Synthesise the per-widget animation-complete event the script
+    // may listen on (e.g. configtabs.m has drawer.onTargetReached()).
+    // Real Wasabi fires this when the animation thread reaches the
+    // target; we apply immediately so fire right after.
+    WasabiQt::Maki::fireZeroArgEventOnObject((void *)o, L"onTargetReached");
     return makeVoid();
 }
 
