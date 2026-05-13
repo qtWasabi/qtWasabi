@@ -44,9 +44,20 @@ void SkinView::setActiveGammaset(const QString &name) {
 }
 
 void SkinView::rebuildWindowRegion() {
-    clearMask();
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
+    // On Wayland (Qt 6.x), QWidget::setMask is forwarded to
+    // wl_surface.set_input_region, so transparent areas of the chrome
+    // become click-through to the desktop / windows behind us.  On
+    // X11/Windows it's the conventional window-shape mask.  We keep
+    // the paint-side clip in paintEvent for compositors that ignore
+    // the input region — that ensures the visual is correct either
+    // way, and setMask just adds the input-region behaviour where the
+    // compositor honours it.  Empty region = rectangular widget.
+    if (m_windowRegion.isEmpty())
+        clearMask();
+    else
+        setMask(m_windowRegion);
     update();
 }
 
@@ -96,17 +107,8 @@ bool SkinView::load(const SkinXml::Document &doc,
     // chrome shape (rounded corners, drawer cutouts, etc.) instead
     // of leaking opaque bitmap pixels into the desktop.  An empty
     // region means the skin defines no sysregion mask, so we leave
-    // the widget rectangular (clearMask) and rely on the
-    // chrome bitmaps' own alpha for transparency.
-    // Cache the window region.  Applied at paint time via
-    // QPainter::setClipRegion — QWidget::setMask is X11/Windows
-    // only, so we clip in paintEvent instead.  Pixels outside the
-    // region stay transparent because the surface starts cleared.
-    clearMask();
-    m_windowRegion = Layout::computeWindowRegion(
-        m_tree, m_registry, m_nativeSize);
-
-    update();
+    // the widget rectangular and rely on chrome bitmap alpha.
+    rebuildWindowRegion();
     return true;
 }
 
