@@ -65,7 +65,9 @@ void VisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     case 0:  // Off
         break;
     case 1: {  // Spectrum analyzer — 19 log-scaled bands from FFT
-        const float *spec = ctx.host ? ctx.host->spectrumData() : nullptr;
+        const float *spec  = ctx.host ? ctx.host->spectrumData() : nullptr;
+        const float *peaks = ctx.host ? ctx.host->peakData()     : nullptr;
+        const bool showPeaks = ctx.host && ctx.host->peaksVisible();
         if (!spec) break;
         const int bands = 19;
         const int maxH  = qMax(1, r.height() - 1);
@@ -77,10 +79,20 @@ void VisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
         for (int i = 0; i < bands; ++i) {
             const int xL = r.x() + (i     * r.width()) / bands;
             const int xR = r.x() + ((i+1) * r.width()) / bands;
+            const int barW = qMax(1, xR - xL - 1);
             const int h  = qMax(0, int(spec[i] * maxH));
-            if (h <= 0) continue;
-            p->fillRect(xL, r.y() + (r.height() - h),
-                        qMax(1, xR - xL - 1), h, band);
+            if (h > 0) {
+                p->fillRect(xL, r.y() + (r.height() - h),
+                            barW, h, band);
+            }
+            // Peak dot — 1-pixel-tall cap at the floating peak.
+            if (showPeaks && peaks) {
+                const int peakH = int(peaks[i] * maxH);
+                if (peakH > 0)
+                    p->fillRect(xL,
+                                r.y() + (r.height() - peakH - 1),
+                                barW, 1, band);
+            }
         }
         break;
     }

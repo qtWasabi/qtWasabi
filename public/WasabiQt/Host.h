@@ -109,9 +109,11 @@ public:
     //      oscilloscope: 75 floats, raw waveform samples [-1..1]
     //    VU left/right: [0..1] RMS per channel.
     virtual const float *spectrumData() const { return nullptr; }
+    virtual const float *peakData()     const { return nullptr; }
     virtual const float *oscData()      const { return nullptr; }
     virtual float vuLeft()  const { return 0.0f; }
     virtual float vuRight() const { return 0.0f; }
+    virtual bool peaksVisible() const { return true; }
 
     // ── Album art for <albumart> widgets.  Returns an embedded cover
     //    for the current track, or an empty QImage to fall back to
