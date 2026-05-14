@@ -29,6 +29,8 @@
 #include <cstdlib>
 #include <cwchar>
 #include <functional>
+#include <string>
+#include <unordered_set>
 
 namespace WasabiQt {
 
@@ -245,6 +247,36 @@ void wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value) 
     void *opaque = WasabiQt::Maki::opaqueOf(handle);
     auto *w = static_cast<WasabiQt::Widget *>(opaque);
     if (!w) return;
+
+    // Refuse to hide widgets whose visibility is gated on a Maki
+    // event chain that we don't drive yet.  Wasabi's videoavs.m
+    // hides buttons.vis / buttons.video on initDrawer (via the
+    // drawer.m onScriptLoaded path) and only re-shows them when the
+    // user picks a mode via onShowVis / onShowVideo.  That re-show
+    // is triggered through a Timer-backed callback chain
+    // (drawer_dc_showVis → __callbackTimer.onTimer → drawer_showVis
+    // → onShowVis) which doesn't survive our partial Timer port —
+    // so the user-visible result is "vis drawer opens, but no Prev
+    // / Next / Random / Detach / Switch buttons render".  Keep
+    // these visible until the Timer-driven mode-switch is wired.
+    static const std::unordered_set<std::wstring> kRefuseHide = {
+        L"buttons.vis",
+        L"buttons.vis.switchto",
+        L"buttons.video",
+        L"buttons.video.switchto",
+    };
+    if (std::wcscmp(name, L"visible") == 0 &&
+        value && std::wcscmp(value, L"0") == 0 &&
+        !w->id.isEmpty() &&
+        kRefuseHide.count(w->id.toStdWString())) {
+        if (std::getenv("WASABIQT_TRACE_HIDE"))
+            std::fprintf(stderr,
+                "[wq_widget_setAttr] refusing hide on %s "
+                "(Timer-gated re-show not wired)\n",
+                w->id.toLocal8Bit().constData());
+        return;
+    }
+
     w->setXmlParam(WasabiQt::fromWide(name), WasabiQt::fromWide(value));
     if (WasabiQt::g_repaint) WasabiQt::g_repaint();
 }
