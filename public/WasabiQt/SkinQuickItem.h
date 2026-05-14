@@ -143,6 +143,18 @@ public:
     // walk.  Public so MouseArea handlers can call it.
     Q_INVOKABLE QString dispatchClickAt(QPointF localPoint);
 
+    // Re-point the borrowed document pointer.  Used by subclasses
+    // that take ownership of the parsed Document (QtampPlayerWindow
+    // moves it into a member) so the base-class m_doc — captured by
+    // `load(doc, ...)` from the caller's local — gets updated to
+    // point at the now-owned-by-subclass copy.  Without this fix
+    // reloadSkin leaves m_doc dangling: load() captures the address
+    // of reloadSkin's local doc, setSkinDocument() moves it into a
+    // member, reloadSkin returns and the local is destroyed — and
+    // the next paint dereferences the dangling m_doc in
+    // resolveGroupXFadePages.
+    void setDocument(const SkinXml::Document *doc) { m_doc = doc; }
+
 protected:
     // Scene Graph entry point — called on the GUI thread once per
     // frame whenever update() has been queued.  We build a fresh node
