@@ -519,6 +519,21 @@ private:
         if (m_hidden.contains(w.id)) {
             w.attrs.insert(QStringLiteral("visible"), QStringLiteral("0"));
         }
+        // Force certain widgets visible by default — these have
+        // visible="0" in their XML instances but real Wasabi's
+        // videoavs.m onShowVis() shows them after a Timer-backed
+        // callback chain that our Maki port doesn't fully drive.
+        // Forcing visible="1" here lets the user see the vis/video
+        // detach button when the AVS drawer is opened.  Same fix
+        // pattern as `kScriptHiddenByDefault` (a few lines above)
+        // but in the opposite direction.
+        static const QSet<QString> kForceVisibleByDefault = {
+            QStringLiteral("buttons.vis.detach"),
+            QStringLiteral("buttons.video.detach"),
+        };
+        if (kForceVisibleByDefault.contains(w.id)) {
+            w.attrs.insert(QStringLiteral("visible"), QStringLiteral("1"));
+        }
         // First instance-scoped sendparams (group="instanceid" target=…),
         // then layout-scoped (group="" target=…) — instance-scoped are
         // more specific and shouldn't be overridden by less-specific.

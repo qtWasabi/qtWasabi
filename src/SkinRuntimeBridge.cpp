@@ -262,8 +262,10 @@ void wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value) 
     static const std::unordered_set<std::wstring> kRefuseHide = {
         L"buttons.vis",
         L"buttons.vis.switchto",
+        L"buttons.vis.detach",
         L"buttons.video",
         L"buttons.video.switchto",
+        L"buttons.video.detach",
     };
     if (std::wcscmp(name, L"visible") == 0 &&
         value && std::wcscmp(value, L"0") == 0 &&
