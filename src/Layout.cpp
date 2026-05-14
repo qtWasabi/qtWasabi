@@ -310,27 +310,6 @@ private:
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
 
-            // Real Winamp Modern / WinampModernPP positions the
-            // wasabi.menubar group at y=0 (overlapping the titlebar
-            // band) so the menubar's rounded-rectangle bitmaps render
-            // around the titlebar's swoosh+WACUP center — the menubar
-            // bitmap has transparent areas in the middle that let
-            // the swoosh show through.  The XML literally says
-            // y="18" but that's interpreted by real Wasabi as a
-            // content offset, not the menubar's own paint position.
-            // Override here so the menubar overlays the titlebar
-            // correctly instead of sitting below it covering the
-            // first row of the player content.
-            for (auto &c : node.children) {
-                if (!c) continue;
-                if (c->id == QStringLiteral("wasabi.menubar") ||
-                    c->id == QStringLiteral("wasabi.menubar.pl") ||
-                    c->id == QStringLiteral("wasabi.menubar.ml")) {
-                    c->setXmlParam(QStringLiteral("y"),
-                                    QStringLiteral("0"));
-                }
-            }
-
             // `content="X"` on a frame instantiation says: inject the
             // groupdef X's children into this frame's content slot.
             // Wasabi's standardframe.maki normally does this at runtime;
@@ -388,6 +367,47 @@ private:
                         m_inflightInstances.remove(content);
                     }
                 }
+            }
+
+            // Position the menubar ABOVE the titlebar.  WinampModernPP /
+            // Winamp Modern's XML says `<group id="wasabi.menubar" y="18">`
+            // (menubar below titlebar) but real Wasabi renders menubar
+            // at the TOP of the frame: File/Play/Options/View/Help in
+            // one band, then the WACUP titlebar swoosh below, then
+            // the player chrome.  Move the menubar to y=0 and shift
+            // every other child (titlebar frame chrome + player
+            // content) DOWN by the menubar height so they don't
+            // collide.  The layout root's h then needs to grow by
+            // the same amount — done in SkinQuickItem::load via the
+            // `_menubar_shift` marker we set on `node`.
+            bool hasMenubar = false;
+            for (auto &c : node.children) {
+                if (!c) continue;
+                if (c->id == QStringLiteral("wasabi.menubar") ||
+                    c->id == QStringLiteral("wasabi.menubar.pl") ||
+                    c->id == QStringLiteral("wasabi.menubar.ml")) {
+                    c->setXmlParam(QStringLiteral("y"),
+                                    QStringLiteral("0"));
+                    hasMenubar = true;
+                }
+            }
+            if (hasMenubar) {
+                constexpr int kMenubarShift = 17;
+                for (auto &c : node.children) {
+                    if (!c) continue;
+                    if (c->id == QStringLiteral("wasabi.menubar") ||
+                        c->id == QStringLiteral("wasabi.menubar.pl") ||
+                        c->id == QStringLiteral("wasabi.menubar.ml") ||
+                        c->tag == QStringLiteral("script") ||
+                        c->tag == QStringLiteral("sendparams"))
+                        continue;
+                    const int curY = c->attrs.value(
+                        QStringLiteral("y")).toInt();
+                    c->setXmlParam(QStringLiteral("y"),
+                                    QString::number(curY + kMenubarShift));
+                }
+                node.setXmlParam(QStringLiteral("_menubar_shift"),
+                                  QString::number(kMenubarShift));
             }
 
             m_inflightInstances.remove(gid);
