@@ -13,6 +13,7 @@
 // without including any Qt headers.
 
 #include <WasabiQt/Layout.h>
+#include <WasabiQt/Widget.h>
 
 #include "../wasabi-port/maki-bridge.h"
 
@@ -206,11 +207,16 @@ void wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value) 
     // The handle is a WidgetScriptObject*.  We get its opaque widget
     // ptr via the public bridge (avoids re-including the opensourced
     // ScriptObject header here).
+    //
+    // Routes through Widget::setXmlParam (virtual) so subclasses can
+    // capture changes to typed state members alongside the attrs
+    // hash — see ComponentBucketWidget::setXmlParam for the
+    // canonical example (`_scroll` / `_entry_step` shadowed onto
+    // typed ints for paint + hit-test).
     void *opaque = WasabiQt::Maki::opaqueOf(handle);
-    auto *w = static_cast<WasabiQt::Layout::ResolvedWidget *>(opaque);
+    auto *w = static_cast<WasabiQt::Widget *>(opaque);
     if (!w) return;
-    w->attrs.insert(WasabiQt::fromWide(name),
-                     WasabiQt::fromWide(value));
+    w->setXmlParam(WasabiQt::fromWide(name), WasabiQt::fromWide(value));
     if (WasabiQt::g_repaint) WasabiQt::g_repaint();
 }
 

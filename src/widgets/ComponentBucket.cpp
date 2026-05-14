@@ -6,13 +6,21 @@
 namespace WasabiQt {
 
 QPoint ComponentBucketWidget::containerScrollOffset() const {
-    const int scroll = attrs.value(QStringLiteral("_scroll")).toInt();
-    const int step   = attrs.value(QStringLiteral("_entry_step")).toInt();
-    if (scroll <= 0 || step <= 0) return QPoint(0, 0);
+    if (m_scroll <= 0 || m_entryStep <= 0) return QPoint(0, 0);
     const bool vertical = attrs.value(QStringLiteral("vertical")) ==
                           QStringLiteral("1");
-    return vertical ? QPoint(0, scroll * step)
-                    : QPoint(scroll * step, 0);
+    return vertical ? QPoint(0, m_scroll * m_entryStep)
+                    : QPoint(m_scroll * m_entryStep, 0);
+}
+
+void ComponentBucketWidget::setXmlParam(const QString &name,
+                                         const QString &value) {
+    if (name == QStringLiteral("_scroll")) {
+        m_scroll = value.toInt();
+    } else if (name == QStringLiteral("_entry_step")) {
+        m_entryStep = value.toInt();
+    }
+    Widget::setXmlParam(name, value);
 }
 
 QPoint ComponentBucketWidget::childOriginAdjustment() const {

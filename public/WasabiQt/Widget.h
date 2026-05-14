@@ -132,6 +132,15 @@ public:
     virtual void onMouseLeave     (PaintCtx &)         {}
     virtual void onTargetReached  ()                   {}
 
+    // Maki-script setXmlParam dispatch — Wasabi's runtime hook for
+    // mutating widget attributes from script.  The default writes
+    // the value to `attrs`; subclasses override to also keep typed
+    // state members in sync (`ComponentBucket::m_scroll`, future
+    // `Slider::m_dragOffset`, etc.).  Keeping the attrs hash as the
+    // fallback storage means getXmlParam stays uniform — no per-
+    // widget attribute name dispatch.
+    virtual void setXmlParam(const QString &name, const QString &value);
+
 protected:
     // Helper shared by every subclass that doesn't override
     // resolveRect — same implementation Layout::resolveRect /

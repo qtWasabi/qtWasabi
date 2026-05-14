@@ -95,6 +95,10 @@ QRect Widget::resolveRect(const QSize &canvas) const {
     return resolveRectFromAttrs(attrs, canvas);
 }
 
+void Widget::setXmlParam(const QString &name, const QString &value) {
+    attrs.insert(name, value);
+}
+
 void Widget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     // Default: container-style recursion.  Concrete widgets override
     // to paint their own visuals.  Visibility filter applies here so

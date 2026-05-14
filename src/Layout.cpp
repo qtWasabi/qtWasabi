@@ -501,11 +501,14 @@ private:
                 // handler can clamp cb_prev/nextpage scrolling and
                 // TreePainter can compute the scroll offset for the
                 // child translate.
+                // Route through setXmlParam virtual so
+                // ComponentBucketWidget can keep its typed `_scroll`
+                // / `_entry_step` shadow in sync with the attrs hash.
                 if (step > 0)
-                    node.attrs.insert(QStringLiteral("_entry_step"),
-                                       QString::number(step));
-                node.attrs.insert(QStringLiteral("_entry_count"),
-                                   QString::number(ids.size()));
+                    node.setXmlParam(QStringLiteral("_entry_step"),
+                                      QString::number(step));
+                node.setXmlParam(QStringLiteral("_entry_count"),
+                                  QString::number(ids.size()));
             }
         }
         parent.children.push_back(std::move(nodePtr));

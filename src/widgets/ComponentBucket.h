@@ -22,8 +22,19 @@ public:
     // that screen position pre-scroll).
     QPoint childOriginAdjustment() const override;
 
+    // Capture `_scroll` / `_entry_step` mutations into typed members.
+    // setXmlParam still writes the value to `attrs` (via base impl)
+    // so getXmlParam keeps returning what was written; the typed
+    // shadow exists so paint / hit-test can read an int instead of
+    // re-parsing the QString on every frame.
+    void setXmlParam(const QString &name, const QString &value) override;
+
 protected:
     QPoint containerScrollOffset() const override;
+
+private:
+    int m_scroll = 0;
+    int m_entryStep = 0;
 };
 
 }  // namespace WasabiQt
