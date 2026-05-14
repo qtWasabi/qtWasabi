@@ -40,9 +40,12 @@
 #include <QSize>
 #include <QString>
 
+#include <WasabiQt/BitmapRegistry.h>
+
+class QPainter;
+
 namespace WasabiQt {
 namespace SkinXml { struct Document; }
-class BitmapRegistry;
 
 namespace Layout {
 
@@ -116,6 +119,56 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
 QRegion computeWindowRegion(const ResolvedWidget &root,
                             BitmapRegistry &registry,
                             QSize canvas);
+
+// Walk the resolved tree and pair every `sysregion="-N"` cutout layer
+// to its sibling chrome layer by the bitmap-id naming convention
+// `<chrome>.region` → `<chrome>` (e.g. `drawer.main.left.region` is
+// the cutout for `drawer.main.left`).  Returns a map keyed by the
+// chrome's bitmap id whose value is the list of cutouts to overlay on
+// it (image id + offset within the chrome bitmap).
+//
+// The offset is `cutout.layer.xy - chrome.layer.xy` in the parent
+// group's local coord space — works for both same-position siblings
+// (drawer's left+left.bottom.region at (0,0)) and corner-mask siblings
+// painted at a fixed offset inside the chrome (player.main.left's
+// 180×126 chrome with a 6×6 mask at (0,120)).
+//
+// SkinQuickItem hands the result to BitmapRegistry::setChromeCutouts so
+// `chromeImageFor()` returns chrome bitmaps with cutouts baked into
+// their alpha — drawing the masked chrome on top of another group's
+// chrome at the same canvas pixels then leaves the underlying chrome
+// visible at the cut area (no notch at the player/drawer overlap).
+QHash<QString, QList<ChromeCutout>>
+    collectChromeCutouts(const ResolvedWidget &root);
+
+// Replay the subtractive half of the sysregion walk directly on a
+// QPainter aimed at the just-painted chrome buffer.  For every layer
+// with `sysregion="-N"` (cutout polarity), paints its bitmap with
+// CompositionMode_DestinationOut at the layer's resolved rect so the
+// destination's alpha is zeroed where the cutout bitmap is opaque.
+//
+// Used by SkinQuickItem after paintInto: the QQuickWindow's setMask
+// only sets the Wayland input region, not the visible surface shape,
+// so the rounded corners and drawer-edge cuts have to live in the
+// texture's alpha channel itself.  This matches the per-pixel alpha
+// approach taken by lord3nd3r's winamp-linux f8448ec4 ("setMask is
+// redundant when alpha is correctly painted").
+void paintRegionCutouts(QPainter &p, const ResolvedWidget &root,
+                        BitmapRegistry &registry, QSize canvas);
+
+// Walk a resolved tree and synchronise each `<GroupXFade>`'s
+// children with its current `groupid` attribute.  GroupXFade is the
+// Wasabi page-swapper: scripts call `setXmlParam("groupid", "X")` to
+// switch to a different groupdef inside it, and the engine is
+// expected to re-instantiate that groupdef's children in the widget.
+// Without this pass the GroupXFade widget paints an empty box no
+// matter how many times Maki swaps its groupid.
+//
+// Idempotent — uses a marker attribute (`_resolved_groupid`) to skip
+// re-materialisation when the groupid hasn't changed since last call.
+// Should run before TreePainter::paintTree on each frame.
+void resolveGroupXFadePages(ResolvedWidget &root,
+                            const SkinXml::Document &doc);
 
 // Apply static equivalents of well-known Maki scripts to a resolved
 // tree.  Mirrors the geometry / visibility mutations a script's

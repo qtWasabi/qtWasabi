@@ -11,12 +11,26 @@
 #include <QtCore/qglobal.h>
 #include <QHash>
 #include <QImage>
+#include <QList>
+#include <QPoint>
 #include <QRect>
 #include <QString>
 
 namespace WasabiQt {
 namespace SkinXml { struct Document; }
 class GammasetRegistry;
+
+// Pairing of a `sysregion="-N"` cutout bitmap to its sibling chrome
+// bitmap, with the offset at which the cutout was painted relative to
+// the chrome.  When the renderer is about to paint the chrome bitmap,
+// the cutout is overlaid with CompositionMode_DestinationOut so the
+// chrome's alpha channel already carries the cut shape — drawing the
+// chrome on top of another group's chrome (drawer on top of player at
+// the overlap) leaves the underlying chrome visible at the cut pixels.
+struct ChromeCutout {
+    QString cutoutImage;
+    QPoint  offset;
+};
 
 struct BitmapDef {
     QString id;
@@ -54,10 +68,25 @@ public:
     // lookups re-tint.
     void    setGammasetRegistry(GammasetRegistry *gs);
 
+    // Install the chrome→cutout pairing extracted from the resolved
+    // tree.  Subsequent `chromeImageFor()` calls return a cached copy
+    // of the chrome bitmap with each cutout overlaid at its layer-
+    // relative offset via CompositionMode_DestinationOut.
+    void    setChromeCutouts(const QHash<QString, QList<ChromeCutout>> &cutouts);
+
+    // Same as imageFor, but applies chrome cutouts (if any are
+    // registered for this id) so the returned bitmap already carries
+    // its sysregion-shaped alpha.  TreePainter uses this for chrome
+    // layers; sysregion-cutout layers and Window-Region builders
+    // continue to use the raw imageFor.
+    QImage  chromeImageFor(const QString &id);
+
 private:
     QHash<QString, BitmapDef> m_defs;
     QHash<QString, QImage>    m_imgCache;     // by file path (whole image)
     QHash<QString, QImage>    m_subCache;     // by bitmap id (post-tint)
+    QHash<QString, QImage>    m_maskedCache;  // by chrome id (post-cutout)
+    QHash<QString, QList<ChromeCutout>> m_chromeCutouts;
     QString                   m_skinDir;
     GammasetRegistry         *m_gammasets = nullptr;
 };

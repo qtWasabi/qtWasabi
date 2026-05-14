@@ -16,10 +16,14 @@
 
 #include "../wasabi-port/maki-bridge.h"
 
+#include <QEasingCurve>
 #include <QFont>
 #include <QFontMetrics>
 #include <QHash>
+#include <QObject>
+#include <QPointer>
 #include <QString>
+#include <QVariantAnimation>
 #include <functional>
 
 namespace WasabiQt {
@@ -148,6 +152,43 @@ int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName) {
     return Maki::fireZeroArgEventOnObject(it->scriptObject, eventName);
 }
 
+bool fireWidgetAttrSet(const QString &widgetId,
+                       const QString &name,
+                       const QString &value) {
+    if (widgetId.isEmpty() || name.isEmpty()) return false;
+    auto it = g_byId.constFind(widgetId.toLower());
+    if (it == g_byId.constEnd()) return false;
+    void *opaque = WasabiQt::Maki::opaqueOf(it->scriptObject);
+    auto *w = static_cast<Layout::ResolvedWidget *>(opaque);
+    if (!w) return false;
+    w->attrs.insert(name, value);
+    if (g_repaint) g_repaint();
+    return true;
+}
+
+int fireWidgetActionEvent(const QString &targetId,
+                          const QString &action,
+                          const QString &param,
+                          int x, int y, int p1, int p2,
+                          const QString &sourceId) {
+    if (targetId.isEmpty() || action.isEmpty()) return 0;
+    auto it = g_byId.constFind(targetId.toLower());
+    if (it == g_byId.constEnd()) return 0;
+    void *src = nullptr;
+    if (!sourceId.isEmpty()) {
+        auto sit = g_byId.constFind(sourceId.toLower());
+        if (sit != g_byId.constEnd()) src = sit->scriptObject;
+    }
+    // Hold the QString backings alive for the duration of the call —
+    // toStdWString() returns by value; we need stable wchar_t* pointers
+    // because the fired script reads its args lazily via the VCPU stack.
+    std::wstring aBuf = action.toStdWString();
+    std::wstring pBuf = param.toStdWString();
+    return Maki::fireOnActionEvent(it->scriptObject,
+                                    aBuf.c_str(), pBuf.c_str(),
+                                    x, y, p1, p2, src);
+}
+
 }  // namespace WasabiQt
 
 // ── Bridge accessors used by wasabi-port/maki-bindings.cpp ──────
@@ -264,6 +305,125 @@ void wq_layout_set_target_h(int h) { WasabiQt::g_targetH = h; }
 void wq_layout_set_target_x(int x) { WasabiQt::g_targetX = x; }
 void wq_layout_set_target_y(int y) { WasabiQt::g_targetY = y; }
 
+namespace {
+// Owner QObject for QVariantAnimation instances driving per-widget
+// setTarget animations.  Static — survives the program's lifetime.
+QObject *widgetAnimOwner() {
+    static QObject *o = new QObject();
+    return o;
+}
+// Track the current animation per widget handle so a fresh
+// gotoTarget cancels the in-flight one (drawer close right after
+// drawer open mid-tween should re-target, not stack).
+QHash<void *, QPointer<QVariantAnimation>> &widgetAnimMap() {
+    static QHash<void *, QPointer<QVariantAnimation>> m;
+    return m;
+}
+// Reference count of currently-running widget animations.  Read by
+// embedders (SkinQuickItem) to suspend auto-fit so the QQuickWindow
+// doesn't get resized on every tween frame — Wayland surface
+// reconfigures per frame are expensive and visibly lag behind the
+// animation, leaving the chrome clipped short of the target extent.
+int g_widgetAnimsActive = 0;
+}  // namespace
+
+// Read-side accessor exposed in the public WasabiQt namespace (its
+// declaration lives in SkinRuntime.h, not in any bridge header).
+// Defined further down at file scope, outside the extern "C" block,
+// so the symbol gets the expected C++ mangling.
+
+// Animate a widget's x/y/w/h attrs from their current values to the
+// supplied targets over `durationMs`.  -1 in any axis means "leave
+// alone".  Fires `onTargetReached` on the widget's script object on
+// completion.  Called by maki-bindings.cpp's wq_gotoTarget for any
+// receiver that isn't the layout root — drawer.m / configtabs.m
+// drive the config-drawer open/close slide through this path.
+void wq_widget_animate_target(void *handle, int tx, int ty, int tw, int th,
+                              int durationMs) {
+    if (!handle) return;
+    void *opaque = WasabiQt::Maki::opaqueOf(handle);
+    auto *w = static_cast<WasabiQt::Layout::ResolvedWidget *>(opaque);
+    if (!w) return;
+
+    const int sx = w->attrs.value(QStringLiteral("x")).toInt();
+    const int sy = w->attrs.value(QStringLiteral("y")).toInt();
+    const int sw = w->attrs.value(QStringLiteral("w")).toInt();
+    const int sh = w->attrs.value(QStringLiteral("h")).toInt();
+    const bool noChange =
+        (tx == -1 || tx == sx) && (ty == -1 || ty == sy) &&
+        (tw == -1 || tw == sw) && (th == -1 || th == sh);
+    if (noChange || durationMs <= 0) {
+        // Snap — no change actually needed (or animation suppressed).
+        // Set whatever's specified, fire onTargetReached, done.
+        wchar_t buf[32];
+        if (tx != -1) {
+            std::swprintf(buf, 32, L"%d", tx);
+            wq_widget_setAttr(handle, L"x", buf);
+        }
+        if (ty != -1) {
+            std::swprintf(buf, 32, L"%d", ty);
+            wq_widget_setAttr(handle, L"y", buf);
+        }
+        if (tw >= 0) {
+            std::swprintf(buf, 32, L"%d", tw);
+            wq_widget_setAttr(handle, L"w", buf);
+        }
+        if (th >= 0) {
+            std::swprintf(buf, 32, L"%d", th);
+            wq_widget_setAttr(handle, L"h", buf);
+        }
+        WasabiQt::Maki::fireZeroArgEventOnObject(handle, L"onTargetReached");
+        return;
+    }
+
+    // Cancel any in-flight animation on this widget.
+    auto &m = widgetAnimMap();
+    auto it = m.find(handle);
+    if (it != m.end()) {
+        if (it.value()) it.value()->stop();
+        m.erase(it);
+        // Decrement: stop() doesn't emit finished, the running counter
+        // would otherwise drift up forever as drawer open/close cancel
+        // each other mid-tween.
+        if (g_widgetAnimsActive > 0) --g_widgetAnimsActive;
+    }
+
+    auto *anim = new QVariantAnimation(widgetAnimOwner());
+    anim->setStartValue(0.0);
+    anim->setEndValue(1.0);
+    anim->setDuration(durationMs);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    ++g_widgetAnimsActive;
+    QObject::connect(anim, &QVariantAnimation::valueChanged,
+        widgetAnimOwner(),
+        [handle, w, sx, sy, sw, sh, tx, ty, tw, th](const QVariant &v) {
+            const double t = v.toDouble();
+            auto setI = [&](const QString &k, int s, int e) {
+                int cur = s + int((e - s) * t);
+                w->attrs.insert(k, QString::number(cur));
+            };
+            if (tx != -1) setI(QStringLiteral("x"), sx, tx);
+            if (ty != -1) setI(QStringLiteral("y"), sy, ty);
+            if (tw >= 0) setI(QStringLiteral("w"), sw, tw);
+            if (th >= 0) setI(QStringLiteral("h"), sh, th);
+            if (WasabiQt::g_repaint) WasabiQt::g_repaint();
+        });
+    QObject::connect(anim, &QVariantAnimation::finished,
+        widgetAnimOwner(), [handle]() {
+            widgetAnimMap().remove(handle);
+            if (g_widgetAnimsActive > 0) --g_widgetAnimsActive;
+            if (::getenv("WASABIQT_TRACE_MAKI"))
+                fprintf(stderr,
+                    "[maki] widget anim finished, fire onTargetReached "
+                    "handle=%p\n", handle);
+            // Fire the target-reached event the configtabs/drawer
+            // scripts listen on (sets DrawerOpen flag etc.).
+            WasabiQt::Maki::fireZeroArgEventOnObject(handle, L"onTargetReached");
+        });
+    m[handle] = anim;
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
 // gotoTarget — apply the stashed setTarget* values.  We don't animate
 // (real Wasabi uses setTargetSpeed); the embedder gets the final size
 // immediately.  Both w and h fall back to the current layout root w/h
@@ -323,3 +483,7 @@ void wq_fire_target_reached() {
 }
 
 }  // extern "C"
+
+namespace WasabiQt {
+int widgetAnimationsActive() { return ::g_widgetAnimsActive; }
+}  // namespace WasabiQt

@@ -676,21 +676,82 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     // would render in their *parent's* coord space, dropping the
     // frame's x/y offset (a 10 px shift on the titlebar's contents,
     // for example).
-    if (t == QStringLiteral("group")     ||
-        t == QStringLiteral("container") ||
-        t == QStringLiteral("layout")    ||
-        t == QStringLiteral("groupdef")  ||
+    if (t == QStringLiteral("group")          ||
+        t == QStringLiteral("container")      ||
+        t == QStringLiteral("layout")         ||
+        t == QStringLiteral("groupdef")       ||
+        t == QStringLiteral("componentbucket")||
+        t == QStringLiteral("groupxfade")     ||
         t.startsWith(QStringLiteral("wasabi_"))) {
         const QRect r = resolveRect(node.attrs, canvas);
+        // A container is *collapsed* when it declares a size attr
+        // (w/h, possibly with relatw/relath) that resolves to <= 0.
+        // Example: AVSGroup at the end of the video/vis drawer's
+        // close tween — relath=1 h=-280 with m_nativeSize.h=280 ⇒ h=0.
+        // Painting its children with the parent's canvas would inflate
+        // fitparent fills (video.group's black-rect background) back
+        // to the full layout area — the "drawer suddenly reappears
+        // behind the player" glitch right before the drawer closes.
+        //
+        // Containers that DON'T declare a size attr (most groupdefs
+        // — they inherit from the canvas) continue to paint children
+        // with the parent's canvas as before.  <layout> is the root
+        // and never declares its own size, so it's exempt.
+        const bool hasH = t != QStringLiteral("layout") &&
+            (node.attrs.contains(QStringLiteral("h")) ||
+             node.attrs.contains(QStringLiteral("relath")));
+        const bool hasW = t != QStringLiteral("layout") &&
+            (node.attrs.contains(QStringLiteral("w")) ||
+             node.attrs.contains(QStringLiteral("relatw")));
+        if ((hasH && r.height() <= 0) ||
+            (hasW && r.width()  <= 0))
+            return;
         QSize childSize = canvas;
         if (r.width()  > 0) childSize.setWidth (r.width());
         if (r.height() > 0) childSize.setHeight(r.height());
+        // Clip children to the container's rect when it declares an
+        // explicit size — prevents child bitmaps drawn at natural
+        // height (e.g. AVSGroup's top-edge chrome at AVSGroup.h=1
+        // would otherwise paint a full 18 px tall bitmap straight up
+        // into the titlebar area mid-tween).  Containers without an
+        // explicit size aren't clipped (they cover their canvas).
+        const bool clipToContainer = (hasH && r.height() > 0) ||
+                                     (hasW && r.width()  > 0);
         const bool translate = (r.x() != 0 || r.y() != 0)
                                && t != QStringLiteral("layout");
-        if (translate) p->save(), p->translate(r.x(), r.y());
+        // componentbucket scrolls its entries via a `_scroll` attr
+        // (mutated by cb_prevpage / cb_nextpage button clicks).  Each
+        // entry was materialised at y = i * entry_step at expansion
+        // time; shifting the whole bucket's translate by -scroll*step
+        // moves the visible window of entries.  Clipping (above) hides
+        // entries that scroll off either edge.
+        int scrollY = 0, scrollX = 0;
+        if (t == QStringLiteral("componentbucket")) {
+            const int scroll =
+                node.attrs.value(QStringLiteral("_scroll")).toInt();
+            const int step =
+                node.attrs.value(QStringLiteral("_entry_step")).toInt();
+            const bool vertical =
+                node.attrs.value(QStringLiteral("vertical")) ==
+                QStringLiteral("1");
+            if (scroll > 0 && step > 0) {
+                if (vertical) scrollY = scroll * step;
+                else          scrollX = scroll * step;
+            }
+        }
+        if (translate || clipToContainer) p->save();
+        if (translate) p->translate(r.x(), r.y());
+        if (clipToContainer) {
+            // After translate, the local-coord clip rect starts at (0,0).
+            p->setClipRect(QRect(0, 0,
+                hasW ? r.width()  : canvas.width(),
+                hasH ? r.height() : canvas.height()),
+                Qt::IntersectClip);
+        }
+        if (scrollX || scrollY) p->translate(-scrollX, -scrollY);
         for (const auto &child : node.children)
             paintRecursive(p, child, ctx, childSize);
-        if (translate) p->restore();
+        if (translate || clipToContainer) p->restore();
         return;
     }
 
@@ -805,7 +866,68 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
                       node.id.toLocal8Bit().constData());
         }
     }
-    // <vis>, <edit>, <guilist>, <treelist>, <scrollbar>, <popup>, ...
+    // <rect filled="1" color="R,G,B" /> — solid colored rectangle.
+    // Wasabi uses it for the video.group black-fill background and
+    // tooltip-border rects.  `filled="0"` draws an outline only.
+    if (t == QStringLiteral("rect")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() <= 0 || r.height() <= 0) return;
+        QColor c(0, 0, 0);
+        const QString col = node.attrs.value(QStringLiteral("color"));
+        if (col.contains(QChar(','))) {
+            const auto parts = col.split(QChar(','));
+            if (parts.size() == 3)
+                c = QColor(parts[0].toInt(), parts[1].toInt(),
+                           parts[2].toInt());
+        } else if (ctx.colors) {
+            c = ctx.colors->resolve(col, ctx.gammasets, c);
+        }
+        if (node.attrs.value(QStringLiteral("filled")) ==
+            QStringLiteral("0"))
+            p->setPen(c), p->drawRect(r);
+        else
+            p->fillRect(r, c);
+        return;
+    }
+    // <windowholder> / <wmh> — host slot for an embedded sub-window
+    // (video output, AVS frame, …).  We don't have the embedded
+    // surface in our renderer, so paint a black placeholder rect
+    // that visually matches what real Winamp shows when the embedded
+    // component is loading / unavailable.
+    if (t == QStringLiteral("windowholder") ||
+        t == QStringLiteral("wmh")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() > 0 && r.height() > 0)
+            p->fillRect(r, QColor(0, 0, 0));
+        return;
+    }
+    // <edit> / <wasabi.edit.box> — minimal placeholder: paint the
+    // declared default / current text inside a 1-px outlined rect at
+    // the widget's bounds.  Real text editing requires a focus +
+    // input-method handoff — that's a milestone of its own.
+    if (t == QStringLiteral("edit") ||
+        t == QStringLiteral("wasabi.edit.box")) {
+        const QRect r = resolveRect(node.attrs, canvas);
+        if (r.width() > 0 && r.height() > 0) {
+            p->fillRect(r, QColor(20, 30, 60));
+            p->setPen(QColor(120, 130, 160));
+            p->drawRect(r.adjusted(0, 0, -1, -1));
+            QString s = node.attrs.value(QStringLiteral("text"));
+            if (s.isEmpty()) s = node.attrs.value(QStringLiteral("default"));
+            if (!s.isEmpty()) {
+                QFont qf(QStringLiteral("sans-serif"));
+                qf.setPixelSize(qMax(8, r.height() - 4));
+                p->save();
+                p->setFont(qf);
+                p->setPen(QColor(220, 225, 235));
+                p->drawText(r.adjusted(4, 0, -4, 0),
+                            Qt::AlignVCenter | Qt::AlignLeft, s);
+                p->restore();
+            }
+        }
+        return;
+    }
+    // <vis>, <guilist>, <treelist>, <scrollbar>, <popup>, ...
     // — painted in later milestones.  Recurse so any children that we
     // DO know how to render still get reached.
     for (const auto &child : node.children)

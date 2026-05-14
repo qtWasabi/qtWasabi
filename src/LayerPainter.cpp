@@ -30,7 +30,20 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
                 const QSize &containerSize) {
     const QString image = attrs.value(QStringLiteral("image"));
     if (image.isEmpty()) return false;
-    QImage src = reg.imageFor(image);
+    // For chrome layers (no sysregion or sysregion="1"), use the
+    // cutout-baked bitmap so the chrome's alpha already carries any
+    // sibling sysregion-cutout shape.  This keeps the drawer's
+    // narrowing-strip + bottom-corner shape from clipping the player
+    // chrome at the overlap — the chrome paint with alpha=0 at the
+    // cut pixels simply doesn't overwrite what was painted underneath.
+    //
+    // For sysregion="-N" cutout layers themselves, we want the raw
+    // bitmap — that's the mask we draw with CompositionMode_DestinationOut
+    // when building the OS-level window region in computeWindowRegion.
+    const QString sr = attrs.value(QStringLiteral("sysregion"));
+    const bool isCutoutLayer = !sr.isEmpty() && sr.startsWith(QChar('-'));
+    QImage src = isCutoutLayer ? reg.imageFor(image)
+                               : reg.chromeImageFor(image);
     if (src.isNull()) return false;
 
     int x = attrInt(attrs, QStringLiteral("x"));

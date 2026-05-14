@@ -51,11 +51,16 @@ public:
 
     // Adopt a parsed skin document, expand the named layout, and
     // populate the bitmap registry from it.  Returns false (and sets
-    // errMsg) if the container or layout isn't found.
+    // errMsg) if the container or layout isn't found.  The document
+    // is stashed by const-pointer (NOT copied), so the caller must
+    // keep it alive for the SkinQuickItem's lifetime (qtamp's
+    // QtampPlayerWindow owns the doc and outlives the item).
     bool load(const SkinXml::Document &doc,
               const QString &containerId,
               const QString &layoutId = QStringLiteral("normal"),
               QString *errMsg = nullptr);
+
+    const SkinXml::Document *document() const { return m_doc; }
 
     // The native size of the loaded layout (w x h from XML, falling
     // back to minimum_w x minimum_h, or default).
@@ -194,6 +199,19 @@ private:
     bool   m_autoShrink = false;
     // Lazily-created resize-tween animation (parented to this).
     QVariantAnimation *m_resizeAnim = nullptr;
+    // True while m_resizeAnim is running.  Suppresses the per-frame
+    // QQuickWindow resize inside resizeLayoutTo — animatedResizeLayoutTo
+    // pre-grows the window to max(from, target) once, then lets the
+    // animation update m_nativeSize without re-triggering Wayland
+    // surface reconfigures every tick.
+    bool   m_layoutAnimActive = false;
+    // First setMask deferred via a 150 ms one-shot timer so Wayfire's
+    // first wl_surface.commit lands BEFORE setMask is applied.
+    bool   m_maskInitialised = false;
+    // Borrowed (not owned) pointer to the parsed skin document — used
+    // by the per-paint GroupXFade page-resolution pass to instantiate
+    // a groupdef into a target widget by id at runtime.
+    const SkinXml::Document *m_doc = nullptr;
 };
 
 }  // namespace WasabiQt

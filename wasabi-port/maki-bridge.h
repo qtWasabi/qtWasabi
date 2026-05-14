@@ -98,6 +98,17 @@ bool fireFourIntEvent(int scriptId, void *recv,
 // event.  Returns the number of scripts whose handler fired.
 int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName);
 
+// Fire `onAction(String action, String param, int x, int y,
+// int p1, int p2, GuiObject source)` on `recv` (the action_target
+// widget).  Used when a Button/ToggleButton with `action="X"
+// action_target="Y"` is clicked — the configtarget.m / drawer-menu
+// scripts pivot on this dispatch to switch pages, fire commands, etc.
+// `source` is the clicked button's ScriptObject (may be nullptr).
+// Returns the number of handlers fired.
+int fireOnActionEvent(void *recv, const wchar_t *action,
+                      const wchar_t *param, int x, int y,
+                      int p1, int p2, void *source);
+
 // Diagnostic: list the DLF names registered for `scriptId` (one per
 // line, UTF-8) into `out`.  Returns count.
 int  dumpDlfNames(int scriptId, char *out, int outCap);

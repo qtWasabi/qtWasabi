@@ -126,6 +126,37 @@ void registerSkinResizeCallback(std::function<void(int w, int h)> cb);
 // doesn't fire onTargetReached right after the callback returns.
 void beginAnimatedResize();
 
+// Fire `onAction(action, param, x, y, p1, p2, source)` on the
+// widget identified by `targetId` — used when a button with
+// `action_target="X"` is clicked: configtarget.m and friends pivot
+// on this event to swap pages, change visualisation, etc.
+//
+// `sourceId` names the source widget (the clicked button); pass
+// an empty string when there isn't one.  Returns the number of
+// handlers fired across all loaded scripts.
+int fireWidgetActionEvent(const QString &targetId,
+                          const QString &action,
+                          const QString &param,
+                          int x, int y, int p1, int p2,
+                          const QString &sourceId);
+
+// Directly mutate a widget's attribute by id — equivalent to
+// Maki's `setXmlParam(name, value)` from the script side, but
+// callable from C++ embedders.  Triggers the repaint callback so
+// the chrome reflects the change.  Returns true if the widget was
+// found.
+bool fireWidgetAttrSet(const QString &widgetId,
+                       const QString &name,
+                       const QString &value);
+
+// Number of widget-level setTarget animations currently running
+// (drawer slide, sub-widget tweens).  Embedders can suspend
+// auto-fitting / window-resize chatter while > 0 — Wayland
+// surface reconfigures per frame are expensive and visibly lag
+// behind the animation, leaving the chrome clipped short of the
+// target extent.
+int widgetAnimationsActive();
+
 // Fire onTargetReached on the layout root — embedders' animated
 // resize handlers call this when the tween completes.  No-op if no
 // layout root is registered (e.g. before SkinRuntime::loadScripts).

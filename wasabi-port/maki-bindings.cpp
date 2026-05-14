@@ -261,6 +261,8 @@ extern "C" {
     void  wq_layout_set_target_x(int x);
     void  wq_layout_set_target_y(int y);
     void  wq_layout_goto_target();
+    void  wq_widget_animate_target(void *handle, int tx, int ty,
+                                   int tw, int th, int durationMs);
 }
 
 extern "C" scriptVar wq_getStatus(maki_cmd *, int, ScriptObject *) {
@@ -332,30 +334,18 @@ extern "C" scriptVar wq_gotoTarget(maki_cmd *, int, ScriptObject *o) {
         wq_layout_goto_target();
         return makeVoid();
     }
-    // Widget — mutate its own x/y/w/h attrs.  No animation; the
-    // value snaps into place.
-    wchar_t buf[32];
-    if (t.x != -1) {
-        std::swprintf(buf, 32, L"%d", t.x);
-        wq_widget_setAttr(o, L"x", buf);
-    }
-    if (t.y != -1) {
-        std::swprintf(buf, 32, L"%d", t.y);
-        wq_widget_setAttr(o, L"y", buf);
-    }
-    if (t.w >= 0) {
-        std::swprintf(buf, 32, L"%d", t.w);
-        wq_widget_setAttr(o, L"w", buf);
-    }
-    if (t.h >= 0) {
-        std::swprintf(buf, 32, L"%d", t.h);
-        wq_widget_setAttr(o, L"h", buf);
-    }
-    // Synthesise the per-widget animation-complete event the script
-    // may listen on (e.g. configtabs.m has drawer.onTargetReached()).
-    // Real Wasabi fires this when the animation thread reaches the
-    // target; we apply immediately so fire right after.
-    WasabiQt::Maki::fireZeroArgEventOnObject((void *)o, L"onTargetReached");
+    // Widget — drive the x/y/w/h attrs through a QVariantAnimation so
+    // the drawer slide (configtabs.m → drawer.setTargetY(-147) /
+    // gotoTarget) eases in/out instead of snapping.  The Qt-side
+    // helper fires `onTargetReached` once the tween completes.
+    // 350 ms reads as a deliberate slide rather than a snap, matches
+    // the cadence of WinampModernPP's drawer.m when it animates on
+    // real Winamp at default setTargetSpeed(1).
+    if (::getenv("WASABIQT_TRACE_MAKI"))
+        ::fprintf(stderr,
+            "[maki] widget gotoTarget tx=%d ty=%d tw=%d th=%d\n",
+            t.x, t.y, t.w, t.h);
+    wq_widget_animate_target((void *)o, t.x, t.y, t.w, t.h, 350);
     return makeVoid();
 }
 
@@ -446,6 +436,18 @@ extern "C" scriptVar wq_setVisible(maki_cmd *, int, ScriptObject *o, scriptVar v
                         ? (v.data.idata != 0) : true;
     wq_widget_setAttr(o, L"visible", on ? L"1" : L"0");
     return makeVoid();
+}
+// GuiObject.isVisible() — reads the widget's `visible` attr.  Empty/
+// missing attr = visible (Wasabi default).  configtabs.m's
+// drawer.onTargetReached() switches on `btnClose.isVisible()` to
+// decide between the open-completed and close-completed branches;
+// without a real reading the close branch always wins and
+// ColorThemes.show() never re-fires after a drawer reopen.
+extern "C" scriptVar wq_isVisible(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeBoolean(0);
+    const wchar_t *v = wq_widget_getAttr(o, L"visible");
+    if (!v) return makeBoolean(1);
+    return makeBoolean(std::wcscmp(v, L"0") != 0);
 }
 
 extern "C" scriptVar wq_getVisible(maki_cmd *, int, ScriptObject *o) {
@@ -605,9 +607,57 @@ extern "C" scriptVar wq_newItem(maki_cmd *, int, ScriptObject *,
 extern "C" scriptVar wq_getItem(maki_cmd *, int, ScriptObject *, scriptVar) {
     return makeObject(configDummy());
 }
+// Per-attribute store keyed by the unique ScriptObject the
+// newAttribute call hands back.  Each entry holds the attribute's
+// declared name and current value, so getData/setData can be reflexive
+// (set then read returns the written value) and the constructor's
+// declared default ("0" / "1" / …) survives.
+//
+// Without this, every `<attrib>.getData()` returned the empty string
+// regardless of declared default — which silently disabled the
+// "Animate Config Drawer" / "Animate Video/Vis Drawer" branches in
+// WinampModernPP's configtabs.m / drawer.m so the drawer always
+// snap-set rather than tweened.
+struct AttrState {
+    std::wstring name;
+    std::wstring value;
+};
+static std::unordered_map<void *, AttrState> &attrStore() {
+    static std::unordered_map<void *, AttrState> m;
+    return m;
+}
+
+// Optional default override: when an attribute is registered under a
+// name in this list, force a "1" value regardless of the script's
+// declared default.  Lets qtamp ship with the modern-skin drawer
+// animations on by default (the original skin sets these to "0" and
+// expects the user to flip a UI option — which we don't expose yet).
+static bool attrNameMatchesForceOn(const std::wstring &n) {
+    static const wchar_t *kForceOn[] = {
+        L"Animate Config Drawer",
+        L"Animate Video/Vis Drawer (disabled if opacity < 100%)",
+    };
+    for (const wchar_t *k : kForceOn) if (n == k) return true;
+    return false;
+}
+
 extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *,
-                                      scriptVar, scriptVar) {
-    return makeObject(configDummy());
+                                      scriptVar name, scriptVar def) {
+    // Each attribute gets its own ScriptObject so setData/getData can
+    // distinguish between them.  Stored values survive script
+    // dispatch; the WidgetScriptObject pointer ownership matches the
+    // configDummy pattern (singleton-owned via Maki::createWidgetScript
+    // Object, never freed).
+    void *obj = WasabiQt::Maki::createWidgetScriptObject(nullptr);
+    AttrState a;
+    if (name.type == SCRIPT_STRING && name.data.sdata)
+        a.name = name.data.sdata;
+    if (def.type == SCRIPT_STRING && def.data.sdata)
+        a.value = def.data.sdata;
+    if (attrNameMatchesForceOn(a.name))
+        a.value = L"1";
+    attrStore()[obj] = std::move(a);
+    return makeObject(static_cast<ScriptObject *>(obj));
 }
 // SkinObject.getAttribute(name) — Bento's std.mi defines XUI params
 // via newAttribute() at script load + retrieves them via
@@ -619,11 +669,19 @@ extern "C" scriptVar wq_getAttribute(maki_cmd *, int, ScriptObject *,
                                       scriptVar) {
     return makeObject(configDummy());
 }
-extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *, scriptVar) {
+extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *o,
+                                 scriptVar v) {
+    auto it = attrStore().find((void *)o);
+    if (it != attrStore().end()) {
+        if (v.type == SCRIPT_STRING && v.data.sdata)
+            it->second.value = v.data.sdata;
+    }
     return makeVoid();
 }
-extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *) {
-    return makeString(L"");
+extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *o) {
+    auto it = attrStore().find((void *)o);
+    if (it == attrStore().end()) return makeString(L"");
+    return makeString(intern(it->second.value));
 }
 
 // WinampConfigGroup.getInt(key) — no config store yet, return 0.
@@ -742,6 +800,7 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"findObject",              1, (void *)wq_findObject},
         {L"getObject",               1, (void *)wq_getObject},
         {L"setVisible",              1, (void *)wq_setVisible},
+        {L"isVisible",               0, (void *)wq_isVisible},
         {L"getVisible",              0, (void *)wq_getVisible},
         {L"setXmlParam",             2, (void *)wq_setXmlParam},
         // Maki is case-sensitive on method lookup; scripts use either

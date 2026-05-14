@@ -412,6 +412,78 @@ private:
         applySendparams(node, instanceId);
         if (!el.children.isEmpty())
             expandChildren(el, node, instanceId);
+        // <componentbucket wndtype="X">: materialise every groupdef in
+        // the document whose `windowtype="X"` as a positioned child
+        // inside the bucket.  Real Wasabi does this at runtime via
+        // ComponentBucket::addChild + scrolling; we statically inject
+        // them here so TreePainter walks them like any other group.
+        // The bucket's spacing/leftmargin/rightmargin control the per-
+        // entry offsets; `vertical=1` stacks them down, otherwise
+        // across.  Without this materialisation, the entire config-
+        // drawer "Options" page is a blank box (the bucket is empty).
+        if (el.tag == QStringLiteral("componentbucket")) {
+            const QString want = node.attrs.value(QStringLiteral("wndtype"));
+            if (!want.isEmpty()) {
+                const bool vertical =
+                    node.attrs.value(QStringLiteral("vertical")) ==
+                    QStringLiteral("1");
+                const int spacing =
+                    node.attrs.value(QStringLiteral("spacing")).toInt();
+                const int leftMargin =
+                    node.attrs.value(QStringLiteral("leftmargin")).toInt();
+                const int topMargin =
+                    node.attrs.value(QStringLiteral("topmargin")).toInt();
+                int offset = vertical ? topMargin : leftMargin;
+                // Sort matching groupdef ids so the bucket entry order
+                // is deterministic (declared bucket.entry.1, .2, .3, …
+                // rather than QHash iteration order).
+                QStringList ids;
+                for (auto it = m_groupdefs.byId.constBegin();
+                     it != m_groupdefs.byId.constEnd(); ++it) {
+                    if (it.value()->attrs.value(
+                            QStringLiteral("windowtype")) == want)
+                        ids.append(it.key());
+                }
+                std::sort(ids.begin(), ids.end());
+                int step = 0;
+                for (const QString &gid : ids) {
+                    const Element *def = m_groupdefs.byId.value(gid);
+                    if (!def) continue;
+                    // Synthesize a `<group id="<gd>"/>` instance so the
+                    // existing groupdef-resolution path handles
+                    // expansion (attrs merge, sendparams, recursion).
+                    Element instance;
+                    instance.tag = QStringLiteral("group");
+                    instance.attrs.insert(QStringLiteral("id"), gid);
+                    if (vertical) {
+                        instance.attrs.insert(QStringLiteral("x"),
+                            QString::number(leftMargin));
+                        instance.attrs.insert(QStringLiteral("y"),
+                            QString::number(offset));
+                    } else {
+                        instance.attrs.insert(QStringLiteral("x"),
+                            QString::number(offset));
+                        instance.attrs.insert(QStringLiteral("y"),
+                            QString::number(topMargin));
+                    }
+                    visit(instance, node, instanceId);
+                    step =
+                        def->attrs.value(vertical ? QStringLiteral("h")
+                                                  : QStringLiteral("w"))
+                            .toInt() + spacing;
+                    offset += qMax(step, 1);
+                }
+                // Stash the per-entry step + entry count so the click
+                // handler can clamp cb_prev/nextpage scrolling and
+                // TreePainter can compute the scroll offset for the
+                // child translate.
+                if (step > 0)
+                    node.attrs.insert(QStringLiteral("_entry_step"),
+                                       QString::number(step));
+                node.attrs.insert(QStringLiteral("_entry_count"),
+                                   QString::number(ids.size()));
+            }
+        }
         parent.children.append(std::move(node));
     }
 
@@ -460,7 +532,42 @@ private:
     QSet<QString>        m_inflightInstances;
 };
 
+void resolveGroupXFadePagesRec(ResolvedWidget &node,
+                                const SkinXml::Document &doc,
+                                const GroupdefIndex &index,
+                                const SendparamsMap &sendparams,
+                                const QSet<QString> &hidden) {
+    if (node.tag == QStringLiteral("groupxfade")) {
+        const QString gid = node.attrs.value(QStringLiteral("groupid"));
+        const QString cached =
+            node.attrs.value(QStringLiteral("_resolved_groupid"));
+        if (!gid.isEmpty() && gid != cached) {
+            // Drop any previously-materialised page and re-expand the
+            // newly-named groupdef into our children.
+            node.children.clear();
+            if (const Element *def = index.lookup(gid)) {
+                Expander ex(index, sendparams, hidden);
+                ex.expandChildren(*def, node, /*instanceId=*/{});
+            }
+            node.attrs.insert(QStringLiteral("_resolved_groupid"), gid);
+        }
+    }
+    for (auto &c : node.children)
+        resolveGroupXFadePagesRec(c, doc, index, sendparams, hidden);
+}
+
 }  // namespace
+
+void resolveGroupXFadePages(ResolvedWidget &root,
+                            const SkinXml::Document &doc) {
+    GroupdefIndex index;
+    collectGroupdefs(doc.root, index);
+    SendparamsMap sendparams;
+    collectSendparams(doc.root, sendparams);
+    QSet<QString> hidden;
+    collectHideObjects(doc.root, hidden);
+    resolveGroupXFadePagesRec(root, doc, index, sendparams, hidden);
+}
 
 bool expandLayout(const SkinXml::Document &doc,
                   const QString &containerId,
@@ -933,10 +1040,12 @@ QRect resolveRect(const QHash<QString, QString> &a, QSize parent) {
 }
 
 bool isContainer(const QString &tag) {
-    return tag == QStringLiteral("group")     ||
-           tag == QStringLiteral("container") ||
-           tag == QStringLiteral("layout")    ||
-           tag == QStringLiteral("groupdef");
+    return tag == QStringLiteral("group")          ||
+           tag == QStringLiteral("container")      ||
+           tag == QStringLiteral("layout")         ||
+           tag == QStringLiteral("groupdef")       ||
+           tag == QStringLiteral("componentbucket")||
+           tag == QStringLiteral("groupxfade");
 }
 
 const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
@@ -961,9 +1070,55 @@ const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
     if (w.tag != QStringLiteral("layout")) {
         childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
     }
+    // componentbucket additionally translates children by -scroll*step
+    // (matching TreePainter's per-paint translate).  Without applying
+    // the same offset to the hit-test, clicking on a visually-scrolled
+    // entry hits the widget that was at THAT POSITION pre-scroll —
+    // the off-by-N "I clicked the row below but the row above's page
+    // opened" misdispatch on the options drawer after a scroll click.
+    if (w.tag == QStringLiteral("componentbucket")) {
+        const int scroll =
+            w.attrs.value(QStringLiteral("_scroll")).toInt();
+        const int step =
+            w.attrs.value(QStringLiteral("_entry_step")).toInt();
+        const bool vertical =
+            w.attrs.value(QStringLiteral("vertical")) ==
+            QStringLiteral("1");
+        if (scroll > 0 && step > 0) {
+            if (vertical) childOrigin.ry() -= scroll * step;
+            else          childOrigin.rx() -= scroll * step;
+        }
+    }
     QSize childCanvas = canvas;
     if (r.width()  > 0) childCanvas.setWidth (r.width());
     if (r.height() > 0) childCanvas.setHeight(r.height());
+
+    // Containers that declared an explicit size clip child hit-test
+    // to their own rect — mirror of TreePainter's `clipToContainer`
+    // setClipRect.  Without it the componentbucket's scrolled-off
+    // (visually clipped) entries still consume clicks at coordinates
+    // that visibly belong to widgets below the bucket (e.g. the
+    // EQUALIZER tab landing on a hidden bucket row at y > h).
+    if (w.tag != QStringLiteral("layout")) {
+        const bool hasH =
+            w.attrs.contains(QStringLiteral("h")) ||
+            w.attrs.contains(QStringLiteral("relath"));
+        const bool hasW =
+            w.attrs.contains(QStringLiteral("w")) ||
+            w.attrs.contains(QStringLiteral("relatw"));
+        if ((hasW && r.width()  > 0) || (hasH && r.height() > 0)) {
+            // Use canvas-relative bounds: childOrigin is the
+            // container's top-left in absolute canvas coords (after
+            // the parent translate).
+            const int ox = origin.x() + r.x();
+            const int oy = origin.y() + r.y();
+            const QRect bounds(
+                ox, oy,
+                hasW ? r.width()  : canvas.width(),
+                hasH ? r.height() : canvas.height());
+            if (!bounds.contains(p)) return nullptr;
+        }
+    }
 
     // Recurse into children first — topmost match wins.
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
@@ -1039,10 +1194,66 @@ namespace {
 // cutouts got re-filled by player.main).
 enum class RegionPass { Additive, Subtractive };
 
+// Sysregion-bitmap "narrowing-strip" detector.
+//
+// Modern's drawer ships its left/right edge masks as 20×129 bitmaps with
+// the leftmost (or rightmost) 8 columns opaque for the FULL height plus
+// a tiny 5-row staircase widening at the bottom.  Read as a cutout, that
+// bitmap encodes TWO things at once:
+//
+//   • A constant N-col-wide "narrowing strip" along the long edge — for
+//     the wl_surface input region, this is correct: it marks the strip
+//     as outside the drawer's clickable area so the desktop catches
+//     clicks there.
+//
+//   • A bottom-corner staircase shape — this is the rounded-corner
+//     visual that the chrome should actually display.
+//
+// When we replay this mask onto the chrome buffer with DestinationOut
+// for VISUAL shaping (paintRegionCutouts, not computeWindowRegion), the
+// narrowing strip cuts into pixels painted by SIBLING parent groups
+// further up — concretely, the player chrome painted at canvas y where
+// the drawer cutout's tall bitmap also overlays.  The result is the
+// "two white rectangles between player and drawer" notch the user
+// reported: the drawer's full-height cut clips through the player.
+//
+// The fix: for tall cutout bitmaps (h/w > 2), strip out any column that
+// is opaque across the ENTIRE bitmap height.  Those columns are the
+// narrowing-strip — they're shape information meant for the OS input
+// region, not for the visual chrome.  Columns that vary along the
+// height stay — those are the actual corner staircase the visual needs.
+//
+// Short bitmaps (player.main.left.region's 6×6 corner mask,
+// wasabi.frame.top.left.region's 10×18 top-corner staircase) keep their
+// full content — they're entirely "varying-column" corner shapes with
+// no narrowing-strip component to remove.
+QImage stripNarrowingColumns(const QImage &src) {
+    const int W = src.width();
+    const int H = src.height();
+    if (W == 0 || H == 0) return src;
+    // Only apply the strip filter to bitmaps where height >> width — that's
+    // the shape signature of a narrowing-strip mask (tall, with a tiny
+    // varying corner at the bottom).  Square / short bitmaps are entire-
+    // corner masks and must pass through unchanged.
+    if (H <= W * 2) return src;
+    QImage out = src.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    for (int x = 0; x < W; ++x) {
+        bool allOpaque = true;
+        for (int y = 0; y < H; ++y) {
+            if (qAlpha(out.pixel(x, y)) == 0) { allOpaque = false; break; }
+        }
+        if (allOpaque) {
+            for (int y = 0; y < H; ++y) out.setPixel(x, y, 0u);
+        }
+    }
+    return out;
+}
+
 void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
                        BitmapRegistry &reg, QSize canvas,
                        bool &outFoundAny,
-                       RegionPass pass) {
+                       RegionPass pass,
+                       bool stripNarrowing = false) {
     if (w.attrs.value(QStringLiteral("visible")) ==
         QStringLiteral("0")) {
         return;
@@ -1137,7 +1348,37 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
                 if (cutoutMode)
                     p.setCompositionMode(
                         QPainter::CompositionMode_DestinationOut);
-                LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
+                if (cutoutMode && stripNarrowing) {
+                    // Visual cutout path: strip narrowing-strip cols so
+                    // the cutout only contributes its varying corner
+                    // shape, not the full-height inset.  Build the rect
+                    // with paintLayer's resolution rules but draw the
+                    // filtered bitmap ourselves.
+                    QImage src = reg.imageFor(img);
+                    QImage filtered = stripNarrowingColumns(src);
+                    int x = w.attrs.value(QStringLiteral("x")).toInt();
+                    int y = w.attrs.value(QStringLiteral("y")).toInt();
+                    int wp = w.attrs.value(QStringLiteral("w")).toInt();
+                    int hp = w.attrs.value(QStringLiteral("h")).toInt();
+                    if (w.attrs.value(QStringLiteral("relatx")) ==
+                        QStringLiteral("1"))
+                        x = canvas.width()  + x;
+                    if (w.attrs.value(QStringLiteral("relaty")) ==
+                        QStringLiteral("1"))
+                        y = canvas.height() + y;
+                    if (w.attrs.value(QStringLiteral("relatw")) ==
+                        QStringLiteral("1"))
+                        wp = canvas.width()  + wp;
+                    if (w.attrs.value(QStringLiteral("relath")) ==
+                        QStringLiteral("1"))
+                        hp = canvas.height() + hp;
+                    if (wp <= 0) wp = filtered.width();
+                    if (hp <= 0) hp = filtered.height();
+                    if (!filtered.isNull())
+                        p.drawImage(QRect(x, y, wp, hp), filtered);
+                } else {
+                    LayerPainter::paintLayer(&p, reg, w.attrs, canvas);
+                }
                 if (cutoutMode)
                     p.setCompositionMode(QPainter::CompositionMode_SourceOver);
                 outFoundAny = true;
@@ -1146,7 +1387,8 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     }
 
     for (const auto &c : w.children)
-        paintRegionLayers(p, c, reg, childCanvas, outFoundAny, pass);
+        paintRegionLayers(p, c, reg, childCanvas, outFoundAny, pass,
+                          stripNarrowing);
 
     if (translate) p.restore();
 }
@@ -1225,6 +1467,91 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
     }
     if (!foundAny) return QRegion();
     return regionFromAlpha(buf);
+}
+
+namespace {
+
+void collectChromeCutoutsRec(
+        const ResolvedWidget &node,
+        QHash<QString, QList<ChromeCutout>> &out) {
+    // For each child of this node, if it's a `sysregion="-N"` cutout
+    // layer, look for a sibling chrome layer whose image is the
+    // cutout's image minus the ".region" suffix.  Record the cutout
+    // with its offset relative to the chrome (in parent-local coords).
+    const QString kRegionSuffix = QStringLiteral(".region");
+    for (const auto &cutout : node.children) {
+        if (cutout.tag != QStringLiteral("layer")) continue;
+        const QString sr = cutout.attrs.value(QStringLiteral("sysregion"));
+        if (sr.isEmpty() || !sr.startsWith(QChar('-'))) continue;
+        const QString cutoutImg = cutout.attrs.value(QStringLiteral("image"));
+        if (!cutoutImg.endsWith(kRegionSuffix)) continue;
+        const QString chromeImg =
+            cutoutImg.left(cutoutImg.size() - kRegionSuffix.size());
+        for (const auto &chrome : node.children) {
+            if (chrome.tag != QStringLiteral("layer")) continue;
+            if (chrome.attrs.value(QStringLiteral("image")) != chromeImg)
+                continue;
+            // Compute offset = cutout.xy - chrome.xy.  Both should share
+            // the same relatx/relaty polarity for this offset to be
+            // meaningful — for the modern chrome layouts we care about,
+            // chrome and cutout siblings declare matching positioning
+            // attributes (drawer's left+left.region both at (0,0);
+            // player chrome at (0,0) and corner mask at (0,120) with
+            // neither using relat-).
+            int cx = chrome.attrs.value(QStringLiteral("x")).toInt();
+            int cy = chrome.attrs.value(QStringLiteral("y")).toInt();
+            int rx = cutout.attrs.value(QStringLiteral("x")).toInt();
+            int ry = cutout.attrs.value(QStringLiteral("y")).toInt();
+            ChromeCutout cc;
+            cc.cutoutImage = cutoutImg;
+            cc.offset      = QPoint(rx - cx, ry - cy);
+            out[chromeImg].append(cc);
+            break;
+        }
+    }
+    for (const auto &child : node.children)
+        collectChromeCutoutsRec(child, out);
+}
+
+}  // namespace
+
+QHash<QString, QList<ChromeCutout>>
+collectChromeCutouts(const ResolvedWidget &root) {
+    QHash<QString, QList<ChromeCutout>> out;
+    collectChromeCutoutsRec(root, out);
+    if (::getenv("WASABIQT_TRACE_CUTOUT_PAIRS")) {
+        for (auto it = out.constBegin(); it != out.constEnd(); ++it) {
+            for (const ChromeCutout &cc : it.value()) {
+                fprintf(stderr,
+                  "[cutout-pair] chrome=%s cutout=%s offset=(%d,%d)\n",
+                  it.key().toLocal8Bit().constData(),
+                  cc.cutoutImage.toLocal8Bit().constData(),
+                  cc.offset.x(), cc.offset.y());
+            }
+        }
+    }
+    return out;
+}
+
+void paintRegionCutouts(QPainter &p, const ResolvedWidget &root,
+                        BitmapRegistry &registry, QSize canvas) {
+    if (canvas.width() <= 0 || canvas.height() <= 0) return;
+    bool foundAny = false;
+    const bool savedAA = p.testRenderHint(QPainter::Antialiasing);
+    const bool savedSP = p.testRenderHint(QPainter::SmoothPixmapTransform);
+    p.setRenderHint(QPainter::Antialiasing,          false);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+    if (::getenv("WASABIQT_TRACE_CUTOUTS"))
+        fprintf(stderr, "[cutouts] >>> paintRegionCutouts canvas=%dx%d\n",
+                canvas.width(), canvas.height());
+    paintRegionLayers(p, root, registry, canvas, foundAny,
+                      RegionPass::Subtractive,
+                      /*stripNarrowing=*/true);
+    if (::getenv("WASABIQT_TRACE_CUTOUTS"))
+        fprintf(stderr, "[cutouts] <<< paintRegionCutouts foundAny=%d\n",
+                foundAny ? 1 : 0);
+    p.setRenderHint(QPainter::Antialiasing,          savedAA);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, savedSP);
 }
 
 }  // namespace WasabiQt::Layout

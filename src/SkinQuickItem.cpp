@@ -18,6 +18,7 @@
 #include <QSGSimpleTextureNode>
 #include <QSGTexture>
 #include <QSet>
+#include <QTimer>
 #include <QVariantAnimation>
 #include <QWindow>
 
@@ -42,7 +43,16 @@ SkinQuickItem::SkinQuickItem(QQuickItem *parent) : QQuickItem(parent) {
             // the region stale (with drawer.y from XML defaults
             // instead of after-script values), producing the
             // "white edge rectangles on the drawer" visual bug.
-            v->rebuildWindowRegion();
+            //
+            // Skip the region rebuild while a tween is in flight
+            // (drawer slide, layout grow): it's a tree walk + alpha
+            // → QRegion pass + setMask roundtrip per frame, which
+            // dominated the animation's per-frame cost and caused
+            // the visible chop.  rebuildWindowRegion runs once at
+            // the animation's finish handler to settle the input
+            // region back to the final shape.
+            if (widgetAnimationsActive() == 0 && !v->m_layoutAnimActive)
+                v->rebuildWindowRegion();
             v->update();
         }
     });
@@ -77,10 +87,34 @@ void SkinQuickItem::animatedResizeLayoutTo(const QSize &target, int durationMs) 
                 resizeLayoutTo(v.toSize());
             });
         QObject::connect(m_resizeAnim, &QVariantAnimation::finished,
-            this, []() { fireTargetReached(); });
+            this, [this]() {
+                // End of tween: clear the suppression flag, settle the
+                // QQuickWindow at exact target dimensions, and rebuild
+                // the input region (suppressed during the tween).
+                m_layoutAnimActive = false;
+                if (auto *w = window()) w->resize(m_nativeSize);
+                rebuildWindowRegion();
+                fireTargetReached();
+            });
     } else {
         m_resizeAnim->stop();
+        m_layoutAnimActive = false;
     }
+    // Pre-grow the QQuickWindow once to the larger of from/target so
+    // the chrome's painted extent has room throughout the animation.
+    // Resizing a Wayland surface every animation tick is expensive
+    // (each frame triggers a fresh xdg_surface ack + buffer attach
+    // handshake) and visibly lags behind the animation, leaving the
+    // chrome clipped short of the target.  resizeLayoutTo will see
+    // m_layoutAnimActive=true and skip the window resize for the
+    // duration of the tween.
+    if (auto *w = window()) {
+        const int wantH = qMax(from.height(), target.height());
+        const int wantW = qMax(from.width(),  target.width());
+        if (w->width() != wantW || w->height() != wantH)
+            w->resize(wantW, wantH);
+    }
+    m_layoutAnimActive = true;
     m_resizeAnim->setStartValue(from);
     m_resizeAnim->setEndValue(target);
     m_resizeAnim->setDuration(durationMs);
@@ -96,14 +130,22 @@ void SkinQuickItem::resizeLayoutTo(const QSize &size) {
     m_tree.attrs.insert(QStringLiteral("h"),
                         QString::number(size.height()));
     setSize(QSizeF(size));
-    // Also resize the hosting QQuickWindow so the OS surface grows to
-    // the new layout.  Auto-shrink in updatePaintNode will trim back
-    // down to the painted extent on the next frame if it's smaller.
-    if (auto *w = window()) {
-        w->resize(size);
+    // Also resize the hosting QQuickWindow so the OS surface matches the
+    // new layout.  Suppressed during an active layout tween — see
+    // animatedResizeLayoutTo: it pre-grows the window once at start and
+    // settles it back at finish, so per-frame resizes only churn the
+    // Wayland surface without changing what the user perceives.
+    if (!m_layoutAnimActive) {
+        if (auto *w = window()) {
+            w->resize(size);
+        }
     }
     m_alphaCache.clear();
-    rebuildWindowRegion();
+    // rebuildWindowRegion is a tree walk + alpha→region pass + QQuickWindow
+    // setMask roundtrip — significant per-frame cost.  Skip it during a
+    // layout tween (the input region is in flux anyway while the drawer
+    // slides) and let the finish handler rebuild it once at settle.
+    if (!m_layoutAnimActive) rebuildWindowRegion();
     emit layoutNativeSizeChanged();
     update();
 }
@@ -114,11 +156,18 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
                           QString *errMsg) {
     if (!Layout::expandLayout(doc, containerId, layoutId, m_tree, errMsg))
         return false;
+    m_doc = &doc;
     m_registry.loadFromDocument(doc);
     m_fonts.loadFromDocument(doc);
     m_gammasets.loadFromDocument(doc);
     m_colors.loadFromDocument(doc);
     m_registry.setGammasetRegistry(&m_gammasets);
+    // Pair every sysregion="-N" cutout layer with its sibling chrome
+    // layer (image-name convention: "X.region" → "X").  The registry's
+    // chromeImageFor() then returns chrome bitmaps with cutouts baked
+    // into their alpha — chrome painted on top of another group's
+    // chrome no longer overwrites it at the cut pixels.
+    m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
 
     auto attrInt = [&](const QString &k, int def = 0) {
         auto it = m_tree.attrs.constFind(k);
@@ -179,15 +228,33 @@ void SkinQuickItem::rebuildWindowRegion() {
     // on transparent chrome), not a requirement.  The visual is
     // unaffected because the QSGTexture upload already carries the
     // chrome's alpha.  WASABIQT_INPUT_REGION=1 re-enables it.
-    if (::getenv("WASABIQT_INPUT_REGION") &&
-        ::getenv("WASABIQT_INPUT_REGION")[0] == '1') {
-      if (auto *w = window(); w && w->isVisible()) {
-        // QQuickWindow::setMask routes to wl_surface.set_input_region
-        // on Wayland (Qt 6), to the conventional shape mask on X11/
-        // Windows.  Empty region = rectangular window.
-        if (m_windowRegion.isEmpty()) w->setMask(QRegion());
-        else                          w->setMask(m_windowRegion);
-      }
+    // setMask path: defer the FIRST mask via a 100ms one-shot timer
+    // (the first commit needs to land before Wayfire accepts a
+    // setMask without dropping the surface), then update on every
+    // subsequent region rebuild.  isExposed() never goes true for a
+    // QQuickWindow on Wayfire/Asahi so we can't gate on that.
+    if (!::getenv("WASABIQT_NO_MASK")) {
+        if (auto *w = window()) {
+            if (!m_maskInitialised) {
+                m_maskInitialised = true;
+                QPointer<SkinQuickItem> self(this);
+                QPointer<QQuickWindow> wp(w);
+                QTimer::singleShot(150, this, [self, wp]() {
+                    if (auto *s = self.data(); s && wp) {
+                        if (s->m_windowRegion.isEmpty()) wp->setMask(QRegion());
+                        else                            wp->setMask(s->m_windowRegion);
+                        if (::getenv("WASABIQT_TRACE_MASK"))
+                            fprintf(stderr,
+                              "[mask] FIRST setMask rectCount=%d alpha=%d\n",
+                              int(s->m_windowRegion.rectCount()),
+                              wp->format().alphaBufferSize());
+                    }
+                });
+            } else {
+                if (m_windowRegion.isEmpty()) w->setMask(QRegion());
+                else                          w->setMask(m_windowRegion);
+            }
+        }
     }
     update();
 }
@@ -209,18 +276,49 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     if (!win) return old;
 
     const QSize sz = m_nativeSize;
+    // Re-instantiate any GroupXFade widget whose `groupid` attr has
+    // changed since the last paint — that's how the configtarget /
+    // options-page scripts switch between option pages, by mutating
+    // `skin.config.target.groupid` from "optionsgroup.drawers" to
+    // "optionsgroup.menus" (or whichever the user clicked).
+    if (m_doc) Layout::resolveGroupXFadePages(m_tree, *m_doc);
     QImage buf(sz, QImage::Format_ARGB32_Premultiplied);
     buf.fill(Qt::transparent);
     {
         QPainter bp(&buf);
         paintInto(&bp, sz);
+        // Two-stage cutout pipeline:
+        //
+        //   1) Tall cutouts (h > 2×w — drawer left/right narrowing
+        //      strips) are baked into their sibling chrome bitmap via
+        //      `BitmapRegistry::chromeImageFor`.  When the chrome paints
+        //      on top of another group's chrome at the overlap, the
+        //      cut pixels (alpha=0 in the bitmap) don't overwrite the
+        //      chrome beneath — so the player chrome remains visible
+        //      under the drawer's narrowing.
+        //
+        //   2) Compact cutouts (corner masks like 6×6 player.main.*.
+        //      region or 10×18 wasabi.frame.top.*.region) plus the
+        //      bottom-corner widening from the tall ones get applied
+        //      here on the final buffer with DestinationOut, so any
+        //      chrome layer that paints over the corner area (e.g.
+        //      player.main.bg2.right overlapping player.main.right's
+        //      bottom-right corner) is also cut.  `stripNarrowingColumns`
+        //      inside paintRegionLayers drops the tall cutouts' constant
+        //      strip — that part was already handled in step 1 — so only
+        //      their widening rows contribute here.
+        if (!::getenv("WASABIQT_NO_CUTOUTS"))
+            Layout::paintRegionCutouts(bp, m_tree, m_registry, sz);
     }
 
-    // Auto-shrink: trim the QQuickWindow's height to the painted
+    // Auto-fit: match the QQuickWindow's height to the painted
     // chrome's bottom edge so transparent areas below the chrome
-    // don't bleed through to the desktop.  Never grow — Maki-driven
-    // setTargetH owns that case via resizeLayoutTo.  8-px hysteresis
-    // avoids sub-pixel jitter for widgets that paint at the edge.
+    // don't bleed through to the desktop AND so a re-grown chrome
+    // (drawer reopen after a closed state's shrink) doesn't get
+    // clipped by a too-small window.  8-px hysteresis avoids
+    // sub-pixel jitter for widgets that paint at the edge.  Clamps
+    // to m_nativeSize so we never exceed the layout's authored
+    // height.
     //
     // CRITICAL: only run after Wayfire has actually mapped the
     // surface (`isExposed() == true`).  Resizing the QQuickWindow
@@ -229,19 +327,33 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     // window stays invisible on screen.  isExposed() goes true the
     // moment the compositor signals the surface as visible.
     if (m_autoShrink && !buf.isNull() && win && win->isExposed()) {
-        const int bottom = paintedBottomEdge(buf);
-        if (bottom > 0 && bottom + 8 <= win->height()) {
-            if (::getenv("WASABIQT_TRACE_MAKI"))
-                ::fprintf(stderr,
-                    "[autoshrink] %dx%d -> %dx%d (painted bottom)\n",
-                    win->width(), win->height(),
-                    win->width(), bottom);
-            // Defer the resize to after the current paint completes
-            // — calling resize() inside updatePaintNode can still
-            // race with the scene-graph thread on some platforms.
-            QMetaObject::invokeMethod(win, [win, bottom]() {
-                win->resize(win->width(), bottom);
-            }, Qt::QueuedConnection);
+        const int curH = win->height();
+        const int curW = win->width();
+        if (widgetAnimationsActive() > 0 || m_layoutAnimActive) {
+            // Pre-grow the window to the full layout height for the
+            // duration of any widget tween (drawer slide).  Resizing
+            // a Wayland surface per frame is expensive — the queued
+            // reconfigures lag behind the animation, leaving the
+            // chrome clipped short of the final target.  Auto-shrink
+            // resumes once the animation finishes.
+            const int wantH = m_nativeSize.height();
+            if (wantH > curH) {
+                QMetaObject::invokeMethod(win, [win, curW, wantH]() {
+                    win->resize(curW, wantH);
+                }, Qt::QueuedConnection);
+            }
+        } else {
+            const int bottom = paintedBottomEdge(buf);
+            const int target = qMin(bottom, m_nativeSize.height());
+            if (target > 0 && qAbs(curH - target) > 8) {
+                if (::getenv("WASABIQT_TRACE_MAKI"))
+                    ::fprintf(stderr,
+                        "[autofit] %dx%d -> %dx%d (painted bottom %d)\n",
+                        curW, curH, curW, target, bottom);
+                QMetaObject::invokeMethod(win, [win, curW, target]() {
+                    win->resize(curW, target);
+                }, Qt::QueuedConnection);
+            }
         }
     }
 
@@ -324,15 +436,56 @@ void alphaHitListRec(const Layout::ResolvedWidget &w,
     if (r.width()  > 0) childCanvas.setWidth (r.width());
     if (r.height() > 0) childCanvas.setHeight(r.height());
 
+    // Clip hit recursion to the container's declared bounds (mirror
+    // of TreePainter's clipToContainer / hitTestRec's clip).
+    // Without this, scrolled-off componentbucket entries — visually
+    // hidden but still in the tree — intercept clicks on widgets
+    // BELOW the bucket (the EQUALIZER tab below the options bucket).
+    if (w.tag != QStringLiteral("layout")) {
+        const bool hasH =
+            w.attrs.contains(QStringLiteral("h")) ||
+            w.attrs.contains(QStringLiteral("relath"));
+        const bool hasW =
+            w.attrs.contains(QStringLiteral("w")) ||
+            w.attrs.contains(QStringLiteral("relatw"));
+        if ((hasW && r.width() > 0) || (hasH && r.height() > 0)) {
+            const int ox = origin.x() + r.x();
+            const int oy = origin.y() + r.y();
+            const QRect bounds(
+                ox, oy,
+                hasW ? r.width()  : canvas.width(),
+                hasH ? r.height() : canvas.height());
+            if (!bounds.contains(p)) return;
+        }
+    }
+    // componentbucket scrolls children by -scroll*step (matches the
+    // TreePainter translate); apply the same shift to childOrigin so
+    // visible-position clicks find the right underlying entry.
+    if (w.tag == QStringLiteral("componentbucket")) {
+        const int scroll =
+            w.attrs.value(QStringLiteral("_scroll")).toInt();
+        const int step =
+            w.attrs.value(QStringLiteral("_entry_step")).toInt();
+        const bool vertical =
+            w.attrs.value(QStringLiteral("vertical")) ==
+            QStringLiteral("1");
+        if (scroll > 0 && step > 0) {
+            if (vertical) childOrigin.ry() -= scroll * step;
+            else          childOrigin.rx() -= scroll * step;
+        }
+    }
+
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
         alphaHitListRec(*it, p, childOrigin, childCanvas, actionOnly,
                          alphaBuf, imageSize, imageSizeUserdata, out);
 
     const bool isContainer =
-        w.tag == QStringLiteral("group") ||
-        w.tag == QStringLiteral("container") ||
-        w.tag == QStringLiteral("layout") ||
-        w.tag == QStringLiteral("groupdef") ||
+        w.tag == QStringLiteral("group")          ||
+        w.tag == QStringLiteral("container")      ||
+        w.tag == QStringLiteral("layout")         ||
+        w.tag == QStringLiteral("groupdef")       ||
+        w.tag == QStringLiteral("componentbucket")||
+        w.tag == QStringLiteral("groupxfade")     ||
         w.tag.startsWith(QStringLiteral("wasabi_"));
     if (isContainer) return;
     if (actionOnly && !w.attrs.contains(QStringLiteral("action"))) return;

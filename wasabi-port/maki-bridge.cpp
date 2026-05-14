@@ -11,6 +11,7 @@
 #include "maki-bridge.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace WasabiQt::Maki {
@@ -158,6 +159,51 @@ int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName) {
         VCPU::executeEvent(v, e->DLFid, 0, e->scriptId);
         ++fired;
     }
+    if (std::getenv("WASABIQT_TRACE_MAKI"))
+        std::fprintf(stderr, "[maki] fireZeroArgEventOnObject(%p, %ls) -> fired=%d\n",
+                     recv, eventName, fired);
+    return fired;
+}
+
+int fireOnActionEvent(void *recv, const wchar_t *action,
+                      const wchar_t *param, int x, int y,
+                      int p1, int p2, void *source) {
+    if (!recv || !action) return 0;
+    int fired = 0;
+    const int n = VCPU::DLFentryTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || !e->functionName) continue;
+        if (wcscmp(e->functionName, L"onAction") != 0) continue;
+        auto *wso = static_cast<ScriptObject *>(recv);
+        int next = 0, evIdx = 0, inh = 0;
+        int varId = wso->vcpu_getAssignedVariable(
+            0, e->scriptId, e->DLFid, &next, &evIdx, &inh);
+        if (varId < 0) continue;
+        // Push args in declared order — onAction's signature is
+        // (action, param, x, y, p1, p2, source).
+        scriptVar va{};  va.type = SCRIPT_STRING; va.data.sdata = action;
+        scriptVar vp{};  vp.type = SCRIPT_STRING; vp.data.sdata = param ? param : L"";
+        scriptVar vx{};  vx.type = SCRIPT_INT;    vx.data.idata = x;
+        scriptVar vy{};  vy.type = SCRIPT_INT;    vy.data.idata = y;
+        scriptVar vp1{}; vp1.type = SCRIPT_INT;   vp1.data.idata = p1;
+        scriptVar vp2{}; vp2.type = SCRIPT_INT;   vp2.data.idata = p2;
+        scriptVar vs{};  vs.type = SCRIPT_OBJECT;
+        vs.data.odata = static_cast<ScriptObject *>(source);
+        VCPU::push(va); VCPU::push(vp); VCPU::push(vx); VCPU::push(vy);
+        VCPU::push(vp1); VCPU::push(vp2); VCPU::push(vs);
+
+        scriptVar recvVar{};
+        recvVar.type = SCRIPT_OBJECT;
+        recvVar.data.odata = wso;
+        setCurrentScriptId(e->scriptId);
+        VCPU::executeEvent(recvVar, e->DLFid, e->nparams, e->scriptId);
+        ++fired;
+    }
+    if (std::getenv("WASABIQT_TRACE_MAKI"))
+        std::fprintf(stderr,
+            "[maki] fireOnActionEvent recv=%p action=%ls fired=%d\n",
+            recv, action, fired);
     return fired;
 }
 

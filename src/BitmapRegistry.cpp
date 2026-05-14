@@ -7,6 +7,7 @@
 
 #include <QDir>
 #include <QImageReader>
+#include <QPainter>
 
 namespace WasabiQt {
 
@@ -45,6 +46,36 @@ int BitmapRegistry::loadFromDocument(const SkinXml::Document &doc) {
 void BitmapRegistry::setGammasetRegistry(GammasetRegistry *gs) {
     m_gammasets = gs;
     m_subCache.clear();   // existing tinted images become stale
+    m_maskedCache.clear();
+}
+
+void BitmapRegistry::setChromeCutouts(
+        const QHash<QString, QList<ChromeCutout>> &cutouts) {
+    m_chromeCutouts = cutouts;
+    m_maskedCache.clear();
+}
+
+QImage BitmapRegistry::chromeImageFor(const QString &id) {
+    auto cIt = m_chromeCutouts.constFind(id);
+    if (cIt == m_chromeCutouts.constEnd() || cIt.value().isEmpty())
+        return imageFor(id);
+    auto mIt = m_maskedCache.constFind(id);
+    if (mIt != m_maskedCache.constEnd()) return mIt.value();
+    QImage base = imageFor(id);
+    if (base.isNull()) return base;
+    QImage masked = base.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    {
+        QPainter p(&masked);
+        p.setCompositionMode(QPainter::CompositionMode_DestinationOut);
+        p.setRenderHint(QPainter::Antialiasing,          false);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        for (const ChromeCutout &cc : cIt.value()) {
+            QImage cut = imageFor(cc.cutoutImage);
+            if (!cut.isNull()) p.drawImage(cc.offset, cut);
+        }
+    }
+    m_maskedCache.insert(id, masked);
+    return masked;
 }
 
 const BitmapDef *BitmapRegistry::find(const QString &id) const {
