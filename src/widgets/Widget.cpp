@@ -7,6 +7,7 @@
 #include <WasabiQt/Widget.h>
 #include <WasabiQt/PaintCtx.h>
 #include <WasabiQt/HitCtx.h>
+#include <WasabiQt/TreePainter.h>
 
 #include <QPainter>
 #include <QSet>
@@ -118,10 +119,23 @@ Widget *Widget::hitTest(QPoint point, QPoint origin,
     return this;
 }
 
-// Diagnostic Widget for tags we don't have a class for yet.  Paints
-// nothing visible, recurses children so unrecognised wrappers don't
-// break the tree, and logs the tag once per process so the gap is
-// observable from outside.
+// Default Widget for tags we haven't migrated to a dedicated class
+// yet.  Forwards to `TreePainter::paintLegacyTag`, which contains
+// the monolithic `if (t == "...")` switch that used to live in
+// `paintRecursive`.  Each phase-2/3 migration peels one tag off the
+// legacy switch into its own Widget subclass and registers it in
+// `Widget::create`; until every tag is migrated, the unmigrated
+// remainder keeps rendering through this fallback.
+class LegacyWidget : public Widget {
+public:
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override {
+        WasabiQt::TreePainter::paintLegacyTag(p, *this, ctx, canvas);
+    }
+};
+
+// Diagnostic Widget for tags the factory's registry doesn't recognise
+// at all.  Currently unused (LegacyWidget catches every tag) but kept
+// for when the factory grows an allowlist that excludes unknown XML.
 class UnknownWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override {
@@ -140,13 +154,13 @@ public:
     }
 };
 
-// Phase-1 factory: every tag maps to UnknownWidget.  Phases 2/3
-// add real per-tag subclasses; the factory grows one registration
-// at a time without disturbing the consumers.  Today's TreePainter
-// continues to do all the actual painting via paintRecursive —
-// this factory's instances aren't yet wired into the paint pipeline.
+// Phase-2 factory: tags with a dedicated subclass go to that
+// subclass; everything else falls through to LegacyWidget, which
+// routes back into the legacy `paintLegacyTag` switch.  As more
+// tags migrate (phases 2/3) the registry grows and the legacy
+// switch shrinks; eventually the fallback disappears entirely.
 std::unique_ptr<Widget> Widget::create(const QString & /*normalisedTag*/) {
-    return std::make_unique<UnknownWidget>();
+    return std::make_unique<LegacyWidget>();
 }
 
 }  // namespace WasabiQt

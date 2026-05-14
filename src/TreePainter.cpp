@@ -3,6 +3,8 @@
 
 #include <WasabiQt/TreePainter.h>
 #include <WasabiQt/Layout.h>
+#include <WasabiQt/Widget.h>
+#include <WasabiQt/PaintCtx.h>
 #include <WasabiQt/BitmapRegistry.h>
 #include <WasabiQt/FontRegistry.h>
 #include <WasabiQt/ColorRegistry.h>
@@ -75,21 +77,9 @@ QString staticImageId(const QHash<QString, QString> &a) {
     return a.value(QStringLiteral("image"));
 }
 
-struct PaintCtx {
-    BitmapRegistry        *bmp;
-    FontRegistry          *font;
-    DisplayResolver        resolver;
-    Host                  *host = nullptr;
-    GammasetRegistry      *gammasets = nullptr;
-    ColorRegistry         *colors = nullptr;
-    int                    colorthemesSelected = 0;
-    int                    colorthemesTopRow = 0;
-    QRect                 *colorthemesBboxOut = nullptr;
-    int                   *colorthemesTopRowOut = nullptr;
-    int                    visMode = 1;
-};
+}  // namespace
 
-void paintRecursive(QPainter *p, const ResolvedWidget &node,
+void paintLegacyTag(QPainter *p, const Widget &node,
                     PaintCtx &ctx, const QSize &canvas) {
     if (node.attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
@@ -750,7 +740,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         }
         if (scrollX || scrollY) p->translate(-scrollX, -scrollY);
         for (const auto &child : node.children)
-            if (child) paintRecursive(p, *child, ctx, childSize);
+            if (child) child->paint(p, ctx, childSize);
         if (translate || clipToContainer) p->restore();
         return;
     }
@@ -816,7 +806,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             LayerPainter::paintLayer(p, *ctx.bmp, node.attrs, canvas);
         }
         for (const auto &child : node.children)
-            if (child) paintRecursive(p, *child, ctx, canvas);
+            if (child) child->paint(p, ctx, canvas);
         return;
     }
 
@@ -833,7 +823,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             // via relat*/no-explicit-size; fall through silently when
             // we can't determine bounds.
             for (const auto &child : node.children)
-                if (child) paintRecursive(p, *child, ctx, canvas);
+                if (child) child->paint(p, ctx, canvas);
             return;
         }
         QImage art;
@@ -850,7 +840,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             p->drawImage(dx, dy, scaled);
         }
         for (const auto &child : node.children)
-            if (child) paintRecursive(p, *child, ctx, canvas);
+            if (child) child->paint(p, ctx, canvas);
         return;
     }
 
@@ -931,23 +921,21 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     // — painted in later milestones.  Recurse so any children that we
     // DO know how to render still get reached.
     for (const auto &child : node.children)
-        if (child) paintRecursive(p, *child, ctx, canvas);
+        if (child) child->paint(p, ctx, canvas);
 }
-
-}  // namespace
 
 void paintTree(QPainter *p, const ResolvedWidget &root,
                BitmapRegistry &reg, FontRegistry &fontReg,
                const QSize &canvas, const DisplayResolver &resolver) {
     PaintCtx ctx{&reg, &fontReg, resolver, nullptr};
-    paintRecursive(p, root, ctx, canvas);
+    const_cast<Widget &>(root).paint(p, ctx, canvas);
 }
 
 void paintTree(QPainter *p, const ResolvedWidget &root,
                BitmapRegistry &reg, FontRegistry &fontReg,
                const QSize &canvas, Host *host) {
     PaintCtx ctx{&reg, &fontReg, makeDefaultDisplayResolver(host), host};
-    paintRecursive(p, root, ctx, canvas);
+    const_cast<Widget &>(root).paint(p, ctx, canvas);
 }
 
 void paintTree(QPainter *p, const ResolvedWidget &root,
@@ -965,7 +953,7 @@ void paintTree(QPainter *p, const ResolvedWidget &root,
                  colorthemesTopRowIn,
                  colorthemesListBboxOut, colorthemesTopRowOut,
                  visMode};
-    paintRecursive(p, root, ctx, canvas);
+    const_cast<Widget &>(root).paint(p, ctx, canvas);
 }
 
 }  // namespace WasabiQt::TreePainter
