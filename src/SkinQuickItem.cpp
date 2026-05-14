@@ -475,7 +475,16 @@ SkinQuickItem::topmostWidgetAt(QPoint pointInLayout, bool actionOnly) const {
     // button.  Same resolver the alphaHitTestList path uses.
     auto &reg = const_cast<BitmapRegistry &>(m_registry);
     ctx.imageSize = [&reg](const QString &img) {
-        const QImage src = reg.imageFor(img);
+        QImage src = reg.imageFor(img);
+        // NStatesButton convention: when the bare image id isn't a
+        // registered bitmap, fall back to the `0`-suffixed variant
+        // (`repeat` → `repeat0` etc).  Without this, NStates buttons
+        // with no explicit w/h on the widget look invisible to
+        // hit-test (their image isn't found, the bbox falls through
+        // to width<=0, and the widget rejects every click).
+        if (src.isNull() && !img.isEmpty()) {
+            src = reg.imageFor(img + QStringLiteral("0"));
+        }
         return src.isNull() ? QSize() : src.size();
     };
     auto it = m_alphaCache.constFind(&m_tree);
