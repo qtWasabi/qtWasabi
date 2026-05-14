@@ -49,11 +49,21 @@ void StatusWidget::paint(QPainter *p, PaintCtx &ctx,
     if (img.isEmpty()) return;
     // Classic-Winamp status bitmaps often have different internal
     // left padding (wa.play has 4 cols of padding, wa.pause has 0,
-    // wa.stop has 2).  Align all three so their leftmost visible
-    // column lands at the same x as the play bitmap's.
+    // wa.stop has 2) and need to be aligned so their leftmost
+    // visible column lands at the same x as the play bitmap's.
+    // Modern WACUP / Winamp Modern bitmaps are *wide* — a single
+    // 90×29 bitmap spans all three transport buttons and encodes
+    // which one is highlighted by varying the visible column
+    // (play=col 0, pause=col 30, stop=col 60).  Applying the
+    // classic alignment shift to modern bitmaps mis-paints the
+    // active highlight onto the wrong button (pause highlight
+    // ends up over Play, etc).  Gate the shift to small offsets
+    // (< 8 px) so the classic case still corrects but the modern
+    // multi-button bitmap is left alone.
     const int playFvc = firstVisibleCol(*ctx.bmp, playImg);
     const int myFvc   = firstVisibleCol(*ctx.bmp, img);
-    const int xShift  = playFvc - myFvc;
+    int xShift = playFvc - myFvc;
+    if (qAbs(xShift) >= 8) xShift = 0;
     QHash<QString, QString> a = attrs;
     a.insert(QStringLiteral("image"), img);
     if (xShift != 0) {
