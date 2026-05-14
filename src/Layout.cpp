@@ -370,16 +370,18 @@ private:
 
                 // Shift content widgets down by the menubar height so
                 // the display panel + player chrome don't paint over
-                // the menubar's File/Play/Options/View/Help band.  The
-                // content's player.main / drawer / drawer.shadow use
-                // `y=-263 relaty=1` semantics — they're anchored to
-                // the BOTTOM of their parent (dummy.group), which has
-                // relath=1 so its bottom is at the MainFrame bottom.
-                // Adjusting y by +18 here makes them resolve 18 px
-                // lower (player.main top: y=17 → y=35).  Without this
-                // the menubar at y=18..35 overlays the display panel
-                // at y=18..  Other widgets (AVSGroup, videoavs.open
-                // button) use literal y so we shift them too.
+                // the menubar's File/Play/Options/View/Help band.
+                //
+                // The shift is applied *at resolve-time* via a private
+                // `_shift_y` attr that Widget::resolveRectFromAttrs
+                // adds to the resolved y.  We can't bake the shift into
+                // the `y` attr itself — drawer.m / configtabs.m later
+                // overwrite that attr with hardcoded values (e.g.
+                // setXmlParam(player.normal.drawer, y=-147) during the
+                // open-drawer animation), and those values were
+                // authored for the unshifted layout.  Keeping `y`
+                // pristine and applying the shift at the resolve step
+                // means script-set positions get shifted too.
                 if (auto *menubarChild = ([&]() -> Widget * {
                         for (auto &c : node.children) {
                             if (c && c->id.contains(
@@ -390,23 +392,20 @@ private:
                         return nullptr;
                     }())) {
                     constexpr int kMenubarShift = 18;
+                    const QString shiftStr =
+                        QString::number(kMenubarShift);
                     for (auto &c : node.children) {
                         if (!c) continue;
-                        // Skip menubar + frame chrome.
                         if (c.get() == menubarChild) continue;
                         if (c->id == QStringLiteral("wasabi.main.layout"))
                             continue;
                         if (c->tag == QStringLiteral("script") ||
                             c->tag == QStringLiteral("sendparams"))
                             continue;
-                        // Shift this content group's children — the
-                        // actual player.main / drawer / AVSGroup etc.
                         for (auto &gc : c->children) {
                             if (!gc) continue;
-                            const int curY = gc->attrs.value(
-                                QStringLiteral("y")).toInt();
-                            gc->setXmlParam(QStringLiteral("y"),
-                                QString::number(curY + kMenubarShift));
+                            gc->attrs.insert(
+                                QStringLiteral("_shift_y"), shiftStr);
                         }
                     }
                 }

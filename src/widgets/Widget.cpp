@@ -90,6 +90,12 @@ QRect Widget::resolveRectFromAttrs(const QHash<QString, QString> &a,
     if (ry) y = parent.height() + y;
     if (rw) w = parent.width()  + w;
     if (rh) h = parent.height() + h;
+    // Optional menubar shift — Layout.cpp marks grandchildren of
+    // MainFrame with `_shift_y=18` when the skin has a <wasabi.menubar>
+    // child.  The shift gets applied after relat* resolution so it
+    // works regardless of whether y is literal or anchored.
+    if (a.contains(QStringLiteral("_shift_y")))
+        y += a.value(QStringLiteral("_shift_y")).toInt();
     return QRect(x, y, w, h);
 }
 
