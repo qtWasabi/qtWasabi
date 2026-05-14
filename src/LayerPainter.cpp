@@ -57,6 +57,14 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
     if (attrBool(attrs, QStringLiteral("relaty"))) y = containerSize.height() + y;
     if (attrBool(attrs, QStringLiteral("relatw"))) w = containerSize.width()  + w;
     if (attrBool(attrs, QStringLiteral("relath"))) h = containerSize.height() + h;
+    // `_shift_y` — Layout.cpp sets this on MainFrame content
+    // grandchildren when the skin has a <wasabi.menubar> so the
+    // player chrome (and its sibling overlay widgets) clears the
+    // menubar band.  paintLayer reads attrs directly, bypassing
+    // Widget::resolveRectFromAttrs, so the shift has to be honoured
+    // here too — otherwise <layer>/<button> children inherit y=17
+    // literal and paint behind the menubar.
+    y += attrInt(attrs, QStringLiteral("_shift_y"));
     if (w <= 0) w = src.width();
     if (h <= 0) h = src.height();
 

@@ -427,16 +427,19 @@ private:
                             continue;
                         for (auto &gc : c->children) {
                             if (!gc) continue;
-                            // Shift only <group> children — the player
-                            // chrome (player.main, drawer, AVSGroup,
-                            // drawer.shadow).  Sibling <button>/<layer>
-                            // overlays at this level (videoavs.open,
-                            // videoavs.close, openclosehider,
-                            // player.button.videoavs.up.bg) live in
-                            // the menubar/titlebar band by design and
-                            // must stay at their authored y.
-                            if (gc->tag != QStringLiteral("group"))
-                                continue;
+                            // Shift every content-level child by the
+                            // menubar height — player chrome groups
+                            // AND sibling overlay widgets the authors
+                            // placed at the top of player.main
+                            // (player.button.videoavs.up.bg,
+                            // videoavs.open / videoavs.close,
+                            // openclosehider — literal y=16..19).
+                            // In the WACUP reference these sit in
+                            // row 3 (below the y=18..35 menubar row),
+                            // not in the menubar.  The "VIDEO/VIS"
+                            // text label that DOES live in the
+                            // menubar band paints from the menubar's
+                            // own `textoverlay` layer (hoisted above).
                             gc->attrs.insert(
                                 QStringLiteral("_shift_y"), shiftStr);
                         }
