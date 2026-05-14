@@ -330,12 +330,39 @@ private:
                         expandChildren(*contentDef, contentExp,
                                        iid.isEmpty() ? instanceId : iid);
                         // ...then either splice over the embed_xui
-                        // placeholder, or append at the end.
+                        // placeholder, or insert before the menubar so
+                        // the menubar paints LAST (on top of the
+                        // content's player chrome).  Wasabi's
+                        // wasabi.menubar group sits at y=18 with the
+                        // menu items inside, while the player.main
+                        // content paints from y~=17 and would otherwise
+                        // cover those items.  Real Wasabi handles this
+                        // because standardframe.maki dynamically adds
+                        // the content as a sibling and the menubar's
+                        // bringToFront() in some scripts keeps it on
+                        // top; with static expansion we get the same
+                        // effect by inserting BEFORE the menubar.
                         if (!embedTarget.isEmpty()) {
                             replaceById(node, embedTarget, contentExp.children);
                         } else {
-                            for (auto &c : contentExp.children)
-                                node.children.push_back(std::move(c));
+                            // Find the position of wasabi.menubar (or
+                            // any *.menubar* group) — insert before it.
+                            size_t insertAt = node.children.size();
+                            for (size_t i = 0; i < node.children.size(); ++i) {
+                                const auto &c = node.children[i];
+                                if (c && c->id.contains(
+                                        QStringLiteral("menubar"),
+                                        Qt::CaseInsensitive)) {
+                                    insertAt = i;
+                                    break;
+                                }
+                            }
+                            for (auto &c : contentExp.children) {
+                                node.children.insert(
+                                    node.children.begin() + insertAt,
+                                    std::move(c));
+                                ++insertAt;
+                            }
                         }
                         m_inflightInstances.remove(content);
                     }

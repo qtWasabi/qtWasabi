@@ -164,6 +164,65 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     m_gammasets.loadFromDocument(doc);
     m_colors.loadFromDocument(doc);
     m_registry.setGammasetRegistry(&m_gammasets);
+
+    // Static menualign.maki equivalent: walk doc.scripts for any
+    // menualign references, then lay out the named widgets in the
+    // owner group side-by-side.  Mirrors menualign.m's onScriptLoaded
+    // loop: `tmp.setXMLparam("x", offset); offset += tmp.getAutoWidth();`.
+    // <script> elements are filtered out during expansion, so we
+    // can't search the resolved tree for them — but doc.scripts
+    // preserves them with ownerGroupId pointing to the enclosing
+    // <groupdef>.  This runs at load time because we need the
+    // BitmapRegistry for text-bitmap widths.
+    {
+        auto bitmapWidth = [&](const QString &imgId) {
+            QImage im = m_registry.imageFor(imgId);
+            return im.isNull() ? 0 : im.width();
+        };
+        std::function<Widget *(Widget &, const QString &)> findById =
+            [&](Widget &n, const QString &id) -> Widget * {
+            if (n.id == id) return &n;
+            for (auto &c : n.children)
+                if (c)
+                    if (auto *r = findById(*c, id)) return r;
+            return nullptr;
+        };
+        for (const auto &ref : doc.scripts) {
+            if (!ref.file.contains(QStringLiteral("menualign"),
+                                    Qt::CaseInsensitive))
+                continue;
+            // Find the owner group's widget in the live tree.
+            Widget *group = findById(m_tree, ref.ownerGroupId);
+            if (!group) continue;
+            int offset = 0;
+            for (const QString &id : ref.param.split(QChar(','),
+                                                     Qt::SkipEmptyParts)) {
+                const QString name = id.trimmed();
+                Widget *target = nullptr;
+                for (const auto &c : group->children) {
+                    if (c && c->id == name) { target = c.get(); break; }
+                }
+                if (!target) continue;
+                target->setXmlParam(QStringLiteral("x"),
+                                      QString::number(offset));
+                const QString aws = target->attrs.value(
+                    QStringLiteral("autowidthsource"));
+                int w = 0;
+                if (!aws.isEmpty()) {
+                    if (Widget *src = findById(*target, aws)) {
+                        const QString img = src->attrs.value(
+                            QStringLiteral("image"));
+                        if (!img.isEmpty()) w = bitmapWidth(img);
+                    }
+                }
+                if (w > 0) {
+                    target->setXmlParam(QStringLiteral("w"),
+                                          QString::number(w));
+                    offset += w;
+                }
+            }
+        }
+    }
     // Pair every sysregion="-N" cutout layer with its sibling chrome
     // layer (image-name convention: "X.region" → "X").  The registry's
     // chromeImageFor() then returns chrome bitmaps with cutouts baked
