@@ -223,17 +223,16 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
             }
         }
     }
-    // The chrome-cutout pre-bake (sysregion="-N" layer's bitmap
-    // painted onto its sibling chrome bitmap with DestinationOut)
-    // is disabled — outer corner rounding comes from the
-    // QQuickWindow setMask, and per-widget clipping is driven by
-    // Maki scripts directly.  Pre-baking damaged bitmaps in areas
-    // that happened to overlap a "-N" mask (most visibly the
-    // player.main bottom-right region near CONFIG / winamp-flash
-    // after a drawer-close).  Set WASABIQT_LEGACY_CUTOUTS=1 to
-    // restore the legacy bake.
-    if (::getenv("WASABIQT_LEGACY_CUTOUTS"))
-        m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
+    // Pair every sysregion="-N" cutout layer with its sibling chrome
+    // layer.  These are TALL narrowing-strip cutouts that get baked
+    // INTO the chrome bitmap's alpha (BitmapRegistry::chromeImageFor
+    // uses DestinationOut).  Without this the drawer-narrowing strips
+    // along the player.main left/right edges paint as solid white
+    // stripes instead of being cut away.  Only the per-bitmap bake
+    // remains — the final-buffer pass (Layout::paintRegionCutouts)
+    // that handled small corner masks stays disabled because it
+    // damaged chrome at any other layer overlapping those corners.
+    m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
 
     auto attrInt = [&](const QString &k, int def = 0) {
         auto it = m_tree.attrs.constFind(k);
