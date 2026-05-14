@@ -1,11 +1,12 @@
 #pragma once
 //
-// <splitter> — draggable divider between two panes.  Real Wasabi tracks drag + repositions the panes; today we register so the factory recognises the tag.  Phase 5 paint is a no-op.
+// <Splitter> — draggable divider between two panes.  Real Wasabi
+// tracks the drag + repositions the adjacent panes; we paint a
+// 1-pixel divider line so the visual border between panes is
+// visible.  Drag tracking is a follow-up.
 //
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// Orientation defaults to vertical (a horizontal pane divider).
+// The skin's `orientation=` attr can switch to horizontal.
 //
 
 #include <WasabiQt/Widget.h>
@@ -13,6 +14,9 @@
 namespace WasabiQt {
 
 class SplitterWidget : public Widget {
+public:
+    bool isInteractive() const override { return true; }
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
 }  // namespace WasabiQt

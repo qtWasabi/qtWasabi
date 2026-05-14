@@ -1,11 +1,11 @@
 #pragma once
 //
-// <eqvis> — 31-band + preamp eq-visualisation widget.  Real Wasabi renders the live EQ curve over a graph background; today we register so the factory recognises the tag.  Phase 5 paint is a no-op (children recurse via base Widget).
-//
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// <EqVis> — equalizer visualisation graph.  Wasabi's seqvis widget
+// renders a curve / bar visualisation of the current EQ band state.
+// We paint a 10-band bar graph driven by host slider positions
+// (EQ_BAND_0…EQ_BAND_9 + EQ_PREAMP) when available; without host
+// data, render a flat-zero baseline so the widget has visible
+// geometry instead of an empty rect.
 //
 
 #include <WasabiQt/Widget.h>
@@ -13,6 +13,8 @@
 namespace WasabiQt {
 
 class EqVisWidget : public Widget {
+public:
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
 }  // namespace WasabiQt

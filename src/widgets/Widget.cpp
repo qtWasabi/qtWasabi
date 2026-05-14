@@ -25,7 +25,9 @@
 #include "HideObject.h"
 #include "Images.h"
 #include "Layer.h"
+#include "LayoutStatus.h"
 #include "Menu.h"
+#include "PlaylistPro.h"
 #include "Popup.h"
 #include "PopupMenu.h"
 #include "ProgressGrid.h"
@@ -311,6 +313,12 @@ std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
         return std::make_unique<BrowserWidget>();
     if (t == QStringLiteral("hideobject"))
         return std::make_unique<HideObjectWidget>();
+    if (t == QStringLiteral("layoutstatus"))
+        return std::make_unique<LayoutStatusWidget>();
+    if (t == QStringLiteral("playlistpro"))
+        return std::make_unique<PlaylistProWidget>();
+    if (t == QStringLiteral("playlistdirectory"))
+        return std::make_unique<PlaylistDirectoryWidget>();
     // Anything else: a diagnostic placeholder that logs the tag once
     // per process when WASABIQT_TRACE_UNKNOWN_TAGS=1 and recurses
     // into children so unrecognised wrappers don't break the tree.
