@@ -39,7 +39,8 @@ class FontRegistry;
 class ColorRegistry;
 class GammasetRegistry;
 class Host;
-namespace Layout { struct ResolvedWidget; }
+class Widget;
+namespace Layout { using ResolvedWidget = ::WasabiQt::Widget; }
 
 namespace TreePainter {
 

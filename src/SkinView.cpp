@@ -259,7 +259,8 @@ alphaHitRec(const Layout::ResolvedWidget &w,
 
     // Try children first (topmost-first via reverse iteration).
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
-        if (auto *hit = alphaHitRec(*it, p, childOrigin, childCanvas,
+        if (!*it) continue;
+        if (auto *hit = alphaHitRec(**it, p, childOrigin, childCanvas,
                                      actionOnly, alphaBuf,
                                      imageSize, imageSizeUserdata))
             return hit;
@@ -365,8 +366,8 @@ void alphaHitListRec(const Layout::ResolvedWidget &w,
     if (r.height() > 0) childCanvas.setHeight(r.height());
 
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
-        alphaHitListRec(*it, p, childOrigin, childCanvas, actionOnly,
-                         alphaBuf, imageSize, imageSizeUserdata, out);
+        if (*it) alphaHitListRec(**it, p, childOrigin, childCanvas, actionOnly,
+                                  alphaBuf, imageSize, imageSizeUserdata, out);
 
     const bool isContainer =
         w.tag == QStringLiteral("group") ||

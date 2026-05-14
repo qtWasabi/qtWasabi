@@ -41,6 +41,7 @@
 #include <QString>
 
 #include <WasabiQt/BitmapRegistry.h>
+#include <WasabiQt/Widget.h>
 
 class QPainter;
 
@@ -49,15 +50,17 @@ namespace SkinXml { struct Document; }
 
 namespace Layout {
 
-struct ResolvedWidget {
-    QString tag;                          // lowercased element name
-    QString id;                           // attrs["id"], promoted for convenience
-    QString instanceId;                   // attrs["instanceid"], same
-    QHash<QString, QString> attrs;        // post-sendparams attributes
-    QList<ResolvedWidget>   children;     // for <group>/<groupdef>/<container>
-    QString sourceFile;
-    int     sourceLine = 0;
-};
+// ResolvedWidget = Widget — phase-2 of the class-per-widget refactor
+// makes the layout tree polymorphic.  The `Widget` base holds the same
+// data fields ResolvedWidget historically did (tag/id/attrs/source-
+// info); subclasses (LayerWidget, ButtonWidget, …) add per-tag paint /
+// hitTest / event-handler overrides plus per-instance runtime state.
+//
+// Children went from QList<ResolvedWidget> (value-typed) to
+// std::vector<std::unique_ptr<Widget>> (polymorphic).  Existing
+// `for (const auto &c : node.children)` walks still iterate, but
+// element access is `c->tag` / `c->attrs` (c is a unique_ptr).
+using ResolvedWidget = ::WasabiQt::Widget;
 
 // Find (containerId, layoutId) in `doc` and produce its expanded
 // tree.  Returns false if the container or layout isn't present;

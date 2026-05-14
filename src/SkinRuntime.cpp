@@ -114,7 +114,7 @@ void registerWidgets(Layout::ResolvedWidget &w,
         // accessors via the Qt-side bridge registry.
         registerWidgetForScripts(w.id, &w, handle);
     }
-    for (auto &c : w.children) registerWidgets(c, out);
+    for (auto &c : w.children) if (c) registerWidgets(*c, out);
 }
 
 // Look for the first widget in the resolved tree that matches an
@@ -140,7 +140,7 @@ Layout::ResolvedWidget *findOwnerWidget(Layout::ResolvedWidget &root,
         if (!byInherit  &&
             w.attrs.value(QStringLiteral("inherit_group")) == gid)
             byInherit = &w;
-        for (auto &c : w.children) walk(c);
+        for (auto &c : w.children) if (c) walk(*c);
     };
     walk(root);
     if (byId)      return byId;
@@ -375,7 +375,7 @@ void collectXuiParams(const Layout::ResolvedWidget &w,
                 out.append({it.key(), it.value()});
         }
     }
-    for (const auto &c : w.children) collectXuiParams(c, out);
+    for (const auto &c : w.children) if (c) collectXuiParams(*c, out);
 }
 }  // namespace
 

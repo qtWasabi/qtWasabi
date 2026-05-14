@@ -476,8 +476,8 @@ void alphaHitListRec(const Layout::ResolvedWidget &w,
     }
 
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
-        alphaHitListRec(*it, p, childOrigin, childCanvas, actionOnly,
-                         alphaBuf, imageSize, imageSizeUserdata, out);
+        if (*it) alphaHitListRec(**it, p, childOrigin, childCanvas, actionOnly,
+                                  alphaBuf, imageSize, imageSizeUserdata, out);
 
     const bool isContainer =
         w.tag == QStringLiteral("group")          ||

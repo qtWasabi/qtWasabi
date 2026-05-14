@@ -750,7 +750,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
         }
         if (scrollX || scrollY) p->translate(-scrollX, -scrollY);
         for (const auto &child : node.children)
-            paintRecursive(p, child, ctx, childSize);
+            if (child) paintRecursive(p, *child, ctx, childSize);
         if (translate || clipToContainer) p->restore();
         return;
     }
@@ -816,7 +816,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             LayerPainter::paintLayer(p, *ctx.bmp, node.attrs, canvas);
         }
         for (const auto &child : node.children)
-            paintRecursive(p, child, ctx, canvas);
+            if (child) paintRecursive(p, *child, ctx, canvas);
         return;
     }
 
@@ -833,7 +833,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             // via relat*/no-explicit-size; fall through silently when
             // we can't determine bounds.
             for (const auto &child : node.children)
-                paintRecursive(p, child, ctx, canvas);
+                if (child) paintRecursive(p, *child, ctx, canvas);
             return;
         }
         QImage art;
@@ -850,7 +850,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
             p->drawImage(dx, dy, scaled);
         }
         for (const auto &child : node.children)
-            paintRecursive(p, child, ctx, canvas);
+            if (child) paintRecursive(p, *child, ctx, canvas);
         return;
     }
 
@@ -931,7 +931,7 @@ void paintRecursive(QPainter *p, const ResolvedWidget &node,
     // — painted in later milestones.  Recurse so any children that we
     // DO know how to render still get reached.
     for (const auto &child : node.children)
-        paintRecursive(p, child, ctx, canvas);
+        if (child) paintRecursive(p, *child, ctx, canvas);
 }
 
 }  // namespace

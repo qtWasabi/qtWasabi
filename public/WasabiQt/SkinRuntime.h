@@ -25,7 +25,8 @@
 namespace WasabiQt {
 
 namespace SkinXml { struct Document; }
-namespace Layout  { struct ResolvedWidget; }
+class Widget;
+namespace Layout  { using ResolvedWidget = ::WasabiQt::Widget; }
 
 class SkinRuntime {
 public:

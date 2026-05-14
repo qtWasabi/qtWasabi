@@ -121,14 +121,26 @@ const Element *findLayout(const Element &container, const QString &id) {
     return nullptr;
 }
 
-ResolvedWidget makeResolved(const Element &src) {
-    ResolvedWidget r;
-    r.tag        = src.tag;
-    r.id         = src.attrs.value(QStringLiteral("id"));
-    r.instanceId = src.attrs.value(QStringLiteral("instanceid"));
-    r.attrs      = src.attrs;
-    r.sourceFile = src.sourceFile;
-    r.sourceLine = src.sourceLine;
+// makeResolved — instantiate a Widget subclass appropriate to `src.tag`
+// (Widget::create factory) and copy the element's attrs onto it.  The
+// result is owned by the caller; typical pattern:
+//
+//   auto nodePtr = makeResolved(el);
+//   /* ... populate nodePtr->children ... */
+//   parent.children.push_back(std::move(nodePtr));
+//
+// Returning a unique_ptr (rather than ResolvedWidget by value) is
+// required for the polymorphic tree — Widget subclasses can't be
+// value-stored or copied because of the unique_ptr-of-children field
+// (move-only) and the abstract-base-via-children pattern.
+std::unique_ptr<Widget> makeResolved(const Element &src) {
+    auto r = Widget::create(src.tag);
+    r->tag        = src.tag;
+    r->id         = src.attrs.value(QStringLiteral("id"));
+    r->instanceId = src.attrs.value(QStringLiteral("instanceid"));
+    r->attrs      = src.attrs;
+    r->sourceFile = src.sourceFile;
+    r->sourceLine = src.sourceLine;
     return r;
 }
 
@@ -202,7 +214,8 @@ private:
             if (m_inflightInstances.contains(gid)) return;
             m_inflightInstances.insert(gid);
 
-            ResolvedWidget node = makeResolved(el);
+            auto nodePtr = makeResolved(el);
+            Widget &node = *nodePtr;
 
             // Default the instance's tag to "group" so the painter
             // recurses into its body — without this, custom xuitag
@@ -303,7 +316,7 @@ private:
                         const QString embedTarget =
                             def->attrs.value(QStringLiteral("embed_xui"));
                         // Build the content's children into a temp node...
-                        ResolvedWidget contentExp;
+                        Widget contentExp;
                         expandChildren(*contentDef, contentExp,
                                        iid.isEmpty() ? instanceId : iid);
                         // ...then either splice over the embed_xui
@@ -312,7 +325,7 @@ private:
                             replaceById(node, embedTarget, contentExp.children);
                         } else {
                             for (auto &c : contentExp.children)
-                                node.children.append(std::move(c));
+                                node.children.push_back(std::move(c));
                         }
                         m_inflightInstances.remove(content);
                     }
@@ -320,7 +333,7 @@ private:
             }
 
             m_inflightInstances.remove(gid);
-            parent.children.append(std::move(node));
+            parent.children.push_back(std::move(nodePtr));
             return;
         }
 
@@ -331,7 +344,8 @@ private:
         // panes at their default widths so the content widgets
         // referenced by Bento etc. actually render.
         if (el.tag == QStringLiteral("wasabi_frame")) {
-            ResolvedWidget node = makeResolved(el);
+            auto nodePtr = makeResolved(el);
+            Widget &node = *nodePtr;
             node.tag = QStringLiteral("group");
             applySendparams(node, instanceId);
 
@@ -403,12 +417,13 @@ private:
             addPane(first,  /*isFirst=*/true);
             addPane(second, /*isFirst=*/false);
 
-            parent.children.append(std::move(node));
+            parent.children.push_back(std::move(nodePtr));
             return;
         }
 
         // Regular element.
-        ResolvedWidget node = makeResolved(el);
+        auto nodePtr = makeResolved(el);
+        Widget &node = *nodePtr;
         applySendparams(node, instanceId);
         if (!el.children.isEmpty())
             expandChildren(el, node, instanceId);
@@ -484,7 +499,7 @@ private:
                                    QString::number(ids.size()));
             }
         }
-        parent.children.append(std::move(node));
+        parent.children.push_back(std::move(nodePtr));
     }
 
     void applySendparams(ResolvedWidget &w, const QString &instanceId) {
@@ -514,14 +529,15 @@ private:
     // Walk `node`'s tree, find the first descendant with `id == targetId`,
     // and replace its children with `replacement`.  Used to splice a
     // frame's `content` groupdef into the `embed_xui` placeholder slot.
-    static bool replaceById(ResolvedWidget &node, const QString &targetId,
-                            QList<ResolvedWidget> &replacement) {
+    static bool replaceById(Widget &node, const QString &targetId,
+                            std::vector<std::unique_ptr<Widget>> &replacement) {
         for (auto &c : node.children) {
-            if (c.id == targetId) {
-                c.children = std::move(replacement);
+            if (!c) continue;
+            if (c->id == targetId) {
+                c->children = std::move(replacement);
                 return true;
             }
-            if (replaceById(c, targetId, replacement)) return true;
+            if (replaceById(*c, targetId, replacement)) return true;
         }
         return false;
     }
@@ -553,7 +569,7 @@ void resolveGroupXFadePagesRec(ResolvedWidget &node,
         }
     }
     for (auto &c : node.children)
-        resolveGroupXFadePagesRec(c, doc, index, sendparams, hidden);
+        if (c) resolveGroupXFadePagesRec(*c, doc, index, sendparams, hidden);
 }
 
 }  // namespace
@@ -670,7 +686,17 @@ bool expandLayout(const SkinXml::Document &doc,
     };
     for (const auto &id : kScriptHiddenByDefault) hidden.insert(id);
 
-    out = makeResolved(*layout);
+    // Populate `out` (the caller's root Widget) with the layout's tag/
+    // attrs/source info, then expand its children.  We can't replace
+    // `out` wholesale via assignment because Widget is polymorphic
+    // (and the caller owns it); we just copy the fields and recurse.
+    out.tag        = layout->tag;
+    out.id         = layout->attrs.value(QStringLiteral("id"));
+    out.instanceId = layout->attrs.value(QStringLiteral("instanceid"));
+    out.attrs      = layout->attrs;
+    out.sourceFile = layout->sourceFile;
+    out.sourceLine = layout->sourceLine;
+    out.children.clear();
     Expander ex(groupdefs, sendparams, hidden);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
 
@@ -696,14 +722,14 @@ namespace knownscripts {
 ResolvedWidget *findById(ResolvedWidget &w, const QString &id) {
     if (w.id == id) return &w;
     for (auto &c : w.children)
-        if (auto *r = findById(c, id)) return r;
+        if (c) if (auto *r = findById(*c, id)) return r;
     return nullptr;
 }
 
 ResolvedWidget *findByTag(ResolvedWidget &w, const QString &tag) {
     if (w.tag == tag) return &w;
     for (auto &c : w.children)
-        if (auto *r = findByTag(c, tag)) return r;
+        if (c) if (auto *r = findByTag(*c, tag)) return r;
     return nullptr;
 }
 
@@ -732,7 +758,7 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
                     streakRight = &w;
                 }
             }
-            for (auto &c : w.children) walk(c);
+            for (auto &c : w.children) if (c) walk(*c);
         };
         walk(titlebar);
     }
@@ -885,7 +911,7 @@ void applyTo(ResolvedWidget &root, int layoutWidth) {
             ? xOffset + w.attrs.value(QStringLiteral("x")).toInt()
             : xOffset;
         for (auto &c : w.children)
-            walk(c, childOffset, newPadLeft, newPadRight);
+            if (c) walk(*c, childOffset, newPadLeft, newPadRight);
     };
     walk(root, 0, 0, 0);
 }
@@ -926,7 +952,7 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
                     [&](ResolvedWidget &n) -> ResolvedWidget * {
                     if (n.id == aws) return &n;
                     for (auto &c : n.children)
-                        if (auto *r = findById(c)) return r;
+                        if (c) if (auto *r = findById(*c)) return r;
                     return nullptr;
                 };
                 ResolvedWidget *src = findById(root);
@@ -968,7 +994,7 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
                 }
             }
         }
-        for (auto &c : w.children) resolveAutoWidth(c);
+        for (auto &c : w.children) if (c) resolveAutoWidth(*c);
     };
     resolveAutoWidth(root);
 }
@@ -1122,7 +1148,8 @@ const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
 
     // Recurse into children first — topmost match wins.
     for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
-        if (auto *hit = hitTestRec(*it, p, childOrigin, childCanvas,
+        if (!*it) continue;
+        if (auto *hit = hitTestRec(**it, p, childOrigin, childCanvas,
                                     actionOnly, resolver, userdata,
                                     outBbox))
             return hit;
@@ -1387,8 +1414,8 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     }
 
     for (const auto &c : w.children)
-        paintRegionLayers(p, c, reg, childCanvas, outFoundAny, pass,
-                          stripNarrowing);
+        if (c) paintRegionLayers(p, *c, reg, childCanvas, outFoundAny, pass,
+                                  stripNarrowing);
 
     if (translate) p.restore();
 }
@@ -1479,7 +1506,9 @@ void collectChromeCutoutsRec(
     // cutout's image minus the ".region" suffix.  Record the cutout
     // with its offset relative to the chrome (in parent-local coords).
     const QString kRegionSuffix = QStringLiteral(".region");
-    for (const auto &cutout : node.children) {
+    for (const auto &cutoutPtr : node.children) {
+        if (!cutoutPtr) continue;
+        const Widget &cutout = *cutoutPtr;
         if (cutout.tag != QStringLiteral("layer")) continue;
         const QString sr = cutout.attrs.value(QStringLiteral("sysregion"));
         if (sr.isEmpty() || !sr.startsWith(QChar('-'))) continue;
@@ -1487,17 +1516,12 @@ void collectChromeCutoutsRec(
         if (!cutoutImg.endsWith(kRegionSuffix)) continue;
         const QString chromeImg =
             cutoutImg.left(cutoutImg.size() - kRegionSuffix.size());
-        for (const auto &chrome : node.children) {
+        for (const auto &chromePtr : node.children) {
+            if (!chromePtr) continue;
+            const Widget &chrome = *chromePtr;
             if (chrome.tag != QStringLiteral("layer")) continue;
             if (chrome.attrs.value(QStringLiteral("image")) != chromeImg)
                 continue;
-            // Compute offset = cutout.xy - chrome.xy.  Both should share
-            // the same relatx/relaty polarity for this offset to be
-            // meaningful — for the modern chrome layouts we care about,
-            // chrome and cutout siblings declare matching positioning
-            // attributes (drawer's left+left.region both at (0,0);
-            // player chrome at (0,0) and corner mask at (0,120) with
-            // neither using relat-).
             int cx = chrome.attrs.value(QStringLiteral("x")).toInt();
             int cy = chrome.attrs.value(QStringLiteral("y")).toInt();
             int rx = cutout.attrs.value(QStringLiteral("x")).toInt();
@@ -1510,7 +1534,7 @@ void collectChromeCutoutsRec(
         }
     }
     for (const auto &child : node.children)
-        collectChromeCutoutsRec(child, out);
+        if (child) collectChromeCutoutsRec(*child, out);
 }
 
 }  // namespace
