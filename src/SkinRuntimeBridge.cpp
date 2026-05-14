@@ -25,6 +25,9 @@
 #include <QPointer>
 #include <QString>
 #include <QVariantAnimation>
+#include <cstdio>
+#include <cstdlib>
+#include <cwchar>
 #include <functional>
 
 namespace WasabiQt {
@@ -212,6 +215,24 @@ void *wq_widget_findById(const wchar_t *id) {
 
 void wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value) {
     if (!handle || !name) return;
+    // Refuse to hide the active layout root.  Wasabi models each
+    // container as having its own per-container Layout object;
+    // qtWasabi's Maki bindings (wq_getContainer / wq_getLayoutByName)
+    // currently lack that model and hand back the active layout root
+    // for any container name.  When a script does
+    // `getContainer("OtherContainer").getLayout("normal").hide()`
+    // (Winamp Modern's playlistpro.m does this for the searchresults
+    // popup window), the misdirected call lands on the player
+    // root and the entire player vanishes.  Drop the mutation until
+    // proper per-container layout tracking lands.
+    if (handle == WasabiQt::g_layoutRootScriptObject &&
+        std::wcscmp(name, L"visible") == 0 &&
+        value && std::wcscmp(value, L"0") == 0) {
+        if (std::getenv("WASABIQT_TRACE_LAYOUTROOT"))
+            std::fprintf(stderr,
+                "[wq_widget_setAttr] refusing to hide active layout root\n");
+        return;
+    }
     // The handle is a WidgetScriptObject*.  We get its opaque widget
     // ptr via the public bridge (avoids re-including the opensourced
     // ScriptObject header here).
