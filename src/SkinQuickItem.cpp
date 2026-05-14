@@ -467,6 +467,17 @@ SkinQuickItem::topmostWidgetAt(QPoint pointInLayout, bool actionOnly) const {
     HitCtx ctx;
     ctx.actionOnly = actionOnly;
     ctx.requireIdOrInteractive = true;
+    // Resolve bitmap natural size for widgets without explicit w/h
+    // (buttons commonly omit both — Wasabi's `<button image="..."/>`
+    // implicitly sizes to the bitmap).  Without this resolver
+    // Widget::hitTest's self-bbox falls through to width<=0 and
+    // returns null, so hover/hit-test fails on every bare-bitmap
+    // button.  Same resolver the alphaHitTestList path uses.
+    auto &reg = const_cast<BitmapRegistry &>(m_registry);
+    ctx.imageSize = [&reg](const QString &img) {
+        const QImage src = reg.imageFor(img);
+        return src.isNull() ? QSize() : src.size();
+    };
     auto it = m_alphaCache.constFind(&m_tree);
     if (it != m_alphaCache.constEnd() && !it->isNull())
         ctx.alphaBuf = &(*it);
