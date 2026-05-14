@@ -82,6 +82,37 @@
          scriptVar r = callDLF(e, np);
          VCPUscriptVar vr;
          vr.scriptId = VSD;
+@@ -1581,8 +1632,28 @@
+       SOM::assign(&v->v, &sv);
+     }
+   } else {
+-    ASSERT(sv.type == SCRIPT_STRING);
+-    SOM::persistentstrassign(&v->v, sv.data.sdata);
++    // qtWasabi: coerce numbers/booleans to strings instead of the
++    // bare ASSERT.  Real Wasabi-on-Win32 lets scripts assign mixed
++    // types into a string slot; Bento's playlistpro.m / configtabs.m
++    // chains rely on it (e.g. `tabName = idx`).  Without the
++    // coercion the original ASSERT logged but execution continued
++    // through `persistentstrassign(... sv.data.sdata)` which read
++    // sv.data.sdata for what was actually an int/float — garbage
++    // wcs into the script.
++    if (sv.type == SCRIPT_STRING) {
++      SOM::persistentstrassign(&v->v, sv.data.sdata);
++    } else if (sv.type == SCRIPT_INT ||
++               sv.type == SCRIPT_BOOLEAN) {
++      wchar_t buf[32];
++      ::swprintf(buf, 32, L"%d", sv.data.idata);
++      SOM::persistentstrassign(&v->v, buf);
++    } else if (sv.type == SCRIPT_FLOAT) {
++      wchar_t buf[64];
++      ::swprintf(buf, 64, L"%g", sv.data.fdata);
++      SOM::persistentstrassign(&v->v, buf);
++    } else {
++      SOM::persistentstrassign(&v->v, L"");
++    }
+   }
+
+   return v->v;
 @@ -1638,13 +1689,64 @@
  
    //traceState(object, e);
