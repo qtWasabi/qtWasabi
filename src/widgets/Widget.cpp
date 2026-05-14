@@ -10,22 +10,37 @@
 
 #include "AlbumArt.h"
 #include "AnimatedLayer.h"
+#include "Browser.h"
 #include "Button.h"
+#include "CheckBox.h"
 #include "ColorThemesList.h"
 #include "ComponentBucket.h"
 #include "Container.h"
+#include "DropDownList.h"
 #include "Edit.h"
+#include "EqVis.h"
 #include "Grid.h"
 #include "GroupXFade.h"
+#include "GuiList.h"
+#include "HideObject.h"
 #include "Images.h"
 #include "Layer.h"
+#include "Menu.h"
+#include "Popup.h"
+#include "PopupMenu.h"
 #include "ProgressGrid.h"
+#include "RadioGroup.h"
 #include "Rect.h"
+#include "ScrollBar.h"
 #include "Slider.h"
+#include "Splitter.h"
 #include "Status.h"
+#include "TabSheet.h"
 #include "Text.h"
+#include "TreeList.h"
 #include "Vis.h"
 #include "WindowHolder.h"
+#include "XmlRenderer.h"
 
 #include <QPainter>
 #include <QSet>
@@ -251,6 +266,40 @@ std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
         t == QStringLiteral("groupdef")  ||
         t.startsWith(QStringLiteral("wasabi_")))
         return std::make_unique<ContainerWidget>();
+    // Phase 5 stubs — registered so the factory recognises the tag,
+    // paint inherits the default (visibility check + child recurse).
+    // Phase 6 lands per-widget state + host integration that drives
+    // actual paint behaviour for these.
+    if (t == QStringLiteral("menu"))
+        return std::make_unique<MenuWidget>();
+    if (t == QStringLiteral("eqvis"))
+        return std::make_unique<EqVisWidget>();
+    if (t == QStringLiteral("guilist") || t == QStringLiteral("list"))
+        return std::make_unique<GuiListWidget>();
+    if (t == QStringLiteral("treelist"))
+        return std::make_unique<TreeListWidget>();
+    if (t == QStringLiteral("scrollbar"))
+        return std::make_unique<ScrollBarWidget>();
+    if (t == QStringLiteral("popup"))
+        return std::make_unique<PopupWidget>();
+    if (t == QStringLiteral("popupmenu"))
+        return std::make_unique<PopupMenuWidget>();
+    if (t == QStringLiteral("splitter"))
+        return std::make_unique<SplitterWidget>();
+    if (t == QStringLiteral("tabsheet"))
+        return std::make_unique<TabSheetWidget>();
+    if (t == QStringLiteral("xmlrenderer"))
+        return std::make_unique<XmlRendererWidget>();
+    if (t == QStringLiteral("checkbox"))
+        return std::make_unique<CheckBoxWidget>();
+    if (t == QStringLiteral("radiogroup"))
+        return std::make_unique<RadioGroupWidget>();
+    if (t == QStringLiteral("dropdownlist"))
+        return std::make_unique<DropDownListWidget>();
+    if (t == QStringLiteral("browser"))
+        return std::make_unique<BrowserWidget>();
+    if (t == QStringLiteral("hideobject"))
+        return std::make_unique<HideObjectWidget>();
     // Anything else: a diagnostic placeholder that logs the tag once
     // per process when WASABIQT_TRACE_UNKNOWN_TAGS=1 and recurses
     // into children so unrecognised wrappers don't break the tree.
