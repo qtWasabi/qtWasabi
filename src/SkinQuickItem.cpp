@@ -232,7 +232,8 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     // remains — the final-buffer pass (Layout::paintRegionCutouts)
     // that handled small corner masks stays disabled because it
     // damaged chrome at any other layer overlapping those corners.
-    m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
+    m_registry.setChromeCutouts(
+        Layout::collectChromeCutouts(m_tree, m_registry));
 
     auto attrInt = [&](const QString &k, int def = 0) {
         auto it = m_tree.attrs.constFind(k);

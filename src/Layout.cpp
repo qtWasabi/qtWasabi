@@ -1482,14 +1482,68 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
 
 namespace {
 
+// Bbox of a layer in its parent's coord system, expressed in a way
+// that's comparable across siblings without knowing the parent's
+// canvas dims.  Returns (x, y, w, h) in raw-attr space; the caller
+// only compares bboxes that share the same relat-flags pair.
+struct LayerBox {
+    int x, y, w, h;
+    bool relatx, relaty;
+};
+LayerBox layerBoxFor(const Widget &w, BitmapRegistry &reg) {
+    LayerBox b{};
+    b.x = w.attrs.value(QStringLiteral("x")).toInt();
+    b.y = w.attrs.value(QStringLiteral("y")).toInt();
+    b.w = w.attrs.value(QStringLiteral("w")).toInt();
+    b.h = w.attrs.value(QStringLiteral("h")).toInt();
+    b.relatx = (w.attrs.value(QStringLiteral("relatx")) ==
+                QStringLiteral("1"));
+    b.relaty = (w.attrs.value(QStringLiteral("relaty")) ==
+                QStringLiteral("1"));
+    // Fall back to bitmap's natural dimensions when w/h aren't set
+    // (Wasabi convention — same fallback paintLayer uses).
+    if (b.w <= 0 || b.h <= 0) {
+        const QString img = w.attrs.value(QStringLiteral("image"));
+        if (!img.isEmpty()) {
+            const QImage src = reg.imageFor(img);
+            if (!src.isNull()) {
+                if (b.w <= 0) b.w = src.width();
+                if (b.h <= 0) b.h = src.height();
+            }
+        }
+    }
+    return b;
+}
+
+// True if two boxes overlap in their parent's coord system.  Only
+// safe to compare when both share the same relat-flag values
+// (otherwise one is "from-left" and the other "from-right" and we
+// can't compare without knowing parent.w/h).
+bool boxesOverlap(const LayerBox &a, const LayerBox &b) {
+    if (a.relatx != b.relatx) return false;
+    if (a.relaty != b.relaty) return false;
+    if (a.w <= 0 || a.h <= 0 || b.w <= 0 || b.h <= 0) return false;
+    const int aR = a.x + a.w, aB = a.y + a.h;
+    const int bR = b.x + b.w, bB = b.y + b.h;
+    return !(a.x >= bR || b.x >= aR || a.y >= bB || b.y >= aB);
+}
+
 void collectChromeCutoutsRec(
         const ResolvedWidget &node,
+        BitmapRegistry &reg,
         QHash<QString, QList<ChromeCutout>> &out) {
-    // For each child of this node, if it's a `sysregion="-N"` cutout
-    // layer, look for a sibling chrome layer whose image is the
-    // cutout's image minus the ".region" suffix.  Record the cutout
-    // with its offset relative to the chrome (in parent-local coords).
-    const QString kRegionSuffix = QStringLiteral(".region");
+    // For each `sysregion="-N"` cutout layer in this node's
+    // children, register it as a cutout against every sibling chrome
+    // layer whose bbox overlaps the cutout's bbox.  The image-name
+    // pairing convention (`<chrome>.region` ↔ `<chrome>`) was a
+    // sufficient heuristic when each cutout had exactly one chrome
+    // sibling covering its area, but skins commonly stack a second
+    // opaque overlay over a corner cutout (WinampModernPP's
+    // `window.bg2.right` over `window.right.bottom.region`, hosting
+    // CONFIG / about UI).  Pairing only by image-name would miss the
+    // overlay and leave its opaque corner pixels visible past the
+    // intended round-off.  Geometric overlap catches every chrome
+    // that should be cut, regardless of image-name convention.
     for (const auto &cutoutPtr : node.children) {
         if (!cutoutPtr) continue;
         const Widget &cutout = *cutoutPtr;
@@ -1497,36 +1551,40 @@ void collectChromeCutoutsRec(
         const QString sr = cutout.attrs.value(QStringLiteral("sysregion"));
         if (sr.isEmpty() || !sr.startsWith(QChar('-'))) continue;
         const QString cutoutImg = cutout.attrs.value(QStringLiteral("image"));
-        if (!cutoutImg.endsWith(kRegionSuffix)) continue;
-        const QString chromeImg =
-            cutoutImg.left(cutoutImg.size() - kRegionSuffix.size());
+        if (cutoutImg.isEmpty()) continue;
+        const LayerBox cb = layerBoxFor(cutout, reg);
         for (const auto &chromePtr : node.children) {
             if (!chromePtr) continue;
             const Widget &chrome = *chromePtr;
             if (chrome.tag != QStringLiteral("layer")) continue;
-            if (chrome.attrs.value(QStringLiteral("image")) != chromeImg)
+            // Skip the cutout itself and any other cutout layer.
+            if (&chrome == &cutout) continue;
+            const QString chromeSr =
+                chrome.attrs.value(QStringLiteral("sysregion"));
+            if (!chromeSr.isEmpty() &&
+                chromeSr.startsWith(QChar('-')))
                 continue;
-            int cx = chrome.attrs.value(QStringLiteral("x")).toInt();
-            int cy = chrome.attrs.value(QStringLiteral("y")).toInt();
-            int rx = cutout.attrs.value(QStringLiteral("x")).toInt();
-            int ry = cutout.attrs.value(QStringLiteral("y")).toInt();
+            const QString chromeImg =
+                chrome.attrs.value(QStringLiteral("image"));
+            if (chromeImg.isEmpty()) continue;
+            const LayerBox ch = layerBoxFor(chrome, reg);
+            if (!boxesOverlap(cb, ch)) continue;
             ChromeCutout cc;
             cc.cutoutImage = cutoutImg;
-            cc.offset      = QPoint(rx - cx, ry - cy);
+            cc.offset      = QPoint(cb.x - ch.x, cb.y - ch.y);
             out[chromeImg].append(cc);
-            break;
         }
     }
     for (const auto &child : node.children)
-        if (child) collectChromeCutoutsRec(*child, out);
+        if (child) collectChromeCutoutsRec(*child, reg, out);
 }
 
 }  // namespace
 
 QHash<QString, QList<ChromeCutout>>
-collectChromeCutouts(const ResolvedWidget &root) {
+collectChromeCutouts(const ResolvedWidget &root, BitmapRegistry &reg) {
     QHash<QString, QList<ChromeCutout>> out;
-    collectChromeCutoutsRec(root, out);
+    collectChromeCutoutsRec(root, reg, out);
     if (::getenv("WASABIQT_TRACE_CUTOUT_PAIRS")) {
         for (auto it = out.constBegin(); it != out.constEnd(); ++it) {
             for (const ChromeCutout &cc : it.value()) {

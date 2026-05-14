@@ -142,7 +142,8 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
 // chrome at the same canvas pixels then leaves the underlying chrome
 // visible at the cut area (no notch at the player/drawer overlap).
 QHash<QString, QList<ChromeCutout>>
-    collectChromeCutouts(const ResolvedWidget &root);
+    collectChromeCutouts(const ResolvedWidget &root,
+                         BitmapRegistry &registry);
 
 // Replay the subtractive half of the sysregion walk directly on a
 // QPainter aimed at the just-painted chrome buffer.  For every layer
