@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
+#include <WasabiQt/HitCtx.h>
 #include <WasabiQt/Layout.h>
 #include <WasabiQt/SkinXml.h>
 #include <WasabiQt/BitmapRegistry.h>
 #include <WasabiQt/LayerPainter.h>
+#include <WasabiQt/Widget.h>
 
 #include <QBitmap>
 #include <QFont>
@@ -1072,126 +1074,6 @@ QRect resolveRect(const QHash<QString, QString> &a, QSize parent) {
     return QRect(x, y, w, h);
 }
 
-bool isContainer(const QString &tag) {
-    return tag == QStringLiteral("group")          ||
-           tag == QStringLiteral("container")      ||
-           tag == QStringLiteral("layout")         ||
-           tag == QStringLiteral("groupdef")       ||
-           tag == QStringLiteral("componentbucket")||
-           tag == QStringLiteral("groupxfade");
-}
-
-const ResolvedWidget *hitTestRec(const ResolvedWidget &w,
-                                 QPoint p, QPoint origin, QSize canvas,
-                                 bool actionOnly,
-                                 ImageSizeResolver resolver,
-                                 void *userdata,
-                                 QRect *outBbox) {
-    // Hidden widgets (visible="0") don't participate in hit-test
-    // either, just like painting.  Without this, off-screen helper
-    // groups like AVSGroup intercept clicks on the visible chrome
-    // (their bg layer spans most of the layout).
-    if (w.attrs.value(QStringLiteral("visible")) ==
-        QStringLiteral("0"))
-        return nullptr;
-    const QRect r = resolveRect(w.attrs, canvas);
-
-    // Layout: doesn't translate, but propagates its own size to
-    // children.  Other containers (group/container/groupdef)
-    // translate by (r.x, r.y).
-    QPoint childOrigin = origin;
-    if (w.tag != QStringLiteral("layout")) {
-        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
-    }
-    // componentbucket additionally translates children by -scroll*step
-    // (matching TreePainter's per-paint translate).  Without applying
-    // the same offset to the hit-test, clicking on a visually-scrolled
-    // entry hits the widget that was at THAT POSITION pre-scroll —
-    // the off-by-N "I clicked the row below but the row above's page
-    // opened" misdispatch on the options drawer after a scroll click.
-    if (w.tag == QStringLiteral("componentbucket")) {
-        const int scroll =
-            w.attrs.value(QStringLiteral("_scroll")).toInt();
-        const int step =
-            w.attrs.value(QStringLiteral("_entry_step")).toInt();
-        const bool vertical =
-            w.attrs.value(QStringLiteral("vertical")) ==
-            QStringLiteral("1");
-        if (scroll > 0 && step > 0) {
-            if (vertical) childOrigin.ry() -= scroll * step;
-            else          childOrigin.rx() -= scroll * step;
-        }
-    }
-    QSize childCanvas = canvas;
-    if (r.width()  > 0) childCanvas.setWidth (r.width());
-    if (r.height() > 0) childCanvas.setHeight(r.height());
-
-    // Containers that declared an explicit size clip child hit-test
-    // to their own rect — mirror of TreePainter's `clipToContainer`
-    // setClipRect.  Without it the componentbucket's scrolled-off
-    // (visually clipped) entries still consume clicks at coordinates
-    // that visibly belong to widgets below the bucket (e.g. the
-    // EQUALIZER tab landing on a hidden bucket row at y > h).
-    if (w.tag != QStringLiteral("layout")) {
-        const bool hasH =
-            w.attrs.contains(QStringLiteral("h")) ||
-            w.attrs.contains(QStringLiteral("relath"));
-        const bool hasW =
-            w.attrs.contains(QStringLiteral("w")) ||
-            w.attrs.contains(QStringLiteral("relatw"));
-        if ((hasW && r.width()  > 0) || (hasH && r.height() > 0)) {
-            // Use canvas-relative bounds: childOrigin is the
-            // container's top-left in absolute canvas coords (after
-            // the parent translate).
-            const int ox = origin.x() + r.x();
-            const int oy = origin.y() + r.y();
-            const QRect bounds(
-                ox, oy,
-                hasW ? r.width()  : canvas.width(),
-                hasH ? r.height() : canvas.height());
-            if (!bounds.contains(p)) return nullptr;
-        }
-    }
-
-    // Recurse into children first — topmost match wins.
-    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it) {
-        if (!*it) continue;
-        if (auto *hit = hitTestRec(**it, p, childOrigin, childCanvas,
-                                    actionOnly, resolver, userdata,
-                                    outBbox))
-            return hit;
-    }
-
-    if (actionOnly &&
-        !w.attrs.contains(QStringLiteral("action"))) {
-        return nullptr;
-    }
-
-    // Self bbox: prefer explicit/resolved w/h, fall back to
-    // bitmap-image dimensions for widgets without sizes.
-    int width  = r.width();
-    int height = r.height();
-    if ((width <= 0 || height <= 0) && resolver) {
-        const QString img = w.attrs.value(QStringLiteral("image"));
-        if (!img.isEmpty()) {
-            const QSize imgSize = resolver(img, userdata);
-            if (width  <= 0) width  = imgSize.width();
-            if (height <= 0) height = imgSize.height();
-        }
-    }
-    if (width <= 0 || height <= 0) return nullptr;
-
-    // Container widgets are usually transparent — their hits would
-    // shadow their children.  Since we recurse children first, we
-    // only reach a container when no child caught the click; hits
-    // on bare group regions do nothing useful, so skip them.
-    if (isContainer(w.tag)) return nullptr;
-
-    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
-    if (!bbox.contains(p)) return nullptr;
-    if (outBbox) *outBbox = bbox;
-    return &w;
-}
 }  // namespace
 
 const ResolvedWidget *hitTest(const ResolvedWidget &root,
@@ -1206,8 +1088,15 @@ const ResolvedWidget *hitTest(const ResolvedWidget &root,
     if (rootCanvas.width()  <= 0 || rootCanvas.height() <= 0) {
         rootCanvas = QSize(354, 280);  // safe Modern-skin default
     }
-    return hitTestRec(root, pointInLayout, QPoint(0, 0), rootCanvas,
-                      actionOnly, imageSize, imageSizeUserdata, outBbox);
+    HitCtx ctx;
+    ctx.actionOnly = actionOnly;
+    if (imageSize) {
+        ctx.imageSize = [imageSize, imageSizeUserdata](const QString &id) {
+            return imageSize(id, imageSizeUserdata);
+        };
+    }
+    return const_cast<Widget &>(root).hitTest(
+        pointInLayout, QPoint(0, 0), rootCanvas, ctx, outBbox);
 }
 
 // ── Window-region builder ─────────────────────────────────────────

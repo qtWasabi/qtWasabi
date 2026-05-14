@@ -100,21 +100,35 @@ Widget *Widget::hitTest(QPoint point, QPoint origin,
     QPoint childOrigin = origin;
     if (tag != QStringLiteral("layout"))
         childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
+    // Container/ScrollBar/TreeList-style interior offsets — defaults
+    // to (0,0) for non-scrolled widgets.  ComponentBucket overrides.
+    const QPoint adj = childOriginAdjustment();
+    childOrigin.rx() += adj.x();
+    childOrigin.ry() += adj.y();
     QSize childCanvas = canvas;
     if (r.width()  > 0) childCanvas.setWidth (r.width());
     if (r.height() > 0) childCanvas.setHeight(r.height());
 
-    // Children-first depth search (topmost wins).
+    // Children-first depth search (topmost wins).  In list-collect
+    // mode we keep walking after a hit so every match lands in
+    // ctx.collect; in single-result mode we short-circuit on the
+    // first hit.
+    Widget *topmost = nullptr;
     for (auto it = children.rbegin(); it != children.rend(); ++it) {
         if (!*it) continue;
         if (auto *hit = (*it)->hitTest(point, childOrigin, childCanvas,
-                                       ctx, outBbox))
-            return hit;
+                                       ctx, outBbox)) {
+            if (!topmost) topmost = hit;
+            if (!ctx.collect) return hit;
+        }
     }
+    if (topmost) return topmost;
 
     if (ctx.actionOnly && !attrs.contains(QStringLiteral("action")))
         return nullptr;
     if (isContainer()) return nullptr;
+    if (ctx.requireIdOrInteractive && id.isEmpty() && !isInteractive())
+        return nullptr;
 
     // Self bbox: prefer resolved w/h, fall back to bitmap-image
     // dimensions for widgets without sizes when the embedder
@@ -133,7 +147,18 @@ Widget *Widget::hitTest(QPoint point, QPoint origin,
 
     const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
     if (!bbox.contains(point)) return nullptr;
+
+    // Optional alpha sample: reject hits on visually-transparent
+    // pixels.  Coordinates in `alphaBuf` are in the same canvas
+    // space as `point`.
+    if (ctx.alphaBuf && !ctx.alphaBuf->isNull() &&
+        point.x() >= 0 && point.x() < ctx.alphaBuf->width() &&
+        point.y() >= 0 && point.y() < ctx.alphaBuf->height()) {
+        const QRgb px = ctx.alphaBuf->pixel(point.x(), point.y());
+        if (qAlpha(px) <= 16) return nullptr;
+    }
     if (outBbox) *outBbox = bbox;
+    if (ctx.collect) ctx.collect->append(this);
     return this;
 }
 

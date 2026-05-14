@@ -15,6 +15,13 @@
 namespace WasabiQt {
 
 class ComponentBucketWidget : public ContainerWidget {
+public:
+    // Hit-test applies the same scroll offset paint() uses so a click
+    // at the visible position of a scrolled-into-view entry hits the
+    // right underlying widget (and not the entry that USED to be at
+    // that screen position pre-scroll).
+    QPoint childOriginAdjustment() const override;
+
 protected:
     QPoint containerScrollOffset() const override;
 };

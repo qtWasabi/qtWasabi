@@ -19,6 +19,7 @@ namespace WasabiQt {
 class SliderWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
+    bool isInteractive() const override { return true; }
 };
 
 }  // namespace WasabiQt

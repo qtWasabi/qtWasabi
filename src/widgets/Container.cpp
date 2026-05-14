@@ -3,6 +3,7 @@
 
 #include "Container.h"
 
+#include <WasabiQt/HitCtx.h>
 #include <WasabiQt/PaintCtx.h>
 
 #include <QPainter>
@@ -63,6 +64,38 @@ void ContainerWidget::paint(QPainter *p, PaintCtx &ctx,
     for (const auto &child : children)
         if (child) child->paint(p, ctx, childSize);
     if (translate || clipToContainer) p->restore();
+}
+
+Widget *ContainerWidget::hitTest(QPoint point, QPoint origin,
+                                  const QSize &canvas,
+                                  HitCtx &ctx, QRect *outBbox) {
+    if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
+        return nullptr;
+    // Containers that declared an explicit size clip their hit-test
+    // recursion to that rect — mirror of paint()'s `clipToContainer`
+    // setClipRect.  Without this, scrolled-off componentbucket
+    // entries (visually clipped) still consume clicks at coords that
+    // visibly belong to widgets BELOW the bucket.
+    const bool isLayout = (tag == QStringLiteral("layout"));
+    if (!isLayout) {
+        const QRect r = resolveRect(canvas);
+        const bool hasH =
+            attrs.contains(QStringLiteral("h")) ||
+            attrs.contains(QStringLiteral("relath"));
+        const bool hasW =
+            attrs.contains(QStringLiteral("w")) ||
+            attrs.contains(QStringLiteral("relatw"));
+        if ((hasW && r.width()  > 0) || (hasH && r.height() > 0)) {
+            const int ox = origin.x() + r.x();
+            const int oy = origin.y() + r.y();
+            const QRect bounds(
+                ox, oy,
+                hasW ? r.width()  : canvas.width(),
+                hasH ? r.height() : canvas.height());
+            if (!bounds.contains(point)) return nullptr;
+        }
+    }
+    return Widget::hitTest(point, origin, canvas, ctx, outBbox);
 }
 
 }  // namespace WasabiQt

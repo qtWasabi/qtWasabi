@@ -3,10 +3,12 @@
 
 #include <WasabiQt/SkinQuickItem.h>
 
+#include <WasabiQt/HitCtx.h>
 #include <WasabiQt/SkinXml.h>
 #include <WasabiQt/SkinRuntime.h>
 #include <WasabiQt/TreePainter.h>
 #include <WasabiQt/Host.h>
+#include <WasabiQt/Widget.h>
 
 #include <QHash>
 #include <QImage>
@@ -397,147 +399,45 @@ bool SkinQuickItem::contains(const QPointF &point) const {
     return qAlpha(px) > 16;
 }
 
-// Shared recursive walker: collect every visible non-container widget
-// at `p` whose painted alpha (composite buffer) is non-zero, topmost
-// first.  Same filter rules as SkinView::alphaHitListRec.
 namespace {
-void alphaHitListRec(const Layout::ResolvedWidget &w,
-                      QPoint p, QPoint origin, QSize canvas,
-                      bool actionOnly,
-                      const QImage &alphaBuf,
-                      Layout::ImageSizeResolver imageSize,
-                      void *imageSizeUserdata,
-                      QList<const Layout::ResolvedWidget *> &out) {
-    if (w.attrs.value(QStringLiteral("visible")) ==
-        QStringLiteral("0")) return;
-
-    auto attrBool = [](const QHash<QString, QString> &a, const QString &k) {
-        const QString v = a.value(k);
-        return v == QStringLiteral("1") ||
-               v.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0;
-    };
-    auto resolveRect = [&](const QHash<QString, QString> &a, QSize parent) {
-        int x = a.value(QStringLiteral("x")).toInt();
-        int y = a.value(QStringLiteral("y")).toInt();
-        int rw = a.value(QStringLiteral("w")).toInt();
-        int rh = a.value(QStringLiteral("h")).toInt();
-        if (attrBool(a, QStringLiteral("relatx"))) x = parent.width()  + x;
-        if (attrBool(a, QStringLiteral("relaty"))) y = parent.height() + y;
-        if (attrBool(a, QStringLiteral("relatw"))) rw = parent.width()  + rw;
-        if (attrBool(a, QStringLiteral("relath"))) rh = parent.height() + rh;
-        return QRect(x, y, rw, rh);
-    };
-
-    const QRect r = resolveRect(w.attrs, canvas);
-    QPoint childOrigin = origin;
-    QSize childCanvas = canvas;
-    if (w.tag != QStringLiteral("layout"))
-        childOrigin = QPoint(origin.x() + r.x(), origin.y() + r.y());
-    if (r.width()  > 0) childCanvas.setWidth (r.width());
-    if (r.height() > 0) childCanvas.setHeight(r.height());
-
-    // Clip hit recursion to the container's declared bounds (mirror
-    // of TreePainter's clipToContainer / hitTestRec's clip).
-    // Without this, scrolled-off componentbucket entries — visually
-    // hidden but still in the tree — intercept clicks on widgets
-    // BELOW the bucket (the EQUALIZER tab below the options bucket).
-    if (w.tag != QStringLiteral("layout")) {
-        const bool hasH =
-            w.attrs.contains(QStringLiteral("h")) ||
-            w.attrs.contains(QStringLiteral("relath"));
-        const bool hasW =
-            w.attrs.contains(QStringLiteral("w")) ||
-            w.attrs.contains(QStringLiteral("relatw"));
-        if ((hasW && r.width() > 0) || (hasH && r.height() > 0)) {
-            const int ox = origin.x() + r.x();
-            const int oy = origin.y() + r.y();
-            const QRect bounds(
-                ox, oy,
-                hasW ? r.width()  : canvas.width(),
-                hasH ? r.height() : canvas.height());
-            if (!bounds.contains(p)) return;
-        }
-    }
-    // componentbucket scrolls children by -scroll*step (matches the
-    // TreePainter translate); apply the same shift to childOrigin so
-    // visible-position clicks find the right underlying entry.
-    if (w.tag == QStringLiteral("componentbucket")) {
-        const int scroll =
-            w.attrs.value(QStringLiteral("_scroll")).toInt();
-        const int step =
-            w.attrs.value(QStringLiteral("_entry_step")).toInt();
-        const bool vertical =
-            w.attrs.value(QStringLiteral("vertical")) ==
-            QStringLiteral("1");
-        if (scroll > 0 && step > 0) {
-            if (vertical) childOrigin.ry() -= scroll * step;
-            else          childOrigin.rx() -= scroll * step;
-        }
-    }
-
-    for (auto it = w.children.crbegin(); it != w.children.crend(); ++it)
-        if (*it) alphaHitListRec(**it, p, childOrigin, childCanvas, actionOnly,
-                                  alphaBuf, imageSize, imageSizeUserdata, out);
-
-    const bool isContainer =
-        w.tag == QStringLiteral("group")          ||
-        w.tag == QStringLiteral("container")      ||
-        w.tag == QStringLiteral("layout")         ||
-        w.tag == QStringLiteral("groupdef")       ||
-        w.tag == QStringLiteral("componentbucket")||
-        w.tag == QStringLiteral("groupxfade")     ||
-        w.tag.startsWith(QStringLiteral("wasabi_"));
-    if (isContainer) return;
-    if (actionOnly && !w.attrs.contains(QStringLiteral("action"))) return;
-    if (w.id.isEmpty() && w.tag != QStringLiteral("button") &&
-        w.tag != QStringLiteral("togglebutton") &&
-        w.tag != QStringLiteral("nstatesbutton") &&
-        w.tag != QStringLiteral("slider"))
-        return;
-
-    int width  = r.width();
-    int height = r.height();
-    if ((width <= 0 || height <= 0) && imageSize) {
-        const QString img = w.attrs.value(QStringLiteral("image"));
-        if (!img.isEmpty()) {
-            const QSize is = imageSize(img, imageSizeUserdata);
-            if (width  <= 0) width  = is.width();
-            if (height <= 0) height = is.height();
-        }
-    }
-    if (width <= 0 || height <= 0) return;
-    const QRect bbox(childOrigin.x(), childOrigin.y(), width, height);
-    if (!bbox.contains(p)) return;
-
-    if (!alphaBuf.isNull() &&
-        p.x() >= 0 && p.x() < alphaBuf.width() &&
-        p.y() >= 0 && p.y() < alphaBuf.height()) {
-        const QRgb px = alphaBuf.pixel(p.x(), p.y());
-        if (qAlpha(px) <= 16) return;
-    }
-    out.append(&w);
+ImageSizeFn wrapImageSize(Layout::ImageSizeResolver imageSize, void *ud) {
+    if (!imageSize) return {};
+    return [imageSize, ud](const QString &id) { return imageSize(id, ud); };
 }
 }  // namespace
 
 const Layout::ResolvedWidget *
 SkinQuickItem::topmostWidgetAt(QPoint pointInLayout, bool actionOnly) const {
+    HitCtx ctx;
+    ctx.actionOnly = actionOnly;
+    ctx.requireIdOrInteractive = true;
     auto it = m_alphaCache.constFind(&m_tree);
-    const QImage &buf = (it == m_alphaCache.constEnd()) ? QImage() : *it;
-    QList<const Layout::ResolvedWidget *> hits;
-    alphaHitListRec(m_tree, pointInLayout, QPoint(0,0), m_nativeSize,
-                     actionOnly, buf, nullptr, nullptr, hits);
-    return hits.isEmpty() ? nullptr : hits.first();
+    if (it != m_alphaCache.constEnd() && !it->isNull())
+        ctx.alphaBuf = &(*it);
+    QRect bbox;
+    return const_cast<Widget &>(m_tree).hitTest(
+        pointInLayout, QPoint(0, 0), m_nativeSize, ctx, &bbox);
 }
 
 QList<const Layout::ResolvedWidget *>
 SkinQuickItem::alphaHitTestList(QPoint pointInLayout, bool actionOnly,
                                  Layout::ImageSizeResolver imageSize,
                                  void *imageSizeUserdata) const {
+    HitCtx ctx;
+    ctx.actionOnly = actionOnly;
+    ctx.requireIdOrInteractive = true;
+    ctx.imageSize = wrapImageSize(imageSize, imageSizeUserdata);
     auto it = m_alphaCache.constFind(&m_tree);
-    const QImage &buf = (it == m_alphaCache.constEnd()) ? QImage() : *it;
+    if (it != m_alphaCache.constEnd() && !it->isNull())
+        ctx.alphaBuf = &(*it);
+    QList<Widget *> hits;
+    ctx.collect = &hits;
+    QRect bbox;
+    const_cast<Widget &>(m_tree).hitTest(
+        pointInLayout, QPoint(0, 0), m_nativeSize, ctx, &bbox);
     QList<const Layout::ResolvedWidget *> out;
-    alphaHitListRec(m_tree, pointInLayout, QPoint(0,0), m_nativeSize,
-                     actionOnly, buf, imageSize, imageSizeUserdata, out);
+    out.reserve(hits.size());
+    for (auto *h : hits) out.append(h);
     return out;
 }
 

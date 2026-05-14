@@ -36,6 +36,13 @@ public:
     // and don't claim hits themselves — let the topmost child claim.
     bool isContainer() const override { return true; }
 
+    // Override Widget::hitTest to apply the same bounds-clip that
+    // paint() uses: containers that declared an explicit size reject
+    // hits outside that rect, so scrolled-off bucket entries can't
+    // intercept clicks on widgets below the bucket.
+    Widget *hitTest(QPoint point, QPoint origin, const QSize &canvas,
+                    HitCtx &ctx, QRect *outBbox) override;
+
 protected:
     // Subclasses override to add a paint-time scroll offset applied
     // inside the container's clip rect.  Default = no scroll.

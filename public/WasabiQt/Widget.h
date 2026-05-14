@@ -107,6 +107,21 @@ public:
     // xui groups — all override to return true.
     virtual bool isContainer() const { return false; }
 
+    // True for widgets that are inherently interactive even without
+    // an `id` attr (button, toggle, slider).  Used by the alpha-list
+    // hit-test path's `requireIdOrInteractive` filter so unnamed
+    // buttons inside a templated component still receive clicks.
+    virtual bool isInteractive() const { return false; }
+
+    // Per-paint / per-hit-test child-origin shift applied INSIDE the
+    // widget's resolved rect before recursing into children.
+    // ComponentBucket overrides this to apply `-scroll * step`; the
+    // Container family uses the default (no shift).  Kept on Widget
+    // (not Container) so any future Widget that wants a scrolled
+    // interior — TreeList, ScrollBar, future Popup — can override
+    // without changing inheritance.
+    virtual QPoint childOriginAdjustment() const { return QPoint(0, 0); }
+
     // Mouse / focus / animation events — defaults are no-ops.
     // Concrete interactive widgets (Slider, Button, ScrollBar)
     // override.  The embedder calls these only after hitTest has

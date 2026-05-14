@@ -15,4 +15,12 @@ QPoint ComponentBucketWidget::containerScrollOffset() const {
                     : QPoint(scroll * step, 0);
 }
 
+QPoint ComponentBucketWidget::childOriginAdjustment() const {
+    // Hit-test child origins are translated by NEGATIVE scroll
+    // (children moved up; click coords are in canvas space so the
+    // origin moves down to match).
+    const QPoint paintScroll = containerScrollOffset();
+    return QPoint(-paintScroll.x(), -paintScroll.y());
+}
+
 }  // namespace WasabiQt

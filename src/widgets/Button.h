@@ -28,6 +28,10 @@ namespace WasabiQt {
 class ButtonWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
+    // Buttons claim clicks even without an `id` attr — they're
+    // inherently interactive (their `action=` fires regardless of
+    // whether a Maki script has bound a handler).
+    bool isInteractive() const override { return true; }
 };
 
 class ToggleButtonWidget : public ButtonWidget {};
