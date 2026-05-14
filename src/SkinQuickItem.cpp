@@ -223,12 +223,17 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
             }
         }
     }
-    // Pair every sysregion="-N" cutout layer with its sibling chrome
-    // layer (image-name convention: "X.region" → "X").  The registry's
-    // chromeImageFor() then returns chrome bitmaps with cutouts baked
-    // into their alpha — chrome painted on top of another group's
-    // chrome no longer overwrites it at the cut pixels.
-    m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
+    // The chrome-cutout pre-bake (sysregion="-N" layer's bitmap
+    // painted onto its sibling chrome bitmap with DestinationOut)
+    // is disabled — outer corner rounding comes from the
+    // QQuickWindow setMask, and per-widget clipping is driven by
+    // Maki scripts directly.  Pre-baking damaged bitmaps in areas
+    // that happened to overlap a "-N" mask (most visibly the
+    // player.main bottom-right region near CONFIG / winamp-flash
+    // after a drawer-close).  Set WASABIQT_LEGACY_CUTOUTS=1 to
+    // restore the legacy bake.
+    if (::getenv("WASABIQT_LEGACY_CUTOUTS"))
+        m_registry.setChromeCutouts(Layout::collectChromeCutouts(m_tree));
 
     auto attrInt = [&](const QString &k, int def = 0) {
         auto it = m_tree.attrs.constFind(k);
@@ -348,27 +353,18 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     {
         QPainter bp(&buf);
         paintInto(&bp, sz);
-        // Two-stage cutout pipeline:
-        //
-        //   1) Tall cutouts (h > 2×w — drawer left/right narrowing
-        //      strips) are baked into their sibling chrome bitmap via
-        //      `BitmapRegistry::chromeImageFor`.  When the chrome paints
-        //      on top of another group's chrome at the overlap, the
-        //      cut pixels (alpha=0 in the bitmap) don't overwrite the
-        //      chrome beneath — so the player chrome remains visible
-        //      under the drawer's narrowing.
-        //
-        //   2) Compact cutouts (corner masks like 6×6 player.main.*.
-        //      region or 10×18 wasabi.frame.top.*.region) plus the
-        //      bottom-corner widening from the tall ones get applied
-        //      here on the final buffer with DestinationOut, so any
-        //      chrome layer that paints over the corner area (e.g.
-        //      player.main.bg2.right overlapping player.main.right's
-        //      bottom-right corner) is also cut.  `stripNarrowingColumns`
-        //      inside paintRegionLayers drops the tall cutouts' constant
-        //      strip — that part was already handled in step 1 — so only
-        //      their widening rows contribute here.
-        if (!::getenv("WASABIQT_NO_CUTOUTS"))
+        // The old pixel-subtraction corner-rounding pipeline (chrome
+        // bitmap pre-bake in BitmapRegistry::chromeImageFor + final-
+        // buffer DestinationOut via Layout::paintRegionCutouts) is
+        // now disabled by default.  The window region (setMask on
+        // the QQuickWindow) handles outer corner rounding, and Maki
+        // scripts drive the per-widget visibility / clipping —
+        // running the legacy subtraction on top damaged chrome
+        // bitmaps that happened to overlap a sysregion="-N" cutout
+        // (most visibly the player.main bottom-right area near the
+        // CONFIG / winamp-flash buttons after a drawer-close).
+        // Set WASABIQT_LEGACY_CUTOUTS=1 to opt back in.
+        if (::getenv("WASABIQT_LEGACY_CUTOUTS"))
             Layout::paintRegionCutouts(bp, m_tree, m_registry, sz);
     }
 
