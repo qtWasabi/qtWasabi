@@ -133,9 +133,11 @@ const Element *findLayout(const Element &container, const QString &id) {
 // required for the polymorphic tree — Widget subclasses can't be
 // value-stored or copied because of the unique_ptr-of-children field
 // (move-only) and the abstract-base-via-children pattern.
-std::unique_ptr<Widget> makeResolved(const Element &src) {
-    auto r = Widget::create(src.tag);
-    r->tag        = src.tag;
+std::unique_ptr<Widget> makeResolved(const Element &src,
+                                     const QString &tagOverride = {}) {
+    const QString &tag = tagOverride.isEmpty() ? src.tag : tagOverride;
+    auto r = Widget::create(tag);
+    r->tag        = tag;
     r->id         = src.attrs.value(QStringLiteral("id"));
     r->instanceId = src.attrs.value(QStringLiteral("instanceid"));
     r->attrs      = src.attrs;
@@ -214,9 +216,6 @@ private:
             if (m_inflightInstances.contains(gid)) return;
             m_inflightInstances.insert(gid);
 
-            auto nodePtr = makeResolved(el);
-            Widget &node = *nodePtr;
-
             // Default the instance's tag to "group" so the painter
             // recurses into its body — without this, custom xuitag
             // instances (bento_tabbutton, sui_*, etc.) leave their
@@ -225,6 +224,11 @@ private:
             // If the groupdef has `embed_xui="<basic-widget-tag>"` we
             // honour that and behave as that primitive (Bento.InfoLine
             // → text), which lets typed widgets render correctly.
+            //
+            // Resolve the FINAL tag before instantiating so the factory
+            // picks the correct Widget subclass for paint dispatch —
+            // rewriting `node.tag` post-construction would leave the
+            // wrong subclass painting the wrong widget.
             static const QSet<QString> kBasicXuiTags{
                 QStringLiteral("text"),    QStringLiteral("button"),
                 QStringLiteral("togglebutton"),
@@ -237,15 +241,19 @@ private:
                 QStringLiteral("animatedlayer"),
                 QStringLiteral("rect"),
             };
+            QString finalTag = el.tag;
             const QString embedXui =
                 def->attrs.value(QStringLiteral("embed_xui"));
             if (kBasicXuiTags.contains(embedXui.toLower())) {
-                node.tag = embedXui.toLower();
-            } else if (node.tag != QStringLiteral("group") &&
-                       node.tag != QStringLiteral("container") &&
-                       node.tag != QStringLiteral("layout")) {
-                node.tag = QStringLiteral("group");
+                finalTag = embedXui.toLower();
+            } else if (finalTag != QStringLiteral("group") &&
+                       finalTag != QStringLiteral("container") &&
+                       finalTag != QStringLiteral("layout")) {
+                finalTag = QStringLiteral("group");
             }
+
+            auto nodePtr = makeResolved(el, finalTag);
+            Widget &node = *nodePtr;
 
             // `inherit_group="X"` on the groupdef: splice X's body in
             // before our own body and pick up X's attrs as defaults.
@@ -344,9 +352,8 @@ private:
         // panes at their default widths so the content widgets
         // referenced by Bento etc. actually render.
         if (el.tag == QStringLiteral("wasabi_frame")) {
-            auto nodePtr = makeResolved(el);
+            auto nodePtr = makeResolved(el, QStringLiteral("group"));
             Widget &node = *nodePtr;
-            node.tag = QStringLiteral("group");
             applySendparams(node, instanceId);
 
             const QString orient =

@@ -86,116 +86,7 @@ void paintLegacyTag(QPainter *p, const Widget &node,
 
     const QString &t = node.tag;
 
-
-    // Move the colour-themes scrollbar thumb to mirror topRow.  The
-    // thumb layer's image is `wasabi.scrollbar.vertical.button`;
-    // we compute the proportional y inside the track and override
-    // the layer's `y` before painting.
-    if (t == QStringLiteral("layer") &&
-        node.attrs.value(QStringLiteral("image")) ==
-            QStringLiteral("wasabi.scrollbar.vertical.button") &&
-        ctx.gammasets && ctx.colorthemesBboxOut) {
-        QHash<QString, QString> a = node.attrs;
-        const int names = ctx.gammasets->names().size();
-        const int rowsVisible = 8;          // 80 px viewport / 10 px-per-row
-        // Track between the top arrow (y=5..22) and bottom arrow
-        // (y=68..85): thumb's valid y range is 22..68-31 = 22..37.
-        // Thumb bitmap is 13×31.
-        const int trackTop = 22;
-        const int trackBot = 68;
-        const int thumbH   = 31;
-        const int travel   = qMax(0, (trackBot - trackTop) - thumbH);
-        int top = ctx.colorthemesTopRow;
-        const int maxTop = qMax(0, names - rowsVisible);
-        if (top > maxTop) top = maxTop;
-        if (top < 0)      top = 0;
-        const double frac = (maxTop > 0)
-                          ? double(top) / double(maxTop)
-                          : 0.0;
-        const int newY = trackTop + int(frac * travel);
-        a.insert(QStringLiteral("y"), QString::number(newY));
-        LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
-        return;
-    }
-
-    // mono/stereo "lit" indicator: classic skins ship `<layer
-    // id="mono" image="...mono.inactive"/>` + `<layer id="stereo"
-    // image="...stereo.inactive"/>`, and a Maki script (monoster.maki)
-    // swaps the active one's image to its `.active` variant based on
-    // host->channelCount().  Replicate that statically here so the
-    // indicator works without scripting.
-    if (t == QStringLiteral("layer") && ctx.host &&
-        (node.id == QStringLiteral("mono") ||
-         node.id == QStringLiteral("stereo"))) {
-        const int ch = ctx.host->channelCount();
-        const bool active = (node.id == QStringLiteral("mono")  && ch == 1) ||
-                            (node.id == QStringLiteral("stereo") && ch >= 2);
-        if (active) {
-            QString img = node.attrs.value(QStringLiteral("image"));
-            const QString lit = img.endsWith(QStringLiteral(".inactive"))
-                ? img.chopped(9) + QStringLiteral(".active")
-                : img + QStringLiteral(".active");
-            if (ctx.bmp->find(lit)) {
-                QHash<QString, QString> a = node.attrs;
-                a.insert(QStringLiteral("image"), lit);
-                LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
-                return;
-            }
-        }
-    }
-
-    if (t == QStringLiteral("layer")) {
-        // Cutout-mask layers (`sysregion="-1"` / `sysregion="-2"`)
-        // are pure-black/pure-alpha bitmaps used ONLY by
-        // computeWindowRegion to mark pixels for region exclusion;
-        // they are NOT meant to render onto the visible tree.
-        // Drawing them here paints solid black into the rounded-
-        // corner cutout area — the region buffer correctly clears
-        // the alpha there, but the visible buffer ends up with
-        // BLACK pixels under the transparent ones, so the corner
-        // appears black instead of transparent.
-        const QString sr = node.attrs.value(QStringLiteral("sysregion"));
-        if (!sr.isEmpty() && sr.startsWith(QChar('-')))
-            return;
-
-        // Special-case the Volume fill bar: the `volumebar` layer is
-        // a thin progress strip whose `w` is normally driven by
-        // `volume.maki` (`volumebar.setXmlParam("w", …)`) to grow
-        // with the current volume.  Until the runtime drives that,
-        // fall back to deriving `w` from the host's volume slider
-        // position so the user sees a live fill matching the thumb
-        // instead of a fixed 10 px stub.
-        //
-        // Geometry (player-normal Modern):
-        //   Volume slider: x=183, w=86; thumb 21 px wide; travel = 65.
-        //   Volumebar layer:  x=185, so 2 px right of slider's left.
-        //   Thumb's centre at x = slider.x + pos*travel + thumb.w/2
-        //                      = 183 + 65*pos + 10
-        //   Volumebar.w = thumb_centre - volumebar.x
-        //               = (183 + 65*pos + 10) - 185
-        //               = 65*pos + 8
-        if (node.id == QStringLiteral("volumebar") && ctx.host) {
-            const double vol = ctx.host->sliderPosition(
-                QStringLiteral("VOLUME"));
-            if (vol >= 0.0) {
-                QHash<QString, QString> a = node.attrs;
-                const int travel = 65;
-                const int offset = 8;
-                const int newW = qMax(1, int(vol * travel + offset));
-                a.insert(QStringLiteral("w"), QString::number(newW));
-                if (qEnvironmentVariableIntValue("WASABIQT_TRACE_VOL") == 1) {
-                    fprintf(stderr, "[volumebar] vol=%.3f w=%d xform=(%g,%g)\n",
-                            vol, newW,
-                            p->transform().dx(), p->transform().dy());
-                    fflush(stderr);
-                }
-                LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
-                return;
-            }
-        }
-        LayerPainter::paintLayer(p, *ctx.bmp, node.attrs, canvas);
-        return;
-    }
+    // <layer> moved to LayerWidget.
 
     // <ProgressGrid> — the seek-progress fill bar that grows from the
     // left as the song plays.  Skin XML declares it with `left=` /
@@ -666,84 +557,9 @@ void paintLegacyTag(QPainter *p, const Widget &node,
     // would render in their *parent's* coord space, dropping the
     // frame's x/y offset (a 10 px shift on the titlebar's contents,
     // for example).
-    if (t == QStringLiteral("group")          ||
-        t == QStringLiteral("container")      ||
-        t == QStringLiteral("layout")         ||
-        t == QStringLiteral("groupdef")       ||
-        t == QStringLiteral("componentbucket")||
-        t == QStringLiteral("groupxfade")     ||
-        t.startsWith(QStringLiteral("wasabi_"))) {
-        const QRect r = resolveRect(node.attrs, canvas);
-        // A container is *collapsed* when it declares a size attr
-        // (w/h, possibly with relatw/relath) that resolves to <= 0.
-        // Example: AVSGroup at the end of the video/vis drawer's
-        // close tween — relath=1 h=-280 with m_nativeSize.h=280 ⇒ h=0.
-        // Painting its children with the parent's canvas would inflate
-        // fitparent fills (video.group's black-rect background) back
-        // to the full layout area — the "drawer suddenly reappears
-        // behind the player" glitch right before the drawer closes.
-        //
-        // Containers that DON'T declare a size attr (most groupdefs
-        // — they inherit from the canvas) continue to paint children
-        // with the parent's canvas as before.  <layout> is the root
-        // and never declares its own size, so it's exempt.
-        const bool hasH = t != QStringLiteral("layout") &&
-            (node.attrs.contains(QStringLiteral("h")) ||
-             node.attrs.contains(QStringLiteral("relath")));
-        const bool hasW = t != QStringLiteral("layout") &&
-            (node.attrs.contains(QStringLiteral("w")) ||
-             node.attrs.contains(QStringLiteral("relatw")));
-        if ((hasH && r.height() <= 0) ||
-            (hasW && r.width()  <= 0))
-            return;
-        QSize childSize = canvas;
-        if (r.width()  > 0) childSize.setWidth (r.width());
-        if (r.height() > 0) childSize.setHeight(r.height());
-        // Clip children to the container's rect when it declares an
-        // explicit size — prevents child bitmaps drawn at natural
-        // height (e.g. AVSGroup's top-edge chrome at AVSGroup.h=1
-        // would otherwise paint a full 18 px tall bitmap straight up
-        // into the titlebar area mid-tween).  Containers without an
-        // explicit size aren't clipped (they cover their canvas).
-        const bool clipToContainer = (hasH && r.height() > 0) ||
-                                     (hasW && r.width()  > 0);
-        const bool translate = (r.x() != 0 || r.y() != 0)
-                               && t != QStringLiteral("layout");
-        // componentbucket scrolls its entries via a `_scroll` attr
-        // (mutated by cb_prevpage / cb_nextpage button clicks).  Each
-        // entry was materialised at y = i * entry_step at expansion
-        // time; shifting the whole bucket's translate by -scroll*step
-        // moves the visible window of entries.  Clipping (above) hides
-        // entries that scroll off either edge.
-        int scrollY = 0, scrollX = 0;
-        if (t == QStringLiteral("componentbucket")) {
-            const int scroll =
-                node.attrs.value(QStringLiteral("_scroll")).toInt();
-            const int step =
-                node.attrs.value(QStringLiteral("_entry_step")).toInt();
-            const bool vertical =
-                node.attrs.value(QStringLiteral("vertical")) ==
-                QStringLiteral("1");
-            if (scroll > 0 && step > 0) {
-                if (vertical) scrollY = scroll * step;
-                else          scrollX = scroll * step;
-            }
-        }
-        if (translate || clipToContainer) p->save();
-        if (translate) p->translate(r.x(), r.y());
-        if (clipToContainer) {
-            // After translate, the local-coord clip rect starts at (0,0).
-            p->setClipRect(QRect(0, 0,
-                hasW ? r.width()  : canvas.width(),
-                hasH ? r.height() : canvas.height()),
-                Qt::IntersectClip);
-        }
-        if (scrollX || scrollY) p->translate(-scrollX, -scrollY);
-        for (const auto &child : node.children)
-            if (child) child->paint(p, ctx, childSize);
-        if (translate || clipToContainer) p->restore();
-        return;
-    }
+    // <group> / <container> / <layout> / <groupdef> / <wasabi_*>
+    // moved to ContainerWidget; <componentbucket> to
+    // ComponentBucketWidget; <groupxfade> to GroupXFadeWidget.
 
     if (t == QStringLiteral("slider")) {
         const QRect r = resolveRect(node.attrs, canvas);
@@ -856,68 +672,11 @@ void paintLegacyTag(QPainter *p, const Widget &node,
                       node.id.toLocal8Bit().constData());
         }
     }
-    // <rect filled="1" color="R,G,B" /> — solid colored rectangle.
-    // Wasabi uses it for the video.group black-fill background and
-    // tooltip-border rects.  `filled="0"` draws an outline only.
-    if (t == QStringLiteral("rect")) {
-        const QRect r = resolveRect(node.attrs, canvas);
-        if (r.width() <= 0 || r.height() <= 0) return;
-        QColor c(0, 0, 0);
-        const QString col = node.attrs.value(QStringLiteral("color"));
-        if (col.contains(QChar(','))) {
-            const auto parts = col.split(QChar(','));
-            if (parts.size() == 3)
-                c = QColor(parts[0].toInt(), parts[1].toInt(),
-                           parts[2].toInt());
-        } else if (ctx.colors) {
-            c = ctx.colors->resolve(col, ctx.gammasets, c);
-        }
-        if (node.attrs.value(QStringLiteral("filled")) ==
-            QStringLiteral("0"))
-            p->setPen(c), p->drawRect(r);
-        else
-            p->fillRect(r, c);
-        return;
-    }
-    // <windowholder> / <wmh> — host slot for an embedded sub-window
-    // (video output, AVS frame, …).  We don't have the embedded
-    // surface in our renderer, so paint a black placeholder rect
-    // that visually matches what real Winamp shows when the embedded
-    // component is loading / unavailable.
-    if (t == QStringLiteral("windowholder") ||
-        t == QStringLiteral("wmh")) {
-        const QRect r = resolveRect(node.attrs, canvas);
-        if (r.width() > 0 && r.height() > 0)
-            p->fillRect(r, QColor(0, 0, 0));
-        return;
-    }
-    // <edit> / <wasabi.edit.box> — minimal placeholder: paint the
-    // declared default / current text inside a 1-px outlined rect at
-    // the widget's bounds.  Real text editing requires a focus +
-    // input-method handoff — that's a milestone of its own.
-    if (t == QStringLiteral("edit") ||
-        t == QStringLiteral("wasabi.edit.box")) {
-        const QRect r = resolveRect(node.attrs, canvas);
-        if (r.width() > 0 && r.height() > 0) {
-            p->fillRect(r, QColor(20, 30, 60));
-            p->setPen(QColor(120, 130, 160));
-            p->drawRect(r.adjusted(0, 0, -1, -1));
-            QString s = node.attrs.value(QStringLiteral("text"));
-            if (s.isEmpty()) s = node.attrs.value(QStringLiteral("default"));
-            if (!s.isEmpty()) {
-                QFont qf(QStringLiteral("sans-serif"));
-                qf.setPixelSize(qMax(8, r.height() - 4));
-                p->save();
-                p->setFont(qf);
-                p->setPen(QColor(220, 225, 235));
-                p->drawText(r.adjusted(4, 0, -4, 0),
-                            Qt::AlignVCenter | Qt::AlignLeft, s);
-                p->restore();
-            }
-        }
-        return;
-    }
-    // <vis>, <guilist>, <treelist>, <scrollbar>, <popup>, ...
+    // <rect>, <windowholder>/<wmh>, <edit>/<wasabi.edit.box> moved to
+    // their dedicated Widget subclasses (RectWidget, WindowHolderWidget,
+    // EditWidget).
+    //
+    // <vis>, <guilist>, <treelist>, <scrollbar>, <popup>, …
     // — painted in later milestones.  Recurse so any children that we
     // DO know how to render still get reached.
     for (const auto &child : node.children)

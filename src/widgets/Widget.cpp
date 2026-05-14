@@ -9,6 +9,14 @@
 #include <WasabiQt/HitCtx.h>
 #include <WasabiQt/TreePainter.h>
 
+#include "ComponentBucket.h"
+#include "Container.h"
+#include "Edit.h"
+#include "GroupXFade.h"
+#include "Layer.h"
+#include "Rect.h"
+#include "WindowHolder.h"
+
 #include <QPainter>
 #include <QSet>
 
@@ -159,7 +167,32 @@ public:
 // routes back into the legacy `paintLegacyTag` switch.  As more
 // tags migrate (phases 2/3) the registry grows and the legacy
 // switch shrinks; eventually the fallback disappears entirely.
-std::unique_ptr<Widget> Widget::create(const QString & /*normalisedTag*/) {
+//
+// Container-family tags (group / container / layout / groupdef and
+// the XUI-mangled wasabi_* groupdef refs) share ContainerWidget;
+// componentbucket / groupxfade are their own subclasses on top.
+std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
+    const QString &t = normalisedTag;
+    if (t == QStringLiteral("layer"))
+        return std::make_unique<LayerWidget>();
+    if (t == QStringLiteral("rect"))
+        return std::make_unique<RectWidget>();
+    if (t == QStringLiteral("edit") ||
+        t == QStringLiteral("wasabi.edit.box"))
+        return std::make_unique<EditWidget>();
+    if (t == QStringLiteral("windowholder") ||
+        t == QStringLiteral("wmh"))
+        return std::make_unique<WindowHolderWidget>();
+    if (t == QStringLiteral("componentbucket"))
+        return std::make_unique<ComponentBucketWidget>();
+    if (t == QStringLiteral("groupxfade"))
+        return std::make_unique<GroupXFadeWidget>();
+    if (t == QStringLiteral("group")     ||
+        t == QStringLiteral("container") ||
+        t == QStringLiteral("layout")    ||
+        t == QStringLiteral("groupdef")  ||
+        t.startsWith(QStringLiteral("wasabi_")))
+        return std::make_unique<ContainerWidget>();
     return std::make_unique<LegacyWidget>();
 }
 
