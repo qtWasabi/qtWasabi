@@ -24,6 +24,12 @@ set(WASABIQT_SOURCES
     LayerPainter.cpp
     TreePainter.cpp
     TextPainter.cpp
+    # ── Widget class hierarchy (Phase 1+: class-per-tag refactor) ──
+    # Each file under widgets/ implements one or more closely-related
+    # widget tags as Widget subclasses with virtual paint/hitTest.
+    # Phase 1 lands just the base + factory; subsequent phases migrate
+    # paint logic out of TreePainter::paintRecursive into these files.
+    widgets/Widget.cpp
     SkinView.cpp
     SkinQuickItem.cpp
     Host.cpp
