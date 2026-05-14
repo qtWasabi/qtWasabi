@@ -566,6 +566,11 @@ void SkinQuickItem::hoverMoveEvent(QHoverEvent *e) {
     const QPoint p = e->position().toPoint();
     WasabiQt::Widget *now =
         const_cast<WasabiQt::Widget *>(topmostWidgetAt(p, false));
+    if (::getenv("WASABIQT_TRACE_HOVER"))
+        fprintf(stderr, "[hover] (%d,%d) -> tag=%s id=%s\n",
+            p.x(), p.y(),
+            now ? now->tag.toLocal8Bit().constData() : "-",
+            now ? now->id.toLocal8Bit().constData() : "(null)");
     if (now == m_hoverWidget) {
         // Same widget — keep onMouseMove firing for sliders /
         // scrollbars / any widget that wants per-pixel feedback,

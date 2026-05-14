@@ -168,7 +168,20 @@ Widget *Widget::hitTest(QPoint point, QPoint origin,
 
     if (ctx.actionOnly && !attrs.contains(QStringLiteral("action")))
         return nullptr;
-    if (isContainer()) return nullptr;
+    // The factory normally hands out ContainerWidget for container
+    // tags, whose isContainer() override returns true.  But the
+    // SkinQuickItem root (`m_tree`) is a plain Widget value (not
+    // polymorphic), so its isContainer() default returns false even
+    // though its tag is "layout".  Tag-check as a backstop so the
+    // root widget doesn't claim every hit and shadow the actual
+    // interactive children underneath.
+    if (isContainer() ||
+        tag == QStringLiteral("layout") ||
+        tag == QStringLiteral("group") ||
+        tag == QStringLiteral("container") ||
+        tag == QStringLiteral("groupdef") ||
+        tag.startsWith(QStringLiteral("wasabi_")))
+        return nullptr;
     if (ctx.requireIdOrInteractive && id.isEmpty() && !isInteractive())
         return nullptr;
 
