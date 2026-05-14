@@ -7,14 +7,24 @@
 #include <WasabiQt/Widget.h>
 #include <WasabiQt/PaintCtx.h>
 #include <WasabiQt/HitCtx.h>
-#include <WasabiQt/TreePainter.h>
 
+#include "AlbumArt.h"
+#include "AnimatedLayer.h"
+#include "Button.h"
+#include "ColorThemesList.h"
 #include "ComponentBucket.h"
 #include "Container.h"
 #include "Edit.h"
+#include "Grid.h"
 #include "GroupXFade.h"
+#include "Images.h"
 #include "Layer.h"
+#include "ProgressGrid.h"
 #include "Rect.h"
+#include "Slider.h"
+#include "Status.h"
+#include "Text.h"
+#include "Vis.h"
 #include "WindowHolder.h"
 
 #include <QPainter>
@@ -127,23 +137,11 @@ Widget *Widget::hitTest(QPoint point, QPoint origin,
     return this;
 }
 
-// Default Widget for tags we haven't migrated to a dedicated class
-// yet.  Forwards to `TreePainter::paintLegacyTag`, which contains
-// the monolithic `if (t == "...")` switch that used to live in
-// `paintRecursive`.  Each phase-2/3 migration peels one tag off the
-// legacy switch into its own Widget subclass and registers it in
-// `Widget::create`; until every tag is migrated, the unmigrated
-// remainder keeps rendering through this fallback.
-class LegacyWidget : public Widget {
-public:
-    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override {
-        WasabiQt::TreePainter::paintLegacyTag(p, *this, ctx, canvas);
-    }
-};
-
-// Diagnostic Widget for tags the factory's registry doesn't recognise
-// at all.  Currently unused (LegacyWidget catches every tag) but kept
-// for when the factory grows an allowlist that excludes unknown XML.
+// Diagnostic Widget for tags the factory doesn't recognise — emits
+// a single trace line per (tag) when WASABIQT_TRACE_UNKNOWN_TAGS=1
+// and recurses into children so unrecognised wrappers don't break
+// the tree.  Tags that genuinely have no visible representation
+// (`<menu>` until Phase 5, lifecycle metadata, etc.) end up here.
 class UnknownWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override {
@@ -173,16 +171,51 @@ public:
 // componentbucket / groupxfade are their own subclasses on top.
 std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
     const QString &t = normalisedTag;
+    // Bitmap / blit widgets.
     if (t == QStringLiteral("layer"))
         return std::make_unique<LayerWidget>();
+    if (t == QStringLiteral("animatedlayer"))
+        return std::make_unique<AnimatedLayerWidget>();
+    if (t == QStringLiteral("albumart"))
+        return std::make_unique<AlbumArtWidget>();
     if (t == QStringLiteral("rect"))
         return std::make_unique<RectWidget>();
+    // Text / ticker.
+    if (t == QStringLiteral("text"))
+        return std::make_unique<TextWidget>();
+    if (t == QStringLiteral("songticker"))
+        return std::make_unique<SongTickerWidget>();
+    // Button family.
+    if (t == QStringLiteral("button"))
+        return std::make_unique<ButtonWidget>();
+    if (t == QStringLiteral("togglebutton"))
+        return std::make_unique<ToggleButtonWidget>();
+    if (t == QStringLiteral("nstatesbutton"))
+        return std::make_unique<NStatesButtonWidget>();
+    // Slider / interactive.
+    if (t == QStringLiteral("slider"))
+        return std::make_unique<SliderWidget>();
+    // Bitmap-strip / driven by host signals.
+    if (t == QStringLiteral("grid"))
+        return std::make_unique<GridWidget>();
+    if (t == QStringLiteral("progressgrid"))
+        return std::make_unique<ProgressGridWidget>();
+    if (t == QStringLiteral("images"))
+        return std::make_unique<ImagesWidget>();
+    if (t == QStringLiteral("status"))
+        return std::make_unique<StatusWidget>();
+    if (t == QStringLiteral("vis"))
+        return std::make_unique<VisWidget>();
+    if (t == QStringLiteral("colorthemes_list"))
+        return std::make_unique<ColorThemesListWidget>();
+    // Inputs / placeholders.
     if (t == QStringLiteral("edit") ||
         t == QStringLiteral("wasabi.edit.box"))
         return std::make_unique<EditWidget>();
     if (t == QStringLiteral("windowholder") ||
         t == QStringLiteral("wmh"))
         return std::make_unique<WindowHolderWidget>();
+    // Containers.
     if (t == QStringLiteral("componentbucket"))
         return std::make_unique<ComponentBucketWidget>();
     if (t == QStringLiteral("groupxfade"))
@@ -193,7 +226,10 @@ std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
         t == QStringLiteral("groupdef")  ||
         t.startsWith(QStringLiteral("wasabi_")))
         return std::make_unique<ContainerWidget>();
-    return std::make_unique<LegacyWidget>();
+    // Anything else: a diagnostic placeholder that logs the tag once
+    // per process when WASABIQT_TRACE_UNKNOWN_TAGS=1 and recurses
+    // into children so unrecognised wrappers don't break the tree.
+    return std::make_unique<UnknownWidget>();
 }
 
 }  // namespace WasabiQt

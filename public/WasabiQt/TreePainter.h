@@ -40,7 +40,6 @@ class ColorRegistry;
 class GammasetRegistry;
 class Host;
 class Widget;
-struct PaintCtx;
 namespace Layout { using ResolvedWidget = ::WasabiQt::Widget; }
 
 namespace TreePainter {
@@ -79,14 +78,6 @@ void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
                QRect *colorthemesListBboxOut,
                int  *colorthemesTopRowOut,
                int  visMode = 1);   // 0=off, 1=spectrum, 2=osc, 3=VU
-
-// Legacy per-tag dispatch — the monolithic `if (t == "...")` switch
-// that used to live in `paintRecursive`.  Migrated tags peel off into
-// their own `Widget` subclasses (see `src/widgets/`); unmigrated tags
-// still fall through to this function via `LegacyWidget::paint`.
-// Internal to qtWasabi — the embedder shouldn't call this directly.
-void paintLegacyTag(QPainter *p, const Widget &node,
-                    PaintCtx &ctx, const QSize &canvas);
 
 }  // namespace TreePainter
 }  // namespace WasabiQt

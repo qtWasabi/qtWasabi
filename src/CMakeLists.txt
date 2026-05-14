@@ -30,11 +30,22 @@ set(WASABIQT_SOURCES
     # Phase 1 lands just the base + factory; subsequent phases migrate
     # paint logic out of TreePainter::paintRecursive into these files.
     widgets/Widget.cpp
-    widgets/Container.cpp
+    widgets/AlbumArt.cpp
+    widgets/AnimatedLayer.cpp
+    widgets/Button.cpp
+    widgets/ColorThemesList.cpp
     widgets/ComponentBucket.cpp
+    widgets/Container.cpp
     widgets/Edit.cpp
+    widgets/Grid.cpp
+    widgets/Images.cpp
     widgets/Layer.cpp
+    widgets/ProgressGrid.cpp
     widgets/Rect.cpp
+    widgets/Slider.cpp
+    widgets/Status.cpp
+    widgets/Text.cpp
+    widgets/Vis.cpp
     widgets/WindowHolder.cpp
     SkinView.cpp
     SkinQuickItem.cpp
