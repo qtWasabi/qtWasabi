@@ -149,6 +149,14 @@ public:
     // widget attribute name dispatch.
     virtual void setXmlParam(const QString &name, const QString &value);
 
+    // Trigger a re-render from inside an event handler (e.g. after
+    // a hover/press state flip).  Routes through SkinRuntimeBridge's
+    // `g_repaint` — same callback `setXmlParam` already uses, set
+    // by SkinView at init.  No-op when no embedder has registered
+    // (offscreen tests still get visual change because they paint
+    // synchronously from the snapshot, not via the repaint timer).
+    static void requestRepaint();
+
     // Geometry resolution helper — the canonical implementation of
     // relatx/relaty/relatw/relath + fitparent semantics, used by
     // every subclass's `resolveRect` AND by external callers that

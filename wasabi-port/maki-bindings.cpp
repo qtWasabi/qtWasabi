@@ -458,6 +458,26 @@ extern "C" scriptVar wq_getVisible(maki_cmd *, int, ScriptObject *o) {
     return makeBoolean(wcscmp(v, L"0") != 0);
 }
 
+// ToggleButton / NStatesButton activated state.  Maki scripts call
+// `togglebutton.setActivated(getEqEnabled())` etc. to flip the
+// button's `activeImage=` variant.  Routes through wq_widget_setAttr
+// → Widget::setXmlParam, which ToggleButtonWidget overrides to
+// shadow the `activated` attr onto its typed bool member.  Default
+// activated state is false (unactivated).
+extern "C" scriptVar wq_setActivated(maki_cmd *, int, ScriptObject *o, scriptVar v) {
+    if (!o) return makeVoid();
+    const bool on = (v.type == SCRIPT_BOOLEAN || v.type == SCRIPT_INT)
+                        ? (v.data.idata != 0) : false;
+    wq_widget_setAttr(o, L"activated", on ? L"1" : L"0");
+    return makeVoid();
+}
+extern "C" scriptVar wq_getActivated(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeBoolean(0);
+    const wchar_t *v = wq_widget_getAttr(o, L"activated");
+    if (!v || !*v) return makeBoolean(0);
+    return makeBoolean(wcscmp(v, L"0") != 0);
+}
+
 extern "C" scriptVar wq_setXmlParam(maki_cmd *, int, ScriptObject *o,
                                      scriptVar name, scriptVar value) {
     if (!o) return makeVoid();
@@ -802,6 +822,8 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"setVisible",              1, (void *)wq_setVisible},
         {L"isVisible",               0, (void *)wq_isVisible},
         {L"getVisible",              0, (void *)wq_getVisible},
+        {L"setActivated",            1, (void *)wq_setActivated},
+        {L"getActivated",            0, (void *)wq_getActivated},
         {L"setXmlParam",             2, (void *)wq_setXmlParam},
         // Maki is case-sensitive on method lookup; scripts use any
         // of three spellings — `setXmlParam` (the canonical form),

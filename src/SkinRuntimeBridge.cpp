@@ -139,6 +139,13 @@ void registerSkinRepaintCallback(std::function<void()> cb) {
     g_repaint = std::move(cb);
 }
 
+// Trigger an immediate repaint from anywhere in the engine — fires
+// the SkinView-registered callback (Widget::requestRepaint routes
+// through this).  No-op when no callback is set.
+void fireRepaint() {
+    if (g_repaint) g_repaint();
+}
+
 // SkinView calls this so Maki getStatus() reads through to the host.
 void registerSkinPlaybackStatusCallback(std::function<int()> cb) {
     g_playbackStatus = std::move(cb);

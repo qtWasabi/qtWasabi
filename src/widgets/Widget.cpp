@@ -107,6 +107,14 @@ void Widget::setXmlParam(const QString &name, const QString &value) {
     attrs.insert(name, value);
 }
 
+// Defined in SkinRuntimeBridge.cpp.  Routes through the same
+// callback Widget::setXmlParam uses, registered by SkinView.
+void fireRepaint();
+
+void Widget::requestRepaint() {
+    fireRepaint();
+}
+
 // Defined in SkinRuntimeBridge.cpp where the `g_byId` registry lives.
 extern Widget *findWidgetById(const QString &id);
 

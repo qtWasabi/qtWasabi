@@ -32,9 +32,33 @@ public:
     // inherently interactive (their `action=` fires regardless of
     // whether a Maki script has bound a handler).
     bool isInteractive() const override { return true; }
+
+    // Canonical Wasabi state machine — down > hover > active > normal
+    // (buttwnd.cpp:353-356).  ButtonWidget tracks the first two;
+    // ToggleButtonWidget adds m_activated.  Events come from
+    // SkinQuickItem's hover handlers + qtamp's mousePressEvent.
+    void onLeftButtonDown(QPoint, PaintCtx &) override;
+    void onLeftButtonUp  (QPoint, PaintCtx &) override;
+    void onMouseMove     (QPoint, PaintCtx &) override;
+    void onMouseLeave    (PaintCtx &)         override;
+
+protected:
+    bool m_pressed = false;
+    bool m_hover   = false;
+    // Pick the attr name (`downImage` / `hoverImage` / `activeImage` /
+    // `image`) the current state precedence selects, falling back to
+    // the next-lower priority when the selected slot is missing.
+    // ToggleButtonWidget overrides to consider m_activated.
+    virtual QString currentImageAttr() const;
 };
 
-class ToggleButtonWidget : public ButtonWidget {};
+class ToggleButtonWidget : public ButtonWidget {
+public:
+    void setXmlParam(const QString &name, const QString &value) override;
+protected:
+    QString currentImageAttr() const override;
+    bool m_activated = false;
+};
 
 class NStatesButtonWidget : public ButtonWidget {
 public:

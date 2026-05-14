@@ -4,6 +4,7 @@
 #include <WasabiQt/SkinQuickItem.h>
 
 #include <WasabiQt/HitCtx.h>
+#include <WasabiQt/PaintCtx.h>
 #include <WasabiQt/SkinXml.h>
 #include <WasabiQt/SkinRuntime.h>
 #include <WasabiQt/TreePainter.h>
@@ -550,6 +551,46 @@ void SkinQuickItem::mouseMoveEvent(QMouseEvent *e) {
 void SkinQuickItem::mouseReleaseEvent(QMouseEvent *e) {
     m_dragging = false;
     QQuickItem::mouseReleaseEvent(e);
+}
+
+// ── Hover routing ─────────────────────────────────────────────────
+// Wasabi buttons paint their `hoverImage=` variant while the cursor
+// is over them.  Qt hover events arrive at the QQuickItem level
+// (setAcceptHoverEvents was already enabled in the ctor); we just
+// have to route them into the same widget virtual chain mouse
+// press/release already uses.  topmostWidgetAt re-runs the same
+// hit-test path as mousePressEvent so the widget chosen for hover
+// is exactly the one the user would also click.
+
+void SkinQuickItem::hoverMoveEvent(QHoverEvent *e) {
+    const QPoint p = e->position().toPoint();
+    WasabiQt::Widget *now =
+        const_cast<WasabiQt::Widget *>(topmostWidgetAt(p, false));
+    if (now == m_hoverWidget) {
+        // Same widget — keep onMouseMove firing for sliders /
+        // scrollbars / any widget that wants per-pixel feedback,
+        // but skip the leave/enter pair (cheaper).
+        if (now) {
+            PaintCtx ctx{};
+            now->onMouseMove(p, ctx);
+        }
+        QQuickItem::hoverMoveEvent(e);
+        return;
+    }
+    PaintCtx ctx{};
+    if (m_hoverWidget) m_hoverWidget->onMouseLeave(ctx);
+    m_hoverWidget = now;
+    if (now) now->onMouseMove(p, ctx);
+    QQuickItem::hoverMoveEvent(e);
+}
+
+void SkinQuickItem::hoverLeaveEvent(QHoverEvent *e) {
+    if (m_hoverWidget) {
+        PaintCtx ctx{};
+        m_hoverWidget->onMouseLeave(ctx);
+        m_hoverWidget = nullptr;
+    }
+    QQuickItem::hoverLeaveEvent(e);
 }
 
 }  // namespace WasabiQt

@@ -183,6 +183,15 @@ protected:
     void mouseMoveEvent (QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
 
+    // Hover-event routing — dispatches Qt hover events into the
+    // widget tree's virtual chain so ButtonWidget / MenuWidget /
+    // etc. can paint their `hoverImage=` variants when the cursor
+    // enters their bbox.  topmostWidgetAt finds the current widget;
+    // m_hoverWidget tracks the previous so move-to-different-widget
+    // fires onMouseLeave on the old before onMouseMove on the new.
+    void hoverMoveEvent (QHoverEvent *e) override;
+    void hoverLeaveEvent(QHoverEvent *e) override;
+
 signals:
     void layoutNativeSizeChanged();
 
@@ -205,6 +214,10 @@ private:
     bool   m_dragging = false;
     QPoint m_dragOriginGlobal;
     QPoint m_dragWindowStart;
+    // Widget currently under the mouse cursor (for hover state).
+    // Set by hoverMoveEvent; cleared by hoverLeaveEvent and by
+    // move-to-different-widget transitions.
+    WasabiQt::Widget *m_hoverWidget = nullptr;
     // Cached window region from the last rebuildWindowRegion call.
     QRegion m_windowRegion;
     // Auto-shrink to painted extent toggle (off by default).
