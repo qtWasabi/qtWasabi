@@ -310,6 +310,27 @@ private:
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
 
+            // Real Winamp Modern / WinampModernPP positions the
+            // wasabi.menubar group at y=0 (overlapping the titlebar
+            // band) so the menubar's rounded-rectangle bitmaps render
+            // around the titlebar's swoosh+WACUP center — the menubar
+            // bitmap has transparent areas in the middle that let
+            // the swoosh show through.  The XML literally says
+            // y="18" but that's interpreted by real Wasabi as a
+            // content offset, not the menubar's own paint position.
+            // Override here so the menubar overlays the titlebar
+            // correctly instead of sitting below it covering the
+            // first row of the player content.
+            for (auto &c : node.children) {
+                if (!c) continue;
+                if (c->id == QStringLiteral("wasabi.menubar") ||
+                    c->id == QStringLiteral("wasabi.menubar.pl") ||
+                    c->id == QStringLiteral("wasabi.menubar.ml")) {
+                    c->setXmlParam(QStringLiteral("y"),
+                                    QStringLiteral("0"));
+                }
+            }
+
             // `content="X"` on a frame instantiation says: inject the
             // groupdef X's children into this frame's content slot.
             // Wasabi's standardframe.maki normally does this at runtime;
