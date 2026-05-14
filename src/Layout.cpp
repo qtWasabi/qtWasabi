@@ -404,6 +404,16 @@ private:
                             continue;
                         for (auto &gc : c->children) {
                             if (!gc) continue;
+                            // Shift only <group> children — the player
+                            // chrome (player.main, drawer, AVSGroup,
+                            // drawer.shadow).  Sibling <button>/<layer>
+                            // overlays at this level (videoavs.open,
+                            // videoavs.close, openclosehider,
+                            // player.button.videoavs.up.bg) live in
+                            // the menubar/titlebar band by design and
+                            // must stay at their authored y.
+                            if (gc->tag != QStringLiteral("group"))
+                                continue;
                             gc->attrs.insert(
                                 QStringLiteral("_shift_y"), shiftStr);
                         }
