@@ -329,42 +329,65 @@ private:
                         Widget contentExp;
                         expandChildren(*contentDef, contentExp,
                                        iid.isEmpty() ? instanceId : iid);
-                        // ...then either splice over the embed_xui
-                        // placeholder, or insert before the menubar so
-                        // the menubar paints LAST (on top of the
-                        // content's player chrome).  Wasabi's
-                        // wasabi.menubar group sits at y=18 with the
-                        // menu items inside, while the player.main
-                        // content paints from y~=17 and would otherwise
-                        // cover those items.  Real Wasabi handles this
-                        // because standardframe.maki dynamically adds
-                        // the content as a sibling and the menubar's
-                        // bringToFront() in some scripts keeps it on
-                        // top; with static expansion we get the same
-                        // effect by inserting BEFORE the menubar.
+                        // Append content at the end (natural XML
+                        // order).  Player chrome groups (player.main,
+                        // drawer, AVSGroup) carry `_shift_y=18` (set
+                        // below) so they paint at y=35+ and never
+                        // collide with the menubar at y=18..35.
+                        // Sibling overlay widgets the content authors
+                        // placed in the menubar band (WinampModernPP's
+                        // videoavs.open / openclosehider, literal
+                        // y=17..19) paint last and stay on top of
+                        // the menubar background.
                         if (!embedTarget.isEmpty()) {
                             replaceById(node, embedTarget, contentExp.children);
                         } else {
-                            // Find the position of wasabi.menubar (or
-                            // any *.menubar* group) — insert before it.
-                            size_t insertAt = node.children.size();
-                            for (size_t i = 0; i < node.children.size(); ++i) {
-                                const auto &c = node.children[i];
-                                if (c && c->id.contains(
-                                        QStringLiteral("menubar"),
-                                        Qt::CaseInsensitive)) {
-                                    insertAt = i;
-                                    break;
-                                }
-                            }
                             for (auto &c : contentExp.children) {
-                                node.children.insert(
-                                    node.children.begin() + insertAt,
-                                    std::move(c));
-                                ++insertAt;
+                                node.children.push_back(std::move(c));
                             }
                         }
                         m_inflightInstances.remove(content);
+
+                        // mainmenuoverlay.maki equivalent: at runtime
+                        // the script brings the menubar's text /
+                        // overlay layers to front so they paint over
+                        // any chrome that the content widgets placed
+                        // in the menubar's right region (the
+                        // WinampModernPP VIDEO/VIS pill).  Without the
+                        // script running we'd otherwise see the pill
+                        // covering the "VIDEO/VIS" text.  Replicate
+                        // statically: find any layer inside a menubar
+                        // child whose id ends in `.textoverlay` (or
+                        // contains the same), move it out to the
+                        // MainFrame level at the end, and add the
+                        // menubar's y to compensate for the lost
+                        // parent translate.
+                        for (auto &mb : node.children) {
+                            if (!mb || !mb->id.contains(
+                                    QStringLiteral("menubar"),
+                                    Qt::CaseInsensitive))
+                                continue;
+                            const int mbY = mb->attrs.value(
+                                QStringLiteral("y")).toInt();
+                            auto &mbk = mb->children;
+                            for (auto it = mbk.begin(); it != mbk.end();) {
+                                auto &child = *it;
+                                if (child && child->id.contains(
+                                        QStringLiteral("textoverlay"),
+                                        Qt::CaseInsensitive)) {
+                                    const int curY = child->attrs.value(
+                                        QStringLiteral("y")).toInt();
+                                    child->setXmlParam(
+                                        QStringLiteral("y"),
+                                        QString::number(curY + mbY));
+                                    node.children.push_back(
+                                        std::move(child));
+                                    it = mbk.erase(it);
+                                } else {
+                                    ++it;
+                                }
+                            }
+                        }
                     }
                 }
 
