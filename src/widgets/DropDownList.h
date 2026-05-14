@@ -1,11 +1,9 @@
 #pragma once
 //
-// <dropdownlist> — combo with edit.  Real Wasabi paints the closed-state arrow button + the active selection text; today we register so the factory recognises the tag.
-//
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// <DropDownList> — combo with edit.  Wasabi paints the closed-
+// state arrow button + the active selection's text.  We render a
+// flat panel + a right-edge arrow placeholder so the bounding
+// box is visually present.  Drop-down expansion is a follow-up.
 //
 
 #include <WasabiQt/Widget.h>
@@ -13,6 +11,9 @@
 namespace WasabiQt {
 
 class DropDownListWidget : public Widget {
+public:
+    bool isInteractive() const override { return true; }
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
 }  // namespace WasabiQt

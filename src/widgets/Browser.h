@@ -1,11 +1,9 @@
 #pragma once
 //
-// <browser> — embedded web browser pane.  Real Wasabi uses an OS browser control; today we register so the factory recognises the tag.
-//
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// <Browser> — embedded web browser.  Real Wasabi hosts an OS
+// browser control (Win32 WebBrowser ActiveX).  Until a Qt
+// WebEngine integration lands, paint a dark panel + a centered
+// "Web" label so the host's intended bounds are visible.
 //
 
 #include <WasabiQt/Widget.h>
@@ -13,6 +11,8 @@
 namespace WasabiQt {
 
 class BrowserWidget : public Widget {
+public:
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
 }  // namespace WasabiQt

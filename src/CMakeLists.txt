@@ -39,15 +39,22 @@ set(WASABIQT_SOURCES
     widgets/Edit.cpp
     widgets/Grid.cpp
     widgets/Images.cpp
+    widgets/Browser.cpp
     widgets/CheckBox.cpp
+    widgets/DropDownList.cpp
     widgets/EqVis.cpp
+    widgets/GuiList.cpp
     widgets/Layer.cpp
     widgets/LayoutStatus.cpp
     widgets/Menu.cpp
     widgets/PlaylistPro.cpp
+    widgets/Popup.cpp
     widgets/ProgressGrid.cpp
+    widgets/RadioGroup.cpp
     widgets/ScrollBar.cpp
     widgets/Splitter.cpp
+    widgets/TabSheet.cpp
+    widgets/TreeList.cpp
     widgets/Rect.cpp
     widgets/Slider.cpp
     widgets/Status.cpp

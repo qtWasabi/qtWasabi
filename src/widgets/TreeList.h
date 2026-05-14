@@ -1,11 +1,8 @@
 #pragma once
 //
-// <treelist> — hierarchical browse list (host-supplied tree).
-//
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// <TreeList> — hierarchical browse list (host-supplied tree).
+// Renders a dark panel + label until host-bound tree rendering
+// lands; bounds are visible so layout debugging works.
 //
 
 #include <WasabiQt/Widget.h>
@@ -13,6 +10,8 @@
 namespace WasabiQt {
 
 class TreeListWidget : public Widget {
+public:
+    void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
 }  // namespace WasabiQt
