@@ -1037,47 +1037,12 @@ QStringList layoutIds(const SkinXml::Document &doc, const QString &containerId) 
     return ids;
 }
 
-// Hit-test recurser.  Walks children in reverse paint order (last
-// child = topmost) so the deepest visible match wins.  Mirrors
-// TreePainter's resolveRect: applies relatx / relaty / relatw /
-// relath against the parent's canvas size, and translates groups
-// by their resolved (x, y) the same way the painter does.  Falls
-// back to an image-size resolver when a widget has no explicit
-// `w`/`h` (typical for buttons whose size comes from their named
-// bitmap).
-namespace {
-bool boolAttr(const QHash<QString, QString> &a, const QString &k) {
-    const QString v = a.value(k);
-    return v == QStringLiteral("1") || v.compare(QStringLiteral("true"),
-                                                 Qt::CaseInsensitive) == 0;
-}
-
-QRect resolveRect(const QHash<QString, QString> &a, QSize parent) {
-    int x = a.value(QStringLiteral("x")).toInt();
-    int y = a.value(QStringLiteral("y")).toInt();
-    int w = a.value(QStringLiteral("w")).toInt();
-    int h = a.value(QStringLiteral("h")).toInt();
-    bool rx = boolAttr(a, QStringLiteral("relatx"));
-    bool ry = boolAttr(a, QStringLiteral("relaty"));
-    bool rw = boolAttr(a, QStringLiteral("relatw"));
-    bool rh = boolAttr(a, QStringLiteral("relath"));
-    // `fitparent="1"` is a Wasabi shortcut meaning "fill the parent
-    // in both dimensions" — i.e. x=0 y=0 w=0 h=0 relatw=1 relath=1
-    // — that explicit per-axis attrs may still override.  Bento's
-    // tab grids and SUI panels rely on this without spelling out the
-    // relat-w/h flags.
-    if (boolAttr(a, QStringLiteral("fitparent"))) {
-        if (!a.contains(QStringLiteral("w"))) rw = true;
-        if (!a.contains(QStringLiteral("h"))) rh = true;
-    }
-    if (rx) x = parent.width()  + x;
-    if (ry) y = parent.height() + y;
-    if (rw) w = parent.width()  + w;
-    if (rh) h = parent.height() + h;
-    return QRect(x, y, w, h);
-}
-
-}  // namespace
+// Geometry resolution shared with the painter / hit-tester:
+// Widget::resolveRectFromAttrs (single source of truth for
+// relatx / relaty / relatw / relath / fitparent semantics).
+//
+// Used below by paintRegionLayers when computing per-widget bbox
+// for sysregion contributions.
 
 const ResolvedWidget *hitTest(const ResolvedWidget &root,
                               QPoint pointInLayout,
@@ -1185,7 +1150,7 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
         return;
     }
 
-    const QRect r = resolveRect(w.attrs, canvas);
+    const QRect r = Widget::resolveRectFromAttrs(w.attrs, canvas);
     QSize childCanvas = canvas;
     if (r.width()  > 0) childCanvas.setWidth (r.width());
     if (r.height() > 0) childCanvas.setHeight(r.height());

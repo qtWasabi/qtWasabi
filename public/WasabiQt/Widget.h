@@ -141,11 +141,12 @@ public:
     // widget attribute name dispatch.
     virtual void setXmlParam(const QString &name, const QString &value);
 
-protected:
-    // Helper shared by every subclass that doesn't override
-    // resolveRect — same implementation Layout::resolveRect /
-    // TreePainter::resolveRect use today, hoisted here so the same
-    // formula resolves geometry in paint, hit-test, region build.
+    // Geometry resolution helper — the canonical implementation of
+    // relatx/relaty/relatw/relath + fitparent semantics, used by
+    // every subclass's `resolveRect` AND by external callers that
+    // need the same formula (Layout's window-region builder, future
+    // Phase-7 unit tests).  Public so it can be consumed outside the
+    // Widget hierarchy.
     static QRect resolveRectFromAttrs(
         const QHash<QString, QString> &attrs, QSize canvas);
 };
