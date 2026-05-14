@@ -99,6 +99,13 @@ void Widget::setXmlParam(const QString &name, const QString &value) {
     attrs.insert(name, value);
 }
 
+// Defined in SkinRuntimeBridge.cpp where the `g_byId` registry lives.
+extern Widget *findWidgetById(const QString &id);
+
+Widget *Widget::findById(const QString &id) {
+    return findWidgetById(id);
+}
+
 void Widget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     // Default: container-style recursion.  Concrete widgets override
     // to paint their own visuals.  Visibility filter applies here so

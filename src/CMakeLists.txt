@@ -40,6 +40,7 @@ set(WASABIQT_SOURCES
     widgets/Grid.cpp
     widgets/Images.cpp
     widgets/Layer.cpp
+    widgets/Menu.cpp
     widgets/ProgressGrid.cpp
     widgets/Rect.cpp
     widgets/Slider.cpp

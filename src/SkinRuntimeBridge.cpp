@@ -106,6 +106,14 @@ void clearWidgetRegistry() {
     g_scriptOwner.clear();
 }
 
+// C++-side counterpart to `wq_widget_findById` — used by Widget
+// subclasses (e.g. MenuWidget) to resolve sibling references.
+Widget *findWidgetById(const QString &id) {
+    auto it = g_byId.constFind(id.toLower());
+    if (it == g_byId.constEnd()) return nullptr;
+    return it->widget;
+}
+
 void setLayoutRootScriptObject(void *handle) {
     g_layoutRootScriptObject = handle;
 }

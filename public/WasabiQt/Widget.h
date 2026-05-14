@@ -78,6 +78,14 @@ public:
     // unrecognised tags don't break the tree.
     static std::unique_ptr<Widget> create(const QString &normalisedTag);
 
+    // Case-insensitive lookup by `id` against the live widget tree.
+    // Returns null when no widget with that id exists.  Used by
+    // widgets that reference siblings — e.g. `<Menu normal=".." />`
+    // looks up the three named buttons whose visibility it toggles.
+    // Backed by SkinRuntimeBridge's `g_byId` registry, which is
+    // populated as the tree is materialised.
+    static Widget *findById(const QString &id);
+
     // Resolve x/y/w/h from `attrs` against the parent canvas,
     // honouring relatx/relaty/relatw/relath and the `fitparent`
     // shortcut.  Most widgets use the default; subclasses override
