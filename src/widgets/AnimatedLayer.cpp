@@ -16,9 +16,37 @@ void AnimatedLayerWidget::paint(QPainter *p, PaintCtx &ctx,
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
     const QRect r = resolveRect(canvas);
-    if (r.width() > 0 || r.height() > 0 ||
-        !attrs.value(QStringLiteral("image")).isEmpty()) {
-        LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas);
+    const QString image = attrs.value(QStringLiteral("image"));
+    if (!image.isEmpty() && (r.width() > 0 || r.height() > 0)) {
+        // `frameheight=` / `framewidth=` carve the bitmap into a
+        // vertical / horizontal sprite strip.  Until Phase 6 wires a
+        // frame-pump timer, paint the `start=` frame (default 0).
+        // Without this, VU AnimatedLayers (frameheight=1) paint the
+        // ENTIRE source bitmap as a single image — overflowing past
+        // the strip's per-frame slice and leaking the rest of the
+        // VU peak ramp across the display panel.
+        bool ok = false;
+        const int fh = attrs.value(
+            QStringLiteral("frameheight")).toInt(&ok);
+        const bool hasFh = ok && fh > 0;
+        const int fw = attrs.value(
+            QStringLiteral("framewidth")).toInt(&ok);
+        const bool hasFw = ok && fw > 0;
+        if (hasFh || hasFw) {
+            const int start = attrs.value(
+                QStringLiteral("start")).toInt();
+            QImage whole = ctx.bmp ? ctx.bmp->imageFor(image) : QImage();
+            if (!whole.isNull()) {
+                const int sx = hasFw ? start * fw : 0;
+                const int sy = hasFh ? start * fh : 0;
+                const int sw = hasFw ? fw : whole.width();
+                const int sh = hasFh ? fh : whole.height();
+                const QImage frame = whole.copy(sx, sy, sw, sh);
+                p->drawImage(r.x(), r.y(), frame);
+            }
+        } else {
+            LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas);
+        }
     }
     for (const auto &child : children)
         if (child) child->paint(p, ctx, canvas);

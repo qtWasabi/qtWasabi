@@ -61,52 +61,57 @@ void VisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
         B = qBound(0, (B * bm) >> 16, 255);
         band = QColor(R, G, B);
     }
-    const double level = ctx.host
-        ? qBound(0.0, ctx.host->audioLevel() * 4.0, 1.0)
-        : 0.0;
     switch (ctx.visMode) {
     case 0:  // Off
         break;
-    case 1: {  // Spectrum analyzer
-        const int barCount = 16;
-        const int barW = r.width() / barCount;
-        const int maxH = r.height() - 4;
-        for (int i = 0; i < barCount; ++i) {
-            const int rawH = 4 + ((i * 17 + 3) % maxH);
-            const int h = qMax(1, int(rawH * level));
-            p->fillRect(r.x() + i * barW + 1,
+    case 1: {  // Spectrum analyzer — 19 log-scaled bands from FFT
+        const float *spec = ctx.host ? ctx.host->spectrumData() : nullptr;
+        if (!spec) break;
+        const int bands = 19;
+        const int barW  = qMax(1, r.width() / bands);
+        const int maxH  = qMax(1, r.height() - 1);
+        for (int i = 0; i < bands; ++i) {
+            const int h = qMax(0, int(spec[i] * maxH));
+            if (h <= 0) continue;
+            p->fillRect(r.x() + i * barW,
                         r.y() + (r.height() - h),
-                        barW - 1, h, band);
+                        qMax(1, barW - 1), h, band);
         }
         break;
     }
-    case 2: {  // Oscilloscope — pseudo-waveform line
+    case 2: {  // Oscilloscope — polyline of 75 PCM samples
+        const float *osc = ctx.host ? ctx.host->oscData() : nullptr;
+        if (!osc) break;
         p->save();
         QPen pen(band); pen.setWidth(1);
         p->setPen(pen);
-        const int samples = r.width();
+        const int samples = 75;
         const int mid = r.y() + r.height() / 2;
-        const double amp = (r.height() / 2.0 - 2.0) * level;
-        QPoint prev(r.x(), mid);
-        for (int x = 1; x < samples; ++x) {
-            const double phase = x * 0.35;
+        const double amp = (r.height() / 2.0 - 1.0);
+        QPoint prev(r.x(),
+                    mid + int(qBound(-1.0f, osc[0], 1.0f) * amp));
+        const double xStep =
+            samples > 1 ? double(r.width()) / (samples - 1) : 0.0;
+        for (int i = 1; i < samples; ++i) {
+            const int x = r.x() + int(i * xStep);
             const int y = mid +
-                int(std::sin(phase) * amp *
-                    (0.5 + 0.5 * std::sin(x * 0.07)));
-            const QPoint cur(r.x() + x, y);
+                int(qBound(-1.0f, osc[i], 1.0f) * amp);
+            const QPoint cur(x, y);
             p->drawLine(prev, cur);
             prev = cur;
         }
         p->restore();
         break;
     }
-    case 3: {  // VU meter — two horizontal bars (L/R)
+    case 3: {  // VU meter — two horizontal L/R bars
+        if (!ctx.host) break;
+        const float l = qBound(0.0f, ctx.host->vuLeft(),  1.0f);
+        const float rch = qBound(0.0f, ctx.host->vuRight(), 1.0f);
         const int half = r.height() / 2;
-        const int filledW = int(r.width() * level);
         p->fillRect(r.x(), r.y() + 1,
-                    filledW, half - 2, band);
+                    int(r.width() * l),   half - 2, band);
         p->fillRect(r.x(), r.y() + half + 1,
-                    filledW, half - 2, band);
+                    int(r.width() * rch), half - 2, band);
         break;
     }
     }

@@ -99,6 +99,20 @@ public:
     //    Embedders that wire QAudioBufferOutput / similar override.
     virtual double audioLevel() const { return 0.0; }
 
+    // ── Spectrum / oscilloscope / VU snapshots used by VisWidget
+    //    (modern skin) and by the classic-skin display.  Default
+    //    implementations return nullptr / 0 so embedders that don't
+    //    decode the audio buffer fall back to the chrome-only paint.
+    //
+    //    Sizes:
+    //      spectrum: 19 floats, log-scaled per-band magnitudes [0..1]
+    //      oscilloscope: 75 floats, raw waveform samples [-1..1]
+    //    VU left/right: [0..1] RMS per channel.
+    virtual const float *spectrumData() const { return nullptr; }
+    virtual const float *oscData()      const { return nullptr; }
+    virtual float vuLeft()  const { return 0.0f; }
+    virtual float vuRight() const { return 0.0f; }
+
     // ── Album art for <albumart> widgets.  Returns an embedded cover
     //    for the current track, or an empty QImage to fall back to
     //    the renderer's placeholder.  Default: empty.  Embedders
