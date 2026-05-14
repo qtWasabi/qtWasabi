@@ -68,14 +68,19 @@ void VisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
         const float *spec = ctx.host ? ctx.host->spectrumData() : nullptr;
         if (!spec) break;
         const int bands = 19;
-        const int barW  = qMax(1, r.width() / bands);
         const int maxH  = qMax(1, r.height() - 1);
+        // Position each bar's left/right edge proportionally to the
+        // widget rect.  Integer-divide r.width()/bands rounds DOWN
+        // (e.g. 72/19=3) which left 15 px of dead space on the
+        // right; the proportional formula distributes that across
+        // all bars so the strip spans the full widget width.
         for (int i = 0; i < bands; ++i) {
-            const int h = qMax(0, int(spec[i] * maxH));
+            const int xL = r.x() + (i     * r.width()) / bands;
+            const int xR = r.x() + ((i+1) * r.width()) / bands;
+            const int h  = qMax(0, int(spec[i] * maxH));
             if (h <= 0) continue;
-            p->fillRect(r.x() + i * barW,
-                        r.y() + (r.height() - h),
-                        qMax(1, barW - 1), h, band);
+            p->fillRect(xL, r.y() + (r.height() - h),
+                        qMax(1, xR - xL - 1), h, band);
         }
         break;
     }
