@@ -90,6 +90,24 @@ void ToggleButtonWidget::setXmlParam(const QString &name,
     Widget::setXmlParam(name, value);
 }
 
+void ToggleButtonWidget::onLeftButtonUp(QPoint p, PaintCtx &ctx) {
+    ButtonWidget::onLeftButtonUp(p, ctx);
+    // Toggle and persist through setXmlParam so any
+    // ToggleButton::setXmlParam-listening side-effects fire too.
+    setXmlParam(QStringLiteral("activated"),
+        m_activated ? QStringLiteral("0") : QStringLiteral("1"));
+}
+
+// ── NStatesButton ────────────────────────────────────────────────
+
+void NStatesButtonWidget::onLeftButtonUp(QPoint p, PaintCtx &ctx) {
+    ButtonWidget::onLeftButtonUp(p, ctx);
+    const int n = attrs.value(QStringLiteral("nstates")).toInt();
+    if (n <= 0) return;
+    m_state = (m_state + 1) % n;
+    requestRepaint();
+}
+
 // ── NStatesButton ────────────────────────────────────────────────
 
 void NStatesButtonWidget::paint(QPainter *p, PaintCtx &ctx,
@@ -97,14 +115,16 @@ void NStatesButtonWidget::paint(QPainter *p, PaintCtx &ctx,
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
     // Pick the state slot first (down / hover / normal), then apply
-    // NStates' image-id suffix fallback to the chosen base.  Both
-    // concerns are orthogonal: a skin's downImage for an N-states
-    // button still needs the same `image0` / `image1` / … suffix
-    // fallback if the bare id isn't a known bitmap.
+    // NStates' image-id suffix fallback to the chosen base.  Wasabi
+    // convention: when the bare `image` id isn't a registered bitmap,
+    // try `imageN` where N is the current state index (0..nstates-1).
     QHash<QString, QString> a = attrs;
     QString img = a.value(currentImageAttr());
-    if (!img.isEmpty() && !ctx.bmp->find(img))
-        img += QStringLiteral("0");
+    if (!img.isEmpty() && !ctx.bmp->find(img)) {
+        const QString suffixed = img + QString::number(m_state);
+        if (ctx.bmp->find(suffixed)) img = suffixed;
+        else                          img += QStringLiteral("0");
+    }
     a.insert(QStringLiteral("image"), img);
     LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
 }

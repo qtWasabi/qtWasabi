@@ -55,6 +55,14 @@ protected:
 class ToggleButtonWidget : public ButtonWidget {
 public:
     void setXmlParam(const QString &name, const QString &value) override;
+    // Toggle on click — Wasabi convention.  Real Wasabi cycles via
+    // the cfgattrib binding (engine reads/writes the named config
+    // attribute), but qtWasabi doesn't have a config service yet, so
+    // for now we just flip the typed `m_activated` bool and persist
+    // it onto the `activated` attr.  Visual feedback works without
+    // the config-store round-trip; Maki scripts that call
+    // setActivated keep working too.
+    void onLeftButtonUp(QPoint, PaintCtx &) override;
 protected:
     QString currentImageAttr() const override;
     bool m_activated = false;
@@ -63,6 +71,13 @@ protected:
 class NStatesButtonWidget : public ButtonWidget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
+    void onLeftButtonUp(QPoint, PaintCtx &) override;
+protected:
+    // Current state index, 0..(nstates-1).  Click advances by one
+    // and wraps.  Wasabi's NStatesButton paints `image=` suffixed
+    // with the current state when the bare id isn't a registered
+    // bitmap (e.g. `repeat` falls through to `repeat0` / `repeat1`).
+    int m_state = 0;
 };
 
 }  // namespace WasabiQt
