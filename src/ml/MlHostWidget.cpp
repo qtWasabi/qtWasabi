@@ -1,0 +1,740 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Florian Kleber
+
+#include "MlHostWidget.h"
+#include "MlLibraryWindow.h"
+
+#include "../widgets/MultiColumnList.h"
+#include "../widgets/SectionFrame.h"
+#include "../widgets/TreeList.h"
+
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/PaintCtx.h>
+
+#include <QColor>
+#include <QFont>
+#include <QFontMetrics>
+#include <QPainter>
+#include <QSet>
+
+#include <cstdlib>
+#include <memory>
+
+namespace qtWasabi {
+namespace ml {
+
+namespace {
+
+QColor themed(PaintCtx &ctx, const char *id, QColor fallback) {
+    if (!ctx.colors) return fallback;
+    return ctx.colors->resolve(QString::fromLatin1(id),
+                                ctx.gammasets, fallback);
+}
+
+// ── wa_dlg / genex bridge ─────────────────────────────────────────
+// These live in wasabi-compat (same libqtwasabi); declared extern "C"
+// here to avoid the win32/ include path.  HBITMAP/HWND are void* in the
+// compat layer, so the loose void* signatures are ABI-compatible.
+extern "C" {
+void *qtwasabi_make_genex(const unsigned *colors24);
+void  qtwasabi_set_genskin_bitmap(void *genex);
+void  WADlg_init(void *hwnd);
+int   WADlg_getColor(int idx);
+}
+
+// Resolve the 24 WADLG_* colours from the live skin, synthesise + install
+// the genex, and run WADlg_init so WADlg_getColor returns the skin's
+// palette (verify via WASABIQT_TRACE_WADLG).  This primes the colours so
+// the wa_dlg draw calls used by the ML chrome resolve to the active skin.
+void installSkinGenex(PaintCtx &ctx) {
+    auto cref = [](const QColor &c) -> unsigned {
+        return (unsigned)(c.red() | (c.green() << 8) | (c.blue() << 16));
+    };
+    auto rgb = [](int r, int g, int b) -> unsigned {
+        return (unsigned)(r | (g << 8) | (b << 16));
+    };
+    auto col = [&](std::initializer_list<const char *> ids,
+                   int dr, int dg, int db) -> unsigned {
+        for (const char *id : ids) {
+            QColor g = themed(ctx, id, QColor());
+            if (g.isValid()) return cref(g);
+        }
+        return rgb(dr, dg, db);
+    };
+    // Index order follows the WADLG_* enum; the rgb(...) literals are
+    // the default colours used when the skin defines no override.
+    unsigned c[24];
+    c[0]  = col({"wasabi.list.background", "color.display.bg"}, 0, 0, 0);            // ITEMBG
+    c[1]  = col({"wasabi.list.text", "color.display"}, 0, 255, 0);                  // ITEMFG
+    c[2]  = col({"wasabi.window.background", "color.window.bg"}, 36, 36, 60);       // WNDBG
+    c[3]  = col({"wasabi.button.text", "wasabi.window.text"}, 57, 56, 66);          // BUTTONFG
+    c[4]  = col({"wasabi.window.text", "wasabi.text.color"}, 255, 255, 255);        // WNDFG
+    c[5]  = col({"wasabi.border.sunken"}, 132, 148, 165);                           // HILITE
+    c[6]  = col({"wasabi.list.item.selected", "color.selected.active.bg"}, 0, 0, 198); // SELCOLOR
+    c[7]  = col({"wasabi.list.header.background"}, 72, 72, 120);                     // LISTHEADER_BG
+    c[8]  = col({"wasabi.list.header.text"}, 255, 255, 255);                         // LISTHEADER_FONT
+    c[9]  = rgb(108, 108, 180);  // FRAME_TOP
+    c[10] = rgb(36, 36, 60);     // FRAME_MIDDLE
+    c[11] = rgb(18, 18, 30);     // FRAME_BOTTOM
+    c[12] = rgb(36, 36, 60);     // EMPTY_BG
+    c[13] = rgb(36, 36, 60);     // SCROLLBAR_FG
+    c[14] = rgb(36, 36, 60);     // SCROLLBAR_BG
+    c[15] = rgb(121, 130, 150);  // SCROLLBAR_INV_FG
+    c[16] = rgb(78, 88, 110);    // SCROLLBAR_INV_BG
+    c[17] = rgb(36, 36, 60);     // SCROLLBAR_DEADAREA
+    c[18] = col({"wasabi.list.text.selected"}, 255, 255, 255);                      // SELBAR_FG
+    c[19] = col({"wasabi.list.text.selected.background",
+                 "wasabi.list.item.selected"}, 0, 0, 180);                          // SELBAR_BG
+    c[20] = col({"wasabi.list.text.selected"}, 0, 255, 0);                          // INACT_SELBAR_FG
+    c[21] = rgb(0, 0, 128);      // INACT_SELBAR_BG
+    c[22] = c[0];                // ITEMBG2
+    c[23] = c[1];                // ITEMFG2
+
+    void *genex = qtwasabi_make_genex(c);
+    qtwasabi_set_genskin_bitmap(genex);
+    WADlg_init(nullptr);   // our IPC short-circuits before the hwnd check
+
+    if (std::getenv("WASABIQT_TRACE_WADLG")) {
+        static const char *nm[24] = {
+            "ITEMBG","ITEMFG","WNDBG","BUTTONFG","WNDFG","HILITE","SELCOLOR",
+            "LH_BG","LH_FONT","LH_TOP","LH_MID","LH_BOT","LH_EMPTY",
+            "SB_FG","SB_BG","SB_INVFG","SB_INVBG","SB_DEAD",
+            "SELBAR_FG","SELBAR_BG","INACT_SELFG","INACT_SELBG","ITEMBG2","ITEMFG2"};
+        for (int i = 0; i < 24; ++i)
+            std::fprintf(stderr, "[wadlg] %-12s = 0x%06X\n", nm[i], WADlg_getColor(i));
+    }
+}
+
+QString mlIconsBaseDir() {
+    if (const char *env = std::getenv("WASABIQT_ML_ICONS_DIR"))
+        return QString::fromLocal8Bit(env);
+    return QStringLiteral(
+        "/home/snekmin/git/winamp-linux/Src/Plugins/Library");
+}
+
+// Load a BMP from the media-library resource tree and strip its
+// colour-key transparency.  The tree/toolbar icons are opaque 16-colour
+// BMPs blitted with Win32 TransparentBlt(): the pixel in a corner defines the
+// transparent colour for that bitmap — most are black (RGB 0,0,0), the
+// classic ones are magenta (RGB 255,0,255).  We key out BOTH: always
+// magenta, plus the corner-consensus colour when all four corners agree
+// (the exact TransparentBlt rule).  Detecting the key from the bitmap
+// itself keeps this generic — every plugin's icons and every skin's art
+// come out with proper alpha rather than a solid box behind the glyph.
+// Cached per-process so the disk hit only happens once per icon.
+QImage loadMlIcon(const QString &relPath) {
+    if (relPath.isEmpty()) return {};
+    static QHash<QString, QImage> cache;
+    auto it = cache.constFind(relPath);
+    if (it != cache.constEnd()) return it.value();
+    QImage img(relPath);
+    if (!img.isNull()) {
+        img = img.convertToFormat(QImage::Format_ARGB32);
+        const int w = img.width(), h = img.height();
+        const QRgb magenta = qRgb(255, 0, 255) & 0x00FFFFFF;
+        // Corner-consensus transparent key: if all four corners share one
+        // colour, TransparentBlt would treat that colour as transparent.
+        QRgb cornerKey = 0xFFFFFFFFu;  // sentinel = "no consensus"
+        if (w >= 2 && h >= 2) {
+            const QRgb tl = img.pixel(0, 0)         & 0x00FFFFFF;
+            const QRgb tr = img.pixel(w - 1, 0)     & 0x00FFFFFF;
+            const QRgb bl = img.pixel(0, h - 1)     & 0x00FFFFFF;
+            const QRgb br = img.pixel(w - 1, h - 1) & 0x00FFFFFF;
+            if (tl == tr && tl == bl && tl == br) cornerKey = tl;
+        }
+        for (int y = 0; y < h; ++y) {
+            QRgb *row = reinterpret_cast<QRgb *>(img.scanLine(y));
+            for (int x = 0; x < w; ++x) {
+                const QRgb rgb = row[x] & 0x00FFFFFF;
+                if (rgb == magenta || rgb == cornerKey) row[x] = 0u;
+            }
+        }
+    }
+    cache.insert(relPath, img);
+    return img;
+}
+
+// Load + recolour one of the monochrome ML toolbar bitmaps using the
+// MLIF_BUTTONBLENDPLUSCOLOR image-filter rule.  These view-mode button
+// icons (icn_alb_art / icn_view_mode / icn_columns) are authored as
+// BLACK art on a WHITE field: luminance becomes alpha (white→transparent,
+// black→opaque) and the opaque part is tinted to the skin's
+// button-foreground colour.  This keeps the icons generic: every skin
+// themes them through its own foreground colour, and the dropdown
+// down-triangle baked into icn_view_mode / icn_columns comes through for
+// free.  Cached per (path,tint) so a colour change re-tints.
+QImage loadMlToolbarIcon(const QString &relPath, QColor tint) {
+    if (relPath.isEmpty()) return {};
+    const QString key =
+        relPath + QStringLiteral("#%1").arg(tint.rgb(), 8, 16, QLatin1Char('0'));
+    static QHash<QString, QImage> cache;
+    auto it = cache.constFind(key);
+    if (it != cache.constEnd()) return it.value();
+    QImage src(relPath);
+    QImage out;
+    if (!src.isNull()) {
+        src = src.convertToFormat(QImage::Format_ARGB32);
+        const int w = src.width(), h = src.height();
+        out = QImage(w, h, QImage::Format_ARGB32);
+        const int tr = tint.red(), tg = tint.green(), tb = tint.blue();
+        for (int y = 0; y < h; ++y) {
+            const QRgb *s = reinterpret_cast<const QRgb *>(src.scanLine(y));
+            QRgb *d = reinterpret_cast<QRgb *>(out.scanLine(y));
+            for (int x = 0; x < w; ++x) {
+                // qGray ≈ luma; inverted luminance = coverage/alpha.
+                const int a = 255 - qGray(s[x]);
+                d[x] = qRgba(tr, tg, tb, a);
+            }
+        }
+    }
+    cache.insert(key, out);
+    return out;
+}
+
+// Paint a media-library button using the SKIN'S OWN button art.
+// The ML buttons match the skin (dark grey for Bento, whatever each
+// other skin ships) by 9-slicing the skin's `wasabi.button.{corners,
+// edges,center}` group: 4-px fixed corners/edges with a stretched
+// centre, following the Wasabi button-draw convention.  imageFor()
+// applies the skin's `gammagroup` so the colour follows the active
+// colour theme.  Falls back to a flat themed fill only when a skin
+// defines no button art.  Generic: no hardcoded chrome colour, themes
+// correctly for any skin.
+void paintSkinButton(QPainter *p, PaintCtx &ctx, const QRect &r,
+                      bool pressed = false) {
+    if (r.width() <= 0 || r.height() <= 0) return;
+    static const char *kN[9] = {
+        "wasabi.button.top.left",    "wasabi.button.top",    "wasabi.button.top.right",
+        "wasabi.button.left",        "wasabi.button.center", "wasabi.button.right",
+        "wasabi.button.bottom.left", "wasabi.button.bottom", "wasabi.button.bottom.right",
+    };
+    QImage pc[9];
+    bool haveAll = (ctx.bmp != nullptr);
+    if (ctx.bmp)
+        for (int i = 0; i < 9 && haveAll; ++i) {
+            pc[i] = ctx.bmp->imageFor(QString::fromLatin1(kN[i]));
+            if (pc[i].isNull()) haveAll = false;
+        }
+
+    p->save();
+    if (haveAll) {
+        const int x0 = r.left(), y0 = r.top();
+        const int x1 = r.right() + 1, y1 = r.bottom() + 1;
+        const int cw = qMin(4, r.width()  / 2);
+        const int ch = qMin(4, r.height() / 2);
+        const int midW = r.width()  - 2 * cw;
+        const int midH = r.height() - 2 * ch;
+        // corners
+        p->drawImage(QRect(x0,        y0,        cw, ch), pc[0]);
+        p->drawImage(QRect(x1 - cw,   y0,        cw, ch), pc[2]);
+        p->drawImage(QRect(x0,        y1 - ch,   cw, ch), pc[6]);
+        p->drawImage(QRect(x1 - cw,   y1 - ch,   cw, ch), pc[8]);
+        // edges (stretched along their run)
+        if (midW > 0) {
+            p->drawImage(QRect(x0 + cw, y0,      midW, ch), pc[1]);
+            p->drawImage(QRect(x0 + cw, y1 - ch, midW, ch), pc[7]);
+        }
+        if (midH > 0) {
+            p->drawImage(QRect(x0,      y0 + ch, cw, midH), pc[3]);
+            p->drawImage(QRect(x1 - cw, y0 + ch, cw, midH), pc[5]);
+        }
+        // centre (stretched both axes)
+        if (midW > 0 && midH > 0)
+            p->drawImage(QRect(x0 + cw, y0 + ch, midW, midH), pc[4]);
+        // pressed cue: darken the whole face slightly.
+        if (pressed) p->fillRect(r, QColor(0, 0, 0, 56));
+    } else {
+        // No skin button art — flat themed fill + thin bevel.
+        QColor base(90, 92, 96);
+        if (ctx.colors)
+            base = ctx.colors->resolve(QStringLiteral("wasabi.window.background"),
+                                        ctx.gammasets, base).lighter(140);
+        if (pressed) base = base.darker(115);
+        p->fillRect(r.adjusted(1, 1, -1, -1), base);
+        p->setPen(base.darker(150));
+        p->drawRect(r.adjusted(0, 0, -1, -1));
+        p->setPen(base.lighter(130));
+        p->drawLine(r.left() + 1, r.top() + 1, r.right() - 1, r.top() + 1);
+        p->drawLine(r.left() + 1, r.top() + 1, r.left() + 1,  r.bottom() - 1);
+    }
+    p->restore();
+}
+
+// Classic Wasabi/wa_dlg DCW_SUNKENBORDER: a recessed 1-px 3-D edge —
+// dark on top+left, light on bottom+right — drawn around list panes,
+// the tree, and the search box so each section reads as inset.
+inline void drawSunkenBorder(QPainter *p, const QRect &r,
+                              const QColor &lite, const QColor &dark) {
+    p->setPen(dark);
+    p->drawLine(r.topLeft(),  r.topRight());
+    p->drawLine(r.topLeft(),  r.bottomLeft());
+    p->setPen(lite);
+    p->drawLine(r.bottomLeft() + QPoint(1, 0), r.bottomRight());
+    p->drawLine(r.topRight()   + QPoint(0, 1), r.bottomRight());
+}
+
+// Build the default sidebar tree shown when no media-library plugin
+// has registered its own entries.  Kept as a free function so a
+// plugin-driven nav model can replace it without touching
+// MlHostWidget's paint logic.
+QList<TreeListNode> buildPluginTree() {
+    auto icon = [](const char *rel) {
+        return QStringLiteral("%1/%2")
+            .arg(mlIconsBaseDir(),
+                  QString::fromLatin1(rel));
+    };
+    QList<TreeListNode> roots;
+
+    // "Now Playing" at the very top — the canonical media-library
+    // nav-tree order puts it first.
+    TreeListNode nowPlaying;
+    nowPlaying.invariantId  = QStringLiteral("Now Playing");
+    nowPlaying.displayLabel = QStringLiteral("Now Playing");
+    nowPlaying.iconResource = icon("ml_nowplaying/resources/ti_nowplaying_16x16x16.bmp");
+    roots.append(nowPlaying);
+
+    TreeListNode local;
+    local.invariantId = QStringLiteral("Local Media");
+    local.displayLabel = QStringLiteral("Local Library");
+    local.defaultExpanded = true;
+    local.childProvider = []() {
+        auto i = [](const char *rel) {
+            return QStringLiteral("%1/%2")
+                .arg(mlIconsBaseDir(),
+                      QString::fromLatin1(rel));
+        };
+        return QList<TreeListNode>{
+            {"Local Media/Audio",            "Audio",
+              i("ml_local/resources/ti_audio_16x16x16.bmp"),         false, {}},
+            {"Local Media/Video",            "Video",
+              i("ml_local/resources/ti_video_16x16x16.bmp"),         false, {}},
+            {"Local Media/Most Played",      "Most Played",
+              i("ml_local/resources/ti_most_played_16x16x16.bmp"),   false, {}},
+            {"Local Media/Recently Added",   "Recently Added",
+              i("ml_local/resources/ti_recently_added_16x16x16.bmp"),false, {}},
+            {"Local Media/Recently Played",  "Recently Played",
+              i("ml_local/resources/ti_recently_played_16x16x16.bmp"),false,{}},
+            {"Local Media/Never Played",     "Never Played",
+              i("ml_local/resources/ti_never_played_16x16x16.bmp"),  false, {}},
+            {"Local Media/Top Rated",        "Top Rated",
+              i("ml_local/resources/ti_top_rated_16x16x16.bmp"),     false, {}},
+        };
+    };
+    roots.append(local);
+
+    TreeListNode playlists;
+    playlists.invariantId = QStringLiteral("Playlists");
+    playlists.displayLabel = QStringLiteral("Playlists");
+    playlists.iconResource = icon("ml_playlists/resources/ti_playlist_16x16x16.bmp");
+    playlists.childProvider = []() { return QList<TreeListNode>{}; };
+    roots.append(playlists);
+
+    TreeListNode online;
+    online.invariantId  = QStringLiteral("Online Services");
+    online.displayLabel = QStringLiteral("Online Services");
+    online.childProvider = []() { return QList<TreeListNode>{}; };
+    roots.append(online);
+
+    TreeListNode devices;
+    devices.invariantId  = QStringLiteral("Devices");
+    devices.displayLabel = QStringLiteral("Devices");
+    devices.iconResource = icon("ml_devices/resources/generic-device-16x16.png");
+    devices.childProvider = []() { return QList<TreeListNode>{}; };
+    roots.append(devices);
+
+    TreeListNode podcasts;
+    podcasts.invariantId  = QStringLiteral("Podcasts");
+    podcasts.displayLabel = QStringLiteral("Podcast Directory");
+    podcasts.iconResource = icon("ml_local/resources/ti_podcasts_16x16x16.bmp");
+    podcasts.defaultExpanded = true;
+    podcasts.childProvider = []() {
+        return QList<TreeListNode>{
+            {"Podcasts/Subscriptions", "Subscriptions", "", false, {}}
+        };
+    };
+    roots.append(podcasts);
+
+    TreeListNode bookmarks;
+    bookmarks.invariantId  = QStringLiteral("Bookmarks");
+    bookmarks.displayLabel = QStringLiteral("Bookmarks");
+    bookmarks.iconResource = icon("ml_bookmarks/resources/ti_bookmarks_16x16x16.bmp");
+    bookmarks.childProvider = []() { return QList<TreeListNode>{}; };
+    roots.append(bookmarks);
+
+    TreeListNode history;
+    history.invariantId  = QStringLiteral("History");
+    history.displayLabel = QStringLiteral("History");
+    history.iconResource = icon("ml_history/resources/ti_history_items_16x16x16.bmp");
+    history.childProvider = []() { return QList<TreeListNode>{}; };
+    roots.append(history);
+
+    return roots;
+}
+
+// Concrete HolderRenderer.  Composes:
+//   * Outer SectionFrame (the bevel wrapping the whole ML panel)
+//   * Top toolbar — search box + Clear Search button + filter icons
+//   * Left column — TreeList + Library button at bottom-left
+//   * Right area — Artist/Albums + Album/Year column panes (top
+//     half) + Track list (bottom half), each wrapped in its own
+//     SectionFrame so every section reads with its own border.
+//   * Status row — Play ▼ button + "0 items" text.
+class MlHostRenderer : public HolderRenderer {
+public:
+    MlHostRenderer() {
+        // The sidebar tree pulls FROM the library window's embedded
+        // TreeListWidget — that's where any `MLNavCtrl_InsertItem`
+        // calls land.  Media-library plugins drive what we render here.
+        //
+        // When no plugin has registered entries we also seed the
+        // built-in fallback tree, so launching with zero plugins
+        // still shows something meaningful.  Plugin-driven entries
+        // win when they exist.
+        HWND hLib = qtWasabi::ml::ensureLibraryWindow();
+        // Boot the statically-linked ml_* plugins so their
+        // Plugin_Init can register tree items before we read the
+        // nav model below.  Safe to call repeatedly — internally
+        // guarded against running twice.
+        qtWasabi::ml::loadBuiltinMlPlugins();
+        using namespace qtWasabi::wasabi_compat;
+        m_libraryHwnd = hLib;
+        // Merge plugin-driven items with the built-in fallback tree.
+        // Plugin items go first (so each registered plugin visibly
+        // replaces its fallback equivalent at the top of the list).
+        // Fallback items survive unless a plugin item already covers
+        // the same name.
+        QList<qtWasabi::TreeListNode> roots;
+        QSet<QString> pluginNames;
+        if (m_libraryHwnd) {
+            auto *lib = static_cast<qtWasabi::ml::MlLibraryWindow *>(
+                lookupHandle<WindowObject>(m_libraryHwnd));
+            if (lib) {
+                for (const auto &n : lib->nav().widget().roots()) {
+                    pluginNames.insert(n.displayLabel);
+                    roots.append(n);
+                }
+            }
+        }
+        for (const auto &n : buildPluginTree()) {
+            if (!pluginNames.contains(n.displayLabel)) {
+                roots.append(n);
+            }
+        }
+        m_tree.setRoots(roots);
+        // Use the magenta-key-stripping loader so the 16-colour
+        // ml_* resource BMPs (which transparent-mask via RGB
+        // 255,0,255) come out with proper alpha rather than a solid
+        // box behind each glyph.
+        m_tree.setBitmapResolver(&loadMlIcon);
+
+        m_artistsCol.appendColumn(QStringLiteral("Artist"),  150);
+        m_artistsCol.appendColumn(QStringLiteral("Albums"),   60, 2);
+        m_artistsCol.appendColumn(QStringLiteral("Tracks"),   60, 2);
+        m_artistsCol.appendRow({QStringLiteral("All (0 artists)"),
+                                 QStringLiteral("0"),
+                                 QStringLiteral("0")});
+        m_artistsCol.setSelection(0);
+
+        m_albumsCol.appendColumn(QStringLiteral("Album"),    150);
+        m_albumsCol.appendColumn(QStringLiteral("Year"),      60, 2);
+        m_albumsCol.appendColumn(QStringLiteral("Tracks"),    60, 2);
+        m_albumsCol.appendRow({QStringLiteral("All (0 albums)"),
+                                QStringLiteral(""),
+                                QStringLiteral("0")});
+
+        m_tracks.appendColumn(QStringLiteral("Artist"),   120);
+        m_tracks.appendColumn(QStringLiteral("Album"),    140);
+        m_tracks.appendColumn(QStringLiteral("Track #"),   60, 2);
+        m_tracks.appendColumn(QStringLiteral("Title"),    180);
+        m_tracks.appendColumn(QStringLiteral("Length"),    60, 2);
+    }
+
+    bool isInteractive() const override { return true; }
+
+    void paint(QPainter *p, PaintCtx &ctx, const QRect &r) override {
+        if (r.width() <= 0 || r.height() <= 0) return;
+        m_lastRect = r;
+
+        // Prime wa_dlg with the live skin's palette once, so any
+        // WADlg_* draw calls resolve to the active skin's colours.
+        static bool s_genexDone = false;
+        if (!s_genexDone) { s_genexDone = true; installSkinGenex(ctx); }
+
+        // Resolve the wa_dlg theme from the loaded skin's own named
+        // colours (e.g. a skin's system-colors.xml), NOT invented
+        // `color.ml.*` ids that no skin defines (those would always
+        // fall back to the hardcoded darks below, leaving the ML chrome
+        // unthemed).  `themed()` walks the candidate list and returns
+        // the first the skin defines, so this is generic: any skin's
+        // own colours theme the ML.
+        auto firstThemed = [&](std::initializer_list<const char *> ids,
+                                QColor fallback) {
+            for (const char *id : ids) {
+                QColor got = themed(ctx, id, QColor());
+                if (got.isValid()) return got;
+            }
+            return fallback;
+        };
+        // These map the canonical wa_dlg colour slots to the skin
+        // colour-element names used to synthesise the genex.  Using the
+        // standard `wasabi.*` names themes the ML correctly for ANY
+        // skin, not just Bento.  The trailing `color.*` candidates are
+        // Bento-private aliases kept as a backstop.
+        // WADLG_WNDBG (ptr[52]) — dialog/chrome background.
+        const QColor windowBg = firstThemed(
+            {"wasabi.window.background", "color.window.bg"},
+            QColor(51, 55, 56));
+        // WADLG_ITEMBG (ptr[48]) — list/edit background.
+        const QColor itemBg = firstThemed(
+            {"wasabi.list.background", "color.display.bg"},
+            QColor(8, 9, 10));
+        // WADLG_WNDFG (ptr[56]) — chrome/window text.
+        const QColor windowTxt = firstThemed(
+            {"wasabi.window.text", "wasabi.text.color", "color.window.txt"},
+            QColor(210, 210, 210));
+        // WADLG_ITEMFG (ptr[50]) — list row text.
+        const QColor itemFg = firstThemed(
+            {"wasabi.list.text", "color.display"},
+            QColor(147, 175, 185));
+        // WADLG_HILITE (ptr[58]) — the skin's actual divider / sunken-
+        // border colour.  Use it for the dark bevel edge; pair it with
+        // a light edge derived from the window bg for the 3-D look.
+        const QColor sunken    = firstThemed(
+            {"wasabi.border.sunken"}, windowBg.darker(170));
+        // WADLG_SELBAR_BG (ptr[86]) — selection bar background.
+        const QColor selBg     = firstThemed(
+            {"wasabi.list.text.selected.background",
+             "wasabi.list.item.selected", "color.selected.active.bg"},
+            QColor(49, 53, 64));
+        const QColor bg        = windowBg;
+        const QColor frameLite = windowBg.lighter(150);
+        const QColor frameDark = sunken;
+        const QColor text      = windowTxt;
+        (void)itemFg; (void)selBg;
+
+        p->save();
+        p->fillRect(r, bg);
+
+        // Outer 1-px bevel around the whole holder.
+        p->setPen(frameLite);
+        p->drawLine(r.topLeft(),    r.topRight());
+        p->drawLine(r.topLeft(),    r.bottomLeft());
+        p->setPen(frameDark);
+        p->drawLine(r.bottomLeft() + QPoint(1, 0), r.bottomRight());
+        p->drawLine(r.topRight(),                   r.bottomRight());
+
+        QFont smallFont(QStringLiteral("Tahoma"));
+        smallFont.setPixelSize(11);
+        const QFontMetrics smallFm(smallFont);
+        const int rowH      = qMax(14, smallFm.height() + 2);
+        const int toolbarH  = 26;
+        const int bottomH   = 24;
+        const int sidebarW  = 134;
+        // Button foreground (label text + view-mode glyphs), tinted to
+        // the skin's button-fg (WADLG_BUTTONFG).  On Bento's dark button
+        // that resolves LIGHT, so labels and icons read on the dark
+        // chrome.  Falls back to the skin's window text, then a light
+        // grey — never hardcoded for one skin.
+        const QColor btnText = firstThemed(
+            {"wasabi.button.text", "wasabi.window.text", "color.window.txt"},
+            windowTxt.lightnessF() > 0.5 ? windowTxt : QColor(214, 216, 220));
+
+        // ── Layout geometry ────────────────────────────────────────
+        // Left column = the sidebar tree, full height from the top
+        // down to the bottom button row.  Right column = the Search
+        // toolbar at the TOP (level with "Now Playing", NOT a
+        // full-width bar above it), with the Artist/Album/Tracks panes
+        // below it.  Bottom row spans full width (Library under the
+        // sidebar, Play ▼ + status on the right).
+        const int topY = r.y() + 1;
+        const QRect bottomRow(r.x() + 1, r.bottom() - bottomH,
+                               r.width() - 2, bottomH);
+        const QRect sidebar(r.x() + 1, topY, sidebarW,
+                             bottomRow.top() - topY - 1);
+        const QRect toolbar(sidebar.right() + 2, topY,
+                             r.right() - sidebar.right() - 3, toolbarH);
+        p->fillRect(toolbar, bg);
+
+        // View-mode buttons at the LEFT of the Search field: three
+        // skinned buttons, each the skin's button chrome holding a
+        // black (skin-foreground-tinted) view-mode glyph.  The
+        // ml_local resource bitmaps are: icn_alb_art (album-art toggle,
+        // NO arrow), icn_view_mode (list view) and icn_columns (details
+        // view) — the latter two carry the dropdown down-triangle baked
+        // into the bitmap itself.  Tinted via loadMlToolbarIcon
+        // (luminance→alpha), so the icons stay generic across skins
+        // (each themes through its own button foreground).
+        static const char *kViewModeIcons[] = {
+            "ml_local/resources/icn_alb_art.bmp",
+            "ml_local/resources/icn_view_mode.bmp",
+            "ml_local/resources/icn_columns.bmp",
+        };
+        const int vmTop = toolbar.y() + 3;
+        const int vmH   = toolbar.height() - 6;
+        int vmX = toolbar.x() + 4;
+        for (int i = 0; i < 3; ++i) {
+            const QImage ic = loadMlToolbarIcon(
+                QStringLiteral("%1/%2")
+                    .arg(mlIconsBaseDir(),
+                          QString::fromLatin1(kViewModeIcons[i])),
+                btnText);
+            const int iw = ic.isNull() ? 16 : ic.width();
+            const int ih = ic.isNull() ? 11 : ic.height();
+            const int bw = iw + 14;
+            const QRect btn(vmX, vmTop, bw, vmH);
+            paintSkinButton(p, ctx, btn);
+            if (!ic.isNull()) {
+                const int ix = btn.x() + (bw - iw) / 2;
+                const int iy = btn.y() + (vmH - ih) / 2;
+                p->drawImage(ix, iy, ic);
+            }
+            vmX += bw + 3;
+        }
+
+        p->setFont(smallFont);
+        p->setPen(text);
+        const QRect searchLbl(vmX + 4, toolbar.y(), 50, toolbar.height());
+        p->drawText(searchLbl, Qt::AlignVCenter | Qt::AlignLeft,
+                    QStringLiteral("Search:"));
+        const QRect searchBox(searchLbl.right() + 2, toolbar.y() + 4,
+                                toolbar.right() - 96 - (searchLbl.right() + 2),
+                                toolbar.height() - 8);
+        p->fillRect(searchBox, itemBg);
+        // Sunken edit border: dark top/left, light bottom/right.
+        p->setPen(frameDark);
+        p->drawLine(searchBox.topLeft(), searchBox.topRight());
+        p->drawLine(searchBox.topLeft(), searchBox.bottomLeft());
+        p->setPen(frameLite);
+        p->drawLine(searchBox.bottomLeft(), searchBox.bottomRight());
+        p->drawLine(searchBox.topRight(), searchBox.bottomRight());
+
+        const QRect clearBtn(toolbar.right() - 92, toolbar.y() + 4,
+                              88, toolbar.height() - 8);
+        paintSkinButton(p, ctx, clearBtn);
+        p->setPen(btnText);
+        p->drawText(clearBtn, Qt::AlignCenter,
+                    QStringLiteral("Clear Search"));
+
+        // ── Bottom row with Library + Play ▼ side by side ──────
+        p->fillRect(bottomRow, bg);
+        p->setPen(frameLite);
+        p->drawLine(bottomRow.topLeft(), bottomRow.topRight());
+
+        const QRect libBtn(bottomRow.x() + 4, bottomRow.y() + 3,
+                             sidebarW - 8, bottomRow.height() - 6);
+        paintSkinButton(p, ctx, libBtn);
+        p->setPen(btnText);
+        p->drawText(libBtn, Qt::AlignCenter,
+                    QStringLiteral("Library"));
+
+        const QRect playBtn(libBtn.right() + 8, bottomRow.y() + 3,
+                             60, bottomRow.height() - 6);
+        paintSkinButton(p, ctx, playBtn);
+        p->setPen(btnText);
+        p->drawText(playBtn, Qt::AlignCenter,
+                    QStringLiteral("Play ▼"));
+
+        p->setPen(text);
+        p->drawText(QRect(playBtn.right() + 12, bottomRow.y(),
+                           bottomRow.width() - 200, bottomRow.height()),
+                    Qt::AlignVCenter | Qt::AlignLeft,
+                    QStringLiteral("0 items in 0.001 sec."));
+
+        // ── Left sidebar (tree) — full height from the top ─────
+        // Sunken bevel frame around the sidebar pane.
+        drawSunkenBorder(p, sidebar, frameLite, frameDark);
+        m_tree.attrs.insert(QStringLiteral("x"),
+                             QString::number(sidebar.x() + 1));
+        m_tree.attrs.insert(QStringLiteral("y"),
+                             QString::number(sidebar.y() + 1));
+        m_tree.attrs.insert(QStringLiteral("w"),
+                             QString::number(sidebar.width() - 2));
+        m_tree.attrs.insert(QStringLiteral("h"),
+                             QString::number(sidebar.height() - 2));
+        m_tree.paint(p, ctx, QSize(r.width() + r.x(), r.height() + r.y()));
+
+        // ── Right area: Artist + Album top panes, Tracks bottom ──
+        // Sits BELOW the search toolbar (which occupies the top of the
+        // right column), so the panes line up under the Search field.
+        const QRect rightArea(toolbar.x(),
+                                toolbar.bottom() + 2,
+                                toolbar.width(),
+                                bottomRow.top() - toolbar.bottom() - 3);
+        const int paneH = (rightArea.height() - 2) / 2;
+        const int leftPaneW = rightArea.width() / 2;
+        const QRect artistPane(rightArea.x(),
+                                rightArea.y(),
+                                leftPaneW,
+                                paneH);
+        const QRect albumPane (rightArea.x() + leftPaneW + 2,
+                                rightArea.y(),
+                                rightArea.width() - leftPaneW - 2,
+                                paneH);
+        const QRect tracksPane(rightArea.x(),
+                                rightArea.y() + paneH + 2,
+                                rightArea.width(),
+                                rightArea.height() - paneH - 2);
+
+        auto paintBorderedPane = [&](MultiColumnListWidget &mcl,
+                                       const QRect &paneR) {
+            // Sunken bevel frame around the pane.
+            drawSunkenBorder(p, paneR, frameLite, frameDark);
+            // Stamp the widget's rect to the inner content area.
+            const QRect inner = paneR.adjusted(1, 1, -1, -1);
+            mcl.attrs.insert(QStringLiteral("x"),
+                              QString::number(inner.x()));
+            mcl.attrs.insert(QStringLiteral("y"),
+                              QString::number(inner.y()));
+            mcl.attrs.insert(QStringLiteral("w"),
+                              QString::number(inner.width()));
+            mcl.attrs.insert(QStringLiteral("h"),
+                              QString::number(inner.height()));
+            mcl.paint(p, ctx, QSize(r.right() + 1, r.bottom() + 1));
+        };
+        paintBorderedPane(m_artistsCol, artistPane);
+        paintBorderedPane(m_albumsCol,  albumPane);
+        paintBorderedPane(m_tracks,     tracksPane);
+
+        p->restore();
+    }
+
+    void onLeftButtonDown(QPoint pos, PaintCtx &ctx) override {
+        // Route into whichever child widget's rect contains pos.
+        if (m_tree.lastCanvasRect.contains(pos)) {
+            m_tree.onLeftButtonDown(pos, ctx);
+            return;
+        }
+        m_artistsCol.onLeftButtonDown(pos, ctx);
+        m_albumsCol.onLeftButtonDown(pos, ctx);
+        m_tracks.onLeftButtonDown(pos, ctx);
+    }
+
+private:
+    TreeListWidget        m_tree;
+    MultiColumnListWidget m_artistsCol;
+    MultiColumnListWidget m_albumsCol;
+    MultiColumnListWidget m_tracks;
+    QRect                 m_lastRect;
+    // Handle to the media-library window — set on construction.  Read
+    // once to seed the nav tree; a tree-mutation signal could later
+    // drive incremental repaints on plugin-driven inserts.
+    HWND                  m_libraryHwnd = nullptr;
+};
+
+}  // anonymous
+
+void installMlHostFactory() {
+    static bool installed = false;
+    if (installed) return;
+    installed = true;
+    registerHolderRenderer(
+        QStringLiteral("{6B0EDF80-C9A5-11D3-9F26-00C04F39FFC6}"),
+        [](const QRect &) -> std::unique_ptr<HolderRenderer> {
+            return std::make_unique<MlHostRenderer>();
+        });
+}
+
+}  // namespace ml
+}  // namespace qtWasabi
