@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/SkinXml.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/SkinXml.h>
 
 #include <QChar>
 #include <QDir>
@@ -11,7 +11,7 @@
 #include <QImageReader>
 #include <QPoint>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace {
 
@@ -46,8 +46,7 @@ const BitmapFontDef *FontRegistry::find(const QString &id) const {
     return it == m_defs.constEnd() ? nullptr : &it.value();
 }
 
-// Direct port of upstream Wasabi BitmapFont::getXYfromChar (see
-// `Src/Wasabi/api/font/bitmapfont.cpp`).  Glyphs sit in 3 rows:
+// Wasabi BitmapFont glyph-coordinate mapping.  Glyphs sit in 3 rows:
 //   row 0 (y=0)              — A..Z (lowercase maps in), space
 //   row 1 (y=charHeight)     — 0-9 ., :, (, ), -, ', etc.
 //   row 2 (y=charHeight*2)   — fallback / extras
@@ -177,4 +176,4 @@ QImage FontRegistry::glyph(const QString &fontId, QChar ch,
     return table.copy(r);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

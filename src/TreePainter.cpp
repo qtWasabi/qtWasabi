@@ -7,19 +7,19 @@
 // `root.paint(...)` dispatch.  Every per-tag paint path lives in its
 // own Widget subclass under `src/widgets/`.
 
-#include <WasabiQt/TreePainter.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/Widget.h>
-#include <WasabiQt/PaintCtx.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
-#include <WasabiQt/Host.h>
+#include <qtWasabi/TreePainter.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/Widget.h>
+#include <qtWasabi/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/Host.h>
 
 class QPainter;
 
-namespace WasabiQt::TreePainter {
+namespace qtWasabi::TreePainter {
 
 using Layout::ResolvedWidget;
 
@@ -46,13 +46,14 @@ void paintTree(QPainter *p, const ResolvedWidget &root,
                int colorthemesTopRowIn,
                QRect *colorthemesListBboxOut,
                int  *colorthemesTopRowOut,
-               int  visMode) {
+               int  visMode, bool windowActive) {
     PaintCtx ctx{&reg, &fontReg, makeDefaultDisplayResolver(host), host,
                  gammasets, colors, colorthemesSelectedRow,
                  colorthemesTopRowIn,
                  colorthemesListBboxOut, colorthemesTopRowOut,
                  visMode};
+    ctx.windowActive = windowActive;
     const_cast<Widget &>(root).paint(p, ctx, canvas);
 }
 
-}  // namespace WasabiQt::TreePainter
+}  // namespace qtWasabi::TreePainter

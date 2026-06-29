@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/HitCtx.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/LayerPainter.h>
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/CfgAttribStore.h>
+#include <qtWasabi/HitCtx.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/TextPainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/LayerPainter.h>
+#include <qtWasabi/Widget.h>
 
 #include <QBitmap>
 #include <QFont>
@@ -20,7 +22,7 @@
 #include <QString>
 #include <functional>
 
-namespace WasabiQt::Layout {
+namespace qtWasabi::Layout {
 
 namespace {
 
@@ -34,12 +36,17 @@ using SendparamsMap = QHash<QPair<QString, QString>, QHash<QString, QString>>;
 // SkinXml::parse applies to element names).  Same node can appear
 // under both keys.
 struct GroupdefIndex {
+    // Both maps store keys in lowercase — groupdef ids are matched
+    // case-insensitively (Bento defines `id="info.component.Cover"`
+    // but instantiates as `id="info.component.cover"`).  Lookup also
+    // lowercases before searching.
     QHash<QString, const Element *> byId;
     QHash<QString, const Element *> byXuitag;
 
     const Element *lookup(const QString &key) const {
-        if (auto *p = byId.value(key, nullptr))      return p;
-        if (auto *p = byXuitag.value(key, nullptr))  return p;
+        const QString k = key.toLower();
+        if (auto *p = byId.value(k, nullptr))      return p;
+        if (auto *p = byXuitag.value(k, nullptr))  return p;
         return nullptr;
     }
 };
@@ -47,7 +54,7 @@ struct GroupdefIndex {
 void collectGroupdefs(const Element &el, GroupdefIndex &out) {
     if (el.tag == QStringLiteral("groupdef")) {
         const QString id = el.attrs.value(QStringLiteral("id"));
-        if (!id.isEmpty()) out.byId.insert(id, &el);
+        if (!id.isEmpty()) out.byId.insert(id.toLower(), &el);
         const QString xui = el.attrs.value(QStringLiteral("xuitag"));
         if (!xui.isEmpty()) {
             // Match SkinXml's tag normalisation: lowercase, ':' → '_'.
@@ -117,7 +124,21 @@ const Element *findContainer(const Element &root, const QString &id) {
 const Element *findLayout(const Element &container, const QString &id) {
     for (const auto &c : container.children) {
         if (c.tag == QStringLiteral("layout") &&
-            c.attrs.value(QStringLiteral("id")) == id)
+            c.attrs.value(QStringLiteral("id"))
+                .compare(id, Qt::CaseInsensitive) == 0)
+            return &c;
+    }
+    return nullptr;
+}
+
+// A container's first <layout> child is its default — what Winamp shows
+// when no specific layout is requested.  Skins are free to name their
+// default anything ("normal" is only a convention, e.g. HeadAMP uses
+// "mode-main"), so callers that ask for a conventional name fall back
+// here rather than failing.
+const Element *firstLayout(const Element &container) {
+    for (const auto &c : container.children) {
+        if (c.tag == QStringLiteral("layout"))
             return &c;
     }
     return nullptr;
@@ -145,6 +166,10 @@ std::unique_ptr<Widget> makeResolved(const Element &src,
     r->attrs      = src.attrs;
     r->sourceFile = src.sourceFile;
     r->sourceLine = src.sourceLine;
+    // Bulk assignment skipped setXmlParam — fire the one-shot init
+    // hook so subclasses can register attr-driven side effects (e.g.
+    // ToggleButton subscribing to its cfgattrib key on first sight).
+    r->onAttrsInitialized();
     return r;
 }
 
@@ -246,7 +271,29 @@ private:
             QString finalTag = el.tag;
             const QString embedXui =
                 def->attrs.value(QStringLiteral("embed_xui"));
-            if (kBasicXuiTags.contains(embedXui.toLower())) {
+            // `embed_xui` most often names a CHILD element id in the
+            // groupdef body — the embedding point (TabButton uses
+            // embed_xui="bento.tabbutton.mousetrap", its inner button).
+            // Such a groupdef is a structured CONTAINER and must render
+            // its whole body, NOT collapse to a single leaf.  This also
+            // covers Bento's InfoLine, whose embed_xui="text" names its
+            // child <Text id="text"> (the value field) — the literal
+            // "text" only LOOKS like the basic tag; treating it as a
+            // leaf dropped the label/value children.  Only when
+            // embed_xui names a basic widget tag AND no child carries
+            // that id is the groupdef a bare embedded widget.
+            std::function<bool(const Element &, const QString &)>
+                hasChildId = [&](const Element &e, const QString &id) -> bool {
+                    for (const Element &c : e.children) {
+                        if (c.attrs.value(QStringLiteral("id")) == id) return true;
+                        if (hasChildId(c, id)) return true;
+                    }
+                    return false;
+                };
+            const bool embedNamesChild =
+                !embedXui.isEmpty() && hasChildId(*def, embedXui);
+            if (!embedNamesChild &&
+                kBasicXuiTags.contains(embedXui.toLower())) {
                 finalTag = embedXui.toLower();
             } else if (finalTag != QStringLiteral("group") &&
                        finalTag != QStringLiteral("container") &&
@@ -256,6 +303,20 @@ private:
 
             auto nodePtr = makeResolved(el, finalTag);
             Widget &node = *nodePtr;
+
+            // Tag the instance with the groupdef it came from.  A
+            // <script> declared inside a groupdef body is parsed ONCE
+            // (scope = the groupdef id), so a groupdef instantiated N
+            // times — Bento's InfoLine is instantiated per file-info
+            // line — shares a single script instance bound to one line.
+            // SkinRuntime uses this tag to give each instance its OWN
+            // script (Wasabi semantics) so per-instance handlers (e.g.
+            // infoline.maki positioning each value after its label) run.
+            {
+                const QString gdId = def->attrs.value(QStringLiteral("id"));
+                if (!gdId.isEmpty())
+                    node.attrs.insert(QStringLiteral("_srcgroupdef"), gdId);
+            }
 
             // `inherit_group="X"` on the groupdef: splice X's body in
             // before our own body and pick up X's attrs as defaults.
@@ -310,6 +371,145 @@ private:
             expandChildren(*def, node,
                            iid.isEmpty() ? instanceId : iid);
 
+            // A groupdef `background="X"` fills the group rect with bitmap X
+            // BEHIND its children (Wasabi semantics).  The menu bar relies on
+            // it: menubar.png's bottom row is transparent, so without the fill
+            // that row exposes the desktop — the 1px gap under the menu bar.
+            //
+            // SCOPE: only the menu bar needs this.  Window frames and the EQ
+            // drawer also declare background=, but their texture sits behind
+            // content that fully covers it — EXCEPT when a frame pane resolves
+            // to a sliver (the EQ-expanded layout grows a thin pane at the
+            // right edge), where the fill paints a spurious vertical
+            // basetexture strip against the desktop.  Before this fill that
+            // sliver was transparent and invisible; filling every group made
+            // it visible.  Restrict the fill to menu-bar groups: keeps the gap
+            // fix, drops the strip.
+            const QString bgImage =
+                node.attrs.value(QStringLiteral("background"));
+            if (!bgImage.isEmpty() &&
+                node.id.contains(QStringLiteral("menubar"),
+                                 Qt::CaseInsensitive)) {
+                Element bgEl;
+                bgEl.tag = QStringLiteral("layer");
+                bgEl.attrs.insert(QStringLiteral("id"),
+                                  QStringLiteral("__groupbg"));
+                bgEl.attrs.insert(QStringLiteral("image"), bgImage);
+                bgEl.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
+                bgEl.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
+                bgEl.attrs.insert(QStringLiteral("w"), QStringLiteral("0"));
+                bgEl.attrs.insert(QStringLiteral("h"), QStringLiteral("0"));
+                bgEl.attrs.insert(QStringLiteral("relatw"),
+                                  QStringLiteral("1"));
+                bgEl.attrs.insert(QStringLiteral("relath"),
+                                  QStringLiteral("1"));
+                bgEl.attrs.insert(QStringLiteral("tile"),
+                                  QStringLiteral("1"));
+                node.children.insert(node.children.begin(),
+                                     makeResolved(bgEl));
+            }
+
+            // The standardframe menu bar sits 1px above a sunken content
+            // area.  `menubar.png`'s bottom row is transparent, and real
+            // Winamp shows a 1px shadow at that boundary (the content-area
+            // top inset edge), NOT the bare frame texture.  Our background
+            // fill paints the texture through that transparent row, leaving
+            // a too-light line where the reference has a dark divider.
+            // Reproduce the divider as a 1px ~40%-black line at the menu
+            // bar's bottom edge — a solid-colour layer drawn last (on top),
+            // themed by whatever sits beneath it (silver here, darker on a
+            // dark skin).  Structural: any standardframe `*menubar*` group.
+            if (node.id.contains(QStringLiteral("menubar"),
+                                 Qt::CaseInsensitive)) {
+                Element sh;
+                sh.tag = QStringLiteral("layer");
+                sh.attrs.insert(QStringLiteral("id"),
+                                QStringLiteral("__menubar_divider"));
+                sh.attrs.insert(QStringLiteral("file"),
+                                QStringLiteral("$solid"));
+                sh.attrs.insert(QStringLiteral("color"),
+                                QStringLiteral("0,0,0"));
+                sh.attrs.insert(QStringLiteral("alpha"),
+                                QStringLiteral("98"));
+                sh.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
+                sh.attrs.insert(QStringLiteral("y"), QStringLiteral("-1"));
+                sh.attrs.insert(QStringLiteral("relaty"), QStringLiteral("1"));
+                // Span the menu strip (menubar.left + center); the right cap
+                // (menubar.right, 45px) keeps its own bright bottom edge.
+                sh.attrs.insert(QStringLiteral("w"), QStringLiteral("-45"));
+                sh.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
+                sh.attrs.insert(QStringLiteral("h"), QStringLiteral("1"));
+                node.children.push_back(makeResolved(sh));
+            }
+
+            // XUI text-param propagation.  Real Wasabi skins use
+            // per-instance "label" attrs on XUI groupdef tags
+            // (Bento's `<Bento:TabButton tabtext="Media Library">`,
+            // WACUP's `<Wasabi:TabSheet caption="Options">`, etc.)
+            // and a Maki script does `text.setXmlParam("text", …)`
+            // to flow the value into the inner `<text>` widget.  We
+            // can't run those scripts; instead the engine recognises
+            // the canonical XUI text-param names below and writes
+            // them as `text=…` on any inner `<text>` widget whose
+            // own display/default/text attrs are all empty.  Skin-
+            // agnostic for any skin using one of these param names.
+            static const QStringList kXuiTextParamNames{
+                QStringLiteral("tabtext"),
+                QStringLiteral("caption"),
+                QStringLiteral("label"),
+            };
+            QString xuiTextValue, xuiTextParam;
+            for (const QString &k : kXuiTextParamNames) {
+                const QString v = el.attrs.value(k);
+                if (!v.isEmpty()) { xuiTextValue = v; xuiTextParam = k; break; }
+            }
+            if (!xuiTextValue.isEmpty()) {
+                // Prefer a child whose id matches the param name: Bento's
+                // InfoLine declares `label="Title:"` and a child
+                // `<Text id="label">`, so the label belongs on that
+                // child — NOT on the sibling `<Text id="text">` (the
+                // value field, filled at runtime by fileinfo.maki).
+                // Setting it there (and only there) keeps the value
+                // field free.  Falls back to tagging every empty text
+                // descendant for the simple case (TabButton: `tabtext`
+                // → its normal/hover/active text widgets, no id="tabtext").
+                std::function<Widget *(Widget &, const QString &)> findById =
+                    [&](Widget &w, const QString &id) -> Widget * {
+                        for (auto &c : w.children) {
+                            if (!c) continue;
+                            if (c->attrs.value(QStringLiteral("id")) == id &&
+                                (c->tag == QStringLiteral("text") ||
+                                 c->tag == QStringLiteral("songticker")))
+                                return c.get();
+                            if (Widget *r = findById(*c, id)) return r;
+                        }
+                        return nullptr;
+                    };
+                Widget *named = findById(node, xuiTextParam);
+                if (named) {
+                    named->attrs.insert(QStringLiteral("text"), xuiTextValue);
+                } else {
+                    std::function<void(Widget &)> tagTexts =
+                        [&](Widget &w) {
+                            if (w.tag == QStringLiteral("text") ||
+                                w.tag == QStringLiteral("songticker")) {
+                                const bool empty =
+                                    w.attrs.value(QStringLiteral("text")).isEmpty() &&
+                                    w.attrs.value(QStringLiteral("default")).isEmpty() &&
+                                    w.attrs.value(QStringLiteral("display")).isEmpty();
+                                if (empty) {
+                                    w.attrs.insert(QStringLiteral("text"),
+                                                    xuiTextValue);
+                                }
+                            }
+                            for (auto &c : w.children) {
+                                if (c) tagTexts(*c);
+                            }
+                        };
+                    tagTexts(node);
+                }
+            }
+
             // `content="X"` on a frame instantiation says: inject the
             // groupdef X's children into this frame's content slot.
             // Wasabi's standardframe.maki normally does this at runtime;
@@ -320,6 +520,13 @@ private:
             const QString content =
                 el.attrs.value(QStringLiteral("content"));
             if (!content.isEmpty()) {
+                // The content groupdef's children are flattened below with
+                // no wrapper node, which would erase the groupdef identity
+                // — record it so script-owner resolution (a <script>
+                // declared INSIDE the content groupdef, e.g. the pledit's
+                // plmenu/pltime) can still find its owner in this tree.
+                node.attrs.insert(QStringLiteral("_content_groupdef"),
+                                  content);
                 if (const Element *contentDef = m_groupdefs.lookup(content)) {
                     if (!m_inflightInstances.contains(content)) {
                         m_inflightInstances.insert(content);
@@ -391,9 +598,18 @@ private:
                     }
                 }
 
-                // Shift content widgets down by the menubar height so
-                // the display panel + player chrome don't paint over
-                // the menubar's File/Play/Options/View/Help band.
+                // Shift the injected content down so it clears the
+                // titlebar (and the menubar, where one exists).  The
+                // standardframe.maki script places the content group at
+                // the y named in its `param` token 1 — "18" for every
+                // player-window frame (the titlebar height), so the
+                // component never paints over the title.  The shift is
+                // INDEPENDENT of the menubar: the detached Visualizer /
+                // Video frames carry NO menubar, yet their content still
+                // has to sit below the titlebar.  Each per-frame dummy
+                // group already bakes its own menubar clearance into its
+                // y (17 for the Playlist/Media Library, 0 for vis/video),
+                // so a single titlebar-height shift is correct for all.
                 //
                 // The shift is applied *at resolve-time* via a private
                 // `_shift_y` attr that Widget::resolveRectFromAttrs
@@ -405,44 +621,61 @@ private:
                 // authored for the unshifted layout.  Keeping `y`
                 // pristine and applying the shift at the resolve step
                 // means script-set positions get shifted too.
-                if (auto *menubarChild = ([&]() -> Widget * {
-                        for (auto &c : node.children) {
-                            if (c && c->id.contains(
-                                    QStringLiteral("menubar"),
-                                    Qt::CaseInsensitive))
-                                return c.get();
-                        }
-                        return nullptr;
-                    }())) {
-                    constexpr int kMenubarShift = 18;
-                    const QString shiftStr =
-                        QString::number(kMenubarShift);
-                    for (auto &c : node.children) {
-                        if (!c) continue;
-                        if (c.get() == menubarChild) continue;
-                        if (c->id == QStringLiteral("wasabi.main.layout"))
-                            continue;
-                        if (c->tag == QStringLiteral("script") ||
-                            c->tag == QStringLiteral("sendparams"))
-                            continue;
-                        for (auto &gc : c->children) {
-                            if (!gc) continue;
-                            // Shift every content-level child by the
-                            // menubar height — player chrome groups
-                            // AND sibling overlay widgets the authors
-                            // placed at the top of player.main
-                            // (player.button.videoavs.up.bg,
-                            // videoavs.open / videoavs.close,
-                            // openclosehider — literal y=16..19).
-                            // In the WACUP reference these sit in
-                            // row 3 (below the y=18..35 menubar row),
-                            // not in the menubar.  The "VIDEO/VIS"
-                            // text label that DOES live in the
-                            // menubar band paints from the menubar's
-                            // own `textoverlay` layer (hoisted above).
-                            gc->attrs.insert(
-                                QStringLiteral("_shift_y"), shiftStr);
-                        }
+                //
+                // Read the offset from the frame's standardframe script
+                // param (token 1) so non-18 frames (config StandardFrames
+                // place content at y=23) shift by their own value.
+                int contentShiftY = 18;
+                for (const Element &dc : def->children) {
+                    if (dc.tag != QStringLiteral("script")) continue;
+                    const QStringList toks =
+                        dc.attrs.value(QStringLiteral("param"))
+                            .split(QLatin1Char(','));
+                    if (toks.size() < 8) continue;
+                    bool ok = false;
+                    const int yTok = toks.at(1).trimmed().toInt(&ok);
+                    if (ok) { contentShiftY = yTok; break; }
+                }
+                // The menubar (where present) sits at its own y already and
+                // must not be shifted; locate it only to exempt it.
+                Widget *menubarChild = nullptr;
+                for (auto &c : node.children) {
+                    if (c && c->id.contains(QStringLiteral("menubar"),
+                                            Qt::CaseInsensitive)) {
+                        menubarChild = c.get();
+                        break;
+                    }
+                }
+                const QString shiftStr = QString::number(contentShiftY);
+                for (auto &c : node.children) {
+                    if (!c) continue;
+                    if (c.get() == menubarChild) continue;
+                    // The frame's content wrapper carries its OWN titlebar
+                    // at y=0; it must NOT be pushed down.  The player frame
+                    // uses `wasabi.main.layout`; the Playlist Editor / Media
+                    // Library / Visualizer / Video frames use
+                    // `wasabi.standard.layout` — exempt both, else those
+                    // windows' titlebars render low (behind the content).
+                    if (c->id == QStringLiteral("wasabi.main.layout") ||
+                        c->id == QStringLiteral("wasabi.standard.layout"))
+                        continue;
+                    if (c->tag == QStringLiteral("script") ||
+                        c->tag == QStringLiteral("sendparams"))
+                        continue;
+                    for (auto &gc : c->children) {
+                        if (!gc) continue;
+                        // Shift every content-level child by the titlebar
+                        // height — player chrome groups AND sibling overlay
+                        // widgets the authors placed at the top of
+                        // player.main (player.button.videoavs.up.bg,
+                        // videoavs.open / videoavs.close, openclosehider —
+                        // literal y=16..19).  In the WACUP reference these
+                        // sit in row 3 (below the y=18..35 menubar row),
+                        // not in the menubar.  The "VIDEO/VIS" text label
+                        // that DOES live in the menubar band paints from the
+                        // menubar's own `textoverlay` layer (hoisted above).
+                        gc->attrs.insert(
+                            QStringLiteral("_shift_y"), shiftStr);
                     }
                 }
             }
@@ -474,53 +707,140 @@ private:
             const QString second = vertical
                 ? el.attrs.value(QStringLiteral("right"))
                 : el.attrs.value(QStringLiteral("bottom"));
-            const int defaultSize = vertical
+            // The XML's `width=` is the initial divider position.
+            // Real Wasabi restores the user's saved divider from
+            // skin state on subsequent loads, but on the very first
+            // launch this literal value is what the chrome shows.
+            // Honour it — our previous heuristic that expanded to
+            // `maxwidth` made the player chrome look stretched (the
+            // reference Bento sits at the saved-position ~290 px
+            // on a 730 px window, much closer to the XML literal
+            // than to maxwidth).
+            int defaultSize = vertical
                 ? el.attrs.value(QStringLiteral("width")).toInt()
                 : el.attrs.value(QStringLiteral("height")).toInt();
 
+            // Which edge is the divider position (`width`/`height`)
+            // measured from?  Wasabi FrameWnd: from=l/top anchors the
+            // fixed size to the FIRST pane (left/top); from=r/bottom
+            // anchors it to the SECOND pane (right/bottom) and gives
+            // the first pane the remainder.  The old code ignored
+            // `from` entirely and always sized the first pane, which
+            // swapped Bento's player.dualwnd (from="r", width=200):
+            // fileinfo wrongly got 200px and the playlist preview got
+            // the leftover — producing the swapped/empty top-right
+            // pane.  This is attribute-driven, no skin names.
+            const QString fromAttr =
+                el.attrs.value(QStringLiteral("from")).toLower();
+            const bool fixedOnSecond =
+                (fromAttr == QStringLiteral("r") ||
+                 fromAttr == QStringLiteral("right") ||
+                 fromAttr == QStringLiteral("b") ||
+                 fromAttr == QStringLiteral("bottom"));
+
+            // Wasabi FrameWnd reserves an 8px sizer gap between the panes
+            // (the SIZERWIDTH) for the draggable divider/grabber — but
+            // ONLY when the frame is resizeable (a non-resizeable frame
+            // zeroes the sizer width).  Non-resizeable frames
+            // (jump="0"/"none") butt their panes together with no gap and
+            // no divider.  `jump` set to a real edge ⇒ draggable.
+            const QString jumpAttr =
+                el.attrs.value(QStringLiteral("jump")).toLower();
+            const bool resizeable =
+                !(jumpAttr == QStringLiteral("0") ||
+                  jumpAttr == QStringLiteral("none") ||
+                  jumpAttr == QStringLiteral("false"));
+            int kFrameSizerWidth = resizeable ? 8 : 0;
+            if (const char *sz = qgetenv("WASABIQT_SIZER").constData();
+                sz && *sz) kFrameSizerWidth = QByteArray(sz).toInt();
+
             auto addPane = [&](const QString &paneId, bool isFirst) {
                 if (paneId.isEmpty()) return;
+                if (qEnvironmentVariableIntValue("WASABIQT_TRACE_FRAME") == 1)
+                    fprintf(stderr, "[frame %s] pane id=%s isFirst=%d lookup=%d\n",
+                            el.attrs.value(QStringLiteral("id")).toLocal8Bit().constData(),
+                            paneId.toLocal8Bit().constData(), isFirst ? 1 : 0,
+                            m_groupdefs.lookup(paneId) ? 1 : 0);
                 if (!m_groupdefs.lookup(paneId)) return;
                 Element pseudo;
                 pseudo.tag = QStringLiteral("group");
                 pseudo.attrs.insert(QStringLiteral("id"), paneId);
                 if (defaultSize > 0) {
-                    if (vertical) {
-                        if (isFirst) {
-                            pseudo.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("w"),
-                                QString::number(defaultSize));
-                            pseudo.attrs.insert(QStringLiteral("h"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("relath"), QStringLiteral("1"));
-                        } else {
-                            pseudo.attrs.insert(QStringLiteral("x"),
-                                QString::number(defaultSize));
-                            pseudo.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("w"),
+                    // Does THIS pane get the fixed size or the
+                    // remainder?  The fixed pane is the first one
+                    // UNLESS `from` points at the far edge.
+                    const bool fixedHere = (isFirst != fixedOnSecond);
+                    // Tag the pane's role so a runtime setPosition() can
+                    // re-split the frame against the live divider (faithful
+                    // FrameWnd model: getPosition/setPosition drive a live
+                    // pullbarpos, not the static `width=`).
+                    pseudo.attrs.insert(QStringLiteral("_frame_pane"),
+                        fixedHere ? QStringLiteral("fixed") : QStringLiteral("rem"));
+                    // The cross-axis always fills the parent.
+                    const char *crossPos = vertical ? "y" : "x";
+                    const char *crossSz  = vertical ? "h" : "w";
+                    const char *crossRel = vertical ? "relath" : "relatw";
+                    const char *mainPos  = vertical ? "x" : "y";
+                    const char *mainSz   = vertical ? "w" : "h";
+                    const char *mainRel  = vertical ? "relatw" : "relath";
+                    const char *mainRelPos = vertical ? "relatx" : "relaty";
+                    pseudo.attrs.insert(QString::fromLatin1(crossPos), QStringLiteral("0"));
+                    pseudo.attrs.insert(QString::fromLatin1(crossSz),  QStringLiteral("0"));
+                    pseudo.attrs.insert(QString::fromLatin1(crossRel), QStringLiteral("1"));
+                    // Real Wasabi FrameWnd honours the frame's own
+                    // min{width,height}: the REMAINDER pane never shrinks
+                    // below it and the FIXED pane is capped so both fit.
+                    // Without this, a fixed pane larger than the parent
+                    // (Bento playlist.dualwnd: albumart fixed 100 in a
+                    // 92px strip) drives the remainder negative → the
+                    // playlist collapses to 0.  Carry the min on both
+                    // pseudo-panes so Widget::resolveRectFromAttrs can
+                    // enforce it once the parent pixel size is known.
+                    const int minRem = vertical
+                        ? el.attrs.value(QStringLiteral("minwidth")).toInt()
+                        : el.attrs.value(QStringLiteral("minheight")).toInt();
+                    if (fixedHere) {
+                        // Fixed extent, anchored to this pane's edge.
+                        if (fixedOnSecond) {
+                            // far edge: x = parent - size
+                            pseudo.attrs.insert(QString::fromLatin1(mainPos),
                                 QString::number(-defaultSize));
-                            pseudo.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
-                            pseudo.attrs.insert(QStringLiteral("h"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("relath"), QStringLiteral("1"));
+                            pseudo.attrs.insert(QString::fromLatin1(mainRelPos), QStringLiteral("1"));
+                        } else {
+                            pseudo.attrs.insert(QString::fromLatin1(mainPos), QStringLiteral("0"));
+                        }
+                        pseudo.attrs.insert(QString::fromLatin1(mainSz),
+                            QString::number(defaultSize));
+                        if (minRem > 0) {
+                            // Cap to parentExtent - minRem; re-anchor if far edge.
+                            pseudo.attrs.insert(
+                                QStringLiteral("_frame_cap_") + QString::fromLatin1(mainSz),
+                                QString::number(minRem));
+                            if (fixedOnSecond)
+                                pseudo.attrs.insert(QStringLiteral("_frame_cap_far"),
+                                                    QStringLiteral("1"));
                         }
                     } else {
-                        if (isFirst) {
-                            pseudo.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("w"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
-                            pseudo.attrs.insert(QStringLiteral("h"),
-                                QString::number(defaultSize));
+                        // Remainder pane: parentExtent - size, anchored
+                        // to the opposite edge from the fixed pane.  The
+                        // panes ABUT (no shortening) — shortening the
+                        // remainder pane to open a sizer gap exposed its
+                        // own inner-bevel highlight as a stray grey line.
+                        // Instead the divider is drawn over the FIXED pane's
+                        // edge (which carries only a frame, no buttons).
+                        if (fixedOnSecond) {
+                            pseudo.attrs.insert(QString::fromLatin1(mainPos), QStringLiteral("0"));
                         } else {
-                            pseudo.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("y"),
+                            pseudo.attrs.insert(QString::fromLatin1(mainPos),
                                 QString::number(defaultSize));
-                            pseudo.attrs.insert(QStringLiteral("w"), QStringLiteral("0"));
-                            pseudo.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
-                            pseudo.attrs.insert(QStringLiteral("h"),
-                                QString::number(-defaultSize));
-                            pseudo.attrs.insert(QStringLiteral("relath"), QStringLiteral("1"));
                         }
+                        pseudo.attrs.insert(QString::fromLatin1(mainSz),
+                            QString::number(-defaultSize));
+                        pseudo.attrs.insert(QString::fromLatin1(mainRel), QStringLiteral("1"));
+                        if (minRem > 0)
+                            pseudo.attrs.insert(
+                                QStringLiteral("_frame_min_") + QString::fromLatin1(mainSz),
+                                QString::number(minRem));
                     }
                 } else {
                     pseudo.attrs.insert(QStringLiteral("fitparent"),
@@ -530,6 +850,124 @@ private:
             };
             addPane(first,  /*isFirst=*/true);
             addPane(second, /*isFirst=*/false);
+
+            // Frame divider state for the live FrameWnd model — getPosition()
+            // returns `_frame_divpos` (the live pullbarpos, initialised to the
+            // declared size) and setPosition() rewrites it + re-splits the
+            // panes via Layout::applyFrameDividerPos.  Attribute-driven, no
+            // skin names.
+            {
+                const int minRem = vertical
+                    ? el.attrs.value(QStringLiteral("minwidth")).toInt()
+                    : el.attrs.value(QStringLiteral("minheight")).toInt();
+                node.attrs.insert(QStringLiteral("_frame_divpos"),
+                                  QString::number(defaultSize));
+                node.attrs.insert(QStringLiteral("_frame_vertical"),
+                                  vertical ? QStringLiteral("1") : QStringLiteral("0"));
+                node.attrs.insert(QStringLiteral("_frame_fromfar"),
+                                  fixedOnSecond ? QStringLiteral("1") : QStringLiteral("0"));
+                node.attrs.insert(QStringLiteral("_frame_minrem"),
+                                  QString::number(minRem));
+            }
+
+            // Synthetic frame divider — a Wasabi:Frame paints a divider
+            // bitmap at the split unless it opts out with v/hbitmap="empty"
+            // (Bento's player.mainframe does, providing a manual grabber
+            // layer instead).  Reuse the LayerWidget renderer so any skin's
+            // frame dividers show without a Maki pass.  This draws the bar
+            // between Bento's file-info block and the full-height playlist
+            // column, and below the list.
+            if (defaultSize > 0 && resizeable &&
+                !qEnvironmentVariableIsSet("WASABIQT_NO_FRAMEDIV")) {
+                const QString divImg = vertical
+                    ? el.attrs.value(QStringLiteral("vbitmap"))
+                    : el.attrs.value(QStringLiteral("hbitmap"));
+                const bool optOut = divImg.compare(
+                    QStringLiteral("empty"), Qt::CaseInsensitive) == 0;
+                if (!optOut) {
+                    // Draw the divider as a fixed-width textured bar laid
+                    // over the FIXED pane's inner edge.  The panes ABUT (no
+                    // sizer shortening — that exposed the remainder pane's
+                    // inner-bevel highlight as a stray grey line).  The fixed
+                    // pane (Bento playlist) carries only a frame at its edge,
+                    // no buttons, so the bar overlaps nothing interactive;
+                    // the remainder pane (file-info, with the edge-anchored
+                    // buttons) stays untouched and dark right up to the bar.
+                    // A grey base fill + the divider bitmap groove over it
+                    // give the 3-D texture (not a flat colour).
+                    const int barW = kFrameSizerWidth > 0 ? kFrameSizerWidth : 8;
+                    // The fixed pane carries a ~7px frame bevel (Bento
+                    // pledit.background.left) at its inner edge whose
+                    // highlight+dark-body would otherwise show as a stray
+                    // line just outside our bar.  Sit the bar ON that bevel
+                    // so the whole boundary reads as one solid textured
+                    // divider.  WASABIQT_DIVOFF overrides for tuning.
+                    int bevel = qEnvironmentVariableIsSet("WASABIQT_DIVOFF")
+                              ? qEnvironmentVariableIntValue("WASABIQT_DIVOFF") : 7;
+                    auto setBarRect = [&](Element &e) {
+                        if (vertical) {
+                            if (fixedOnSecond) {
+                                e.attrs.insert(QStringLiteral("x"),
+                                    QString::number(-defaultSize - bevel));
+                                e.attrs.insert(QStringLiteral("relatx"), QStringLiteral("1"));
+                            } else {
+                                e.attrs.insert(QStringLiteral("x"),
+                                    QString::number(defaultSize - barW + bevel));
+                            }
+                            e.attrs.insert(QStringLiteral("w"), QString::number(barW));
+                            e.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
+                            e.attrs.insert(QStringLiteral("h"), QStringLiteral("0"));
+                            e.attrs.insert(QStringLiteral("relath"), QStringLiteral("1"));
+                        } else {
+                            if (fixedOnSecond) {
+                                e.attrs.insert(QStringLiteral("y"),
+                                    QString::number(-defaultSize));
+                                e.attrs.insert(QStringLiteral("relaty"), QStringLiteral("1"));
+                            } else {
+                                e.attrs.insert(QStringLiteral("y"),
+                                    QString::number(defaultSize - barW));
+                            }
+                            e.attrs.insert(QStringLiteral("h"), QString::number(barW));
+                            e.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
+                            e.attrs.insert(QStringLiteral("w"), QStringLiteral("0"));
+                            e.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
+                        }
+                    };
+                    // 1) grey base fill.
+                    Element baseEl;
+                    baseEl.tag = QStringLiteral("layer");
+                    baseEl.attrs.insert(QStringLiteral("ghost"), QStringLiteral("1"));
+                    baseEl.attrs.insert(QStringLiteral("color"),
+                                        QStringLiteral("58,64,67"));
+                    setBarRect(baseEl);
+                    visit(baseEl, node, instanceId);
+                    // 2) the real divider bitmap over it (the groove/texture).
+                    Element divEl;
+                    divEl.tag = QStringLiteral("layer");
+                    divEl.attrs.insert(QStringLiteral("ghost"), QStringLiteral("1"));
+                    divEl.attrs.insert(QStringLiteral("image"),
+                        !divImg.isEmpty() ? divImg
+                        : (vertical
+                            ? QStringLiteral("wasabi.framewnd.verticaldivider")
+                            : QStringLiteral("wasabi.framewnd.horizontaldivider")));
+                    setBarRect(divEl);
+                    visit(divEl, node, instanceId);
+                }
+            }
+
+            // Expose the divider size so scripts can read it via
+            // getPosition().  Wasabi FrameWnd.getPosition() returns the
+            // extent of the fixed/"poppler" pane — the `width`/`height`
+            // literal we just laid the panes out from.  We computed the
+            // pane geometry correctly but never published this value, so
+            // `frame.getPosition()` read the absent `position` attr as 0.
+            // Bento's pledit.m gates the whole playlist pane on
+            // `dualwnd.getPosition() > 0` (else `wdh_pl.hide()`), so the
+            // playlist never showed even though its pane was laid out.
+            // General + attribute-driven, no skin names: any Wasabi:Frame
+            // now reports its divider position.
+            node.attrs.insert(QStringLiteral("position"),
+                              QString::number(defaultSize > 0 ? defaultSize : 0));
 
             parent.children.push_back(std::move(nodePtr));
             return;
@@ -624,21 +1062,6 @@ private:
         if (m_hidden.contains(w.id)) {
             w.attrs.insert(QStringLiteral("visible"), QStringLiteral("0"));
         }
-        // Force certain widgets visible by default — these have
-        // visible="0" in their XML instances but real Wasabi's
-        // videoavs.m onShowVis() shows them after a Timer-backed
-        // callback chain that our Maki port doesn't fully drive.
-        // Forcing visible="1" here lets the user see the vis/video
-        // detach button when the AVS drawer is opened.  Same fix
-        // pattern as `kScriptHiddenByDefault` (a few lines above)
-        // but in the opposite direction.
-        static const QSet<QString> kForceVisibleByDefault = {
-            QStringLiteral("buttons.vis.detach"),
-            QStringLiteral("buttons.video.detach"),
-        };
-        if (kForceVisibleByDefault.contains(w.id)) {
-            w.attrs.insert(QStringLiteral("visible"), QStringLiteral("1"));
-        }
         // First instance-scoped sendparams (group="instanceid" target=…),
         // then layout-scoped (group="" target=…) — instance-scoped are
         // more specific and shouldn't be overridden by less-specific.
@@ -730,6 +1153,12 @@ bool expandLayout(const SkinXml::Document &doc,
     }
     const Element *layout = findLayout(*container, layoutId);
     if (!layout) {
+        // The requested layout name is only a convention; honor the
+        // container's actual default (its first <layout>) so skins that
+        // name theirs differently still load.
+        layout = firstLayout(*container);
+    }
+    if (!layout) {
         if (errMsg) *errMsg = QStringLiteral(
             "container '%1' has no layout '%2'").arg(containerId, layoutId);
         return false;
@@ -797,8 +1226,8 @@ bool expandLayout(const SkinXml::Document &doc,
     // groups as default-hidden so static rendering produces a sane
     // approximation of the in-app render.
     static const QStringList kScriptHiddenByDefault {
-        // The drawer + shadow are *script-toggled* in real Wasabi
-        // (CONFIG button click runs setVisible(1)).  Show them by
+        // The drawer + shadow are *script-toggled* by the skin (the
+        // CONFIG button's onLeftClick runs setVisible(1)).  Show them by
         // default so the EQ / options / colour-themes pages live in
         // the chrome at startup; the toggle binding can flip them
         // off later when the runtime drives it.
@@ -816,7 +1245,8 @@ bool expandLayout(const SkinXml::Document &doc,
         QStringLiteral("player.normal.drawer.options"),
         QStringLiteral("player.normal.drawer.colorthemes"),
     };
-    for (const auto &id : kScriptHiddenByDefault) hidden.insert(id);
+    if (!::getenv("WASABIQT_NO_SCRIPTHIDE"))
+        for (const auto &id : kScriptHiddenByDefault) hidden.insert(id);
 
     // Populate `out` (the caller's root Widget) with the layout's tag/
     // attrs/source info, then expand its children.  We can't replace
@@ -832,13 +1262,53 @@ bool expandLayout(const SkinXml::Document &doc,
     Expander ex(groupdefs, sendparams, hidden);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
 
+    // Resolve the `:componentname` / `:containerid` skin variables to the
+    // container's declared name / id — the Winamp API's public-var
+    // substitution.  This is what makes a dynamic container's titlebar read
+    // "PLAYLIST EDITOR" (from `<container name="Playlist Editor">`) instead of
+    // the raw token; the player window dodges it only because its title is a
+    // literal sendparams override.  Scoped to the text-bearing attrs so
+    // image/include resolution is untouched, and run AFTER sendparams so a
+    // literal title (no token) is left alone.  General: fixes every dynamic
+    // container's title (Playlist Editor, Media Library, Video, …).
+    {
+        const QString cname = container->attrs.value(QStringLiteral("name"));
+        auto subst = [&](QString v) -> QString {
+            if (!cname.isEmpty()) {
+                v.replace(QLatin1String(":componentname"), cname, Qt::CaseInsensitive);
+                v.replace(QLatin1String("@componentname@"), cname, Qt::CaseInsensitive);
+            }
+            v.replace(QLatin1String(":containerid"), containerId, Qt::CaseInsensitive);
+            v.replace(QLatin1String("@containerid@"), containerId, Qt::CaseInsensitive);
+            return v;
+        };
+        std::function<void(ResolvedWidget &)> xlate = [&](ResolvedWidget &w) {
+            for (const char *key : { "default", "text" }) {
+                auto it = w.attrs.find(QString::fromLatin1(key));
+                if (it != w.attrs.end() &&
+                    (it.value().contains(QLatin1Char(':')) ||
+                     it.value().contains(QLatin1Char('@')))) {
+                    const QString before = it.value();
+                    it.value() = subst(before);
+                    if (before != it.value() &&
+                        qEnvironmentVariableIntValue("WASABIQT_TRACE_MAKI") == 1)
+                        fprintf(stderr, "[cvar] %s.%s: '%s' -> '%s'\n",
+                                w.id.toLocal8Bit().constData(), key,
+                                before.toLocal8Bit().constData(),
+                                it.value().toLocal8Bit().constData());
+                }
+            }
+            for (auto &c : w.children) if (c) xlate(*c);
+        };
+        xlate(out);
+    }
+
     // Static well-known-script equivalents (titlebar resizeObjects
-    // etc.) used to run here so the resolved tree was paint-ready
-    // immediately.  M14b moves that responsibility to whoever owns
-    // the post-resolve mutation step: callers that drive Maki via
-    // SkinRuntime get widget mutations from the dispatched scripts;
-    // callers that want the legacy static path can call
-    // `runKnownScripts(out, layoutW)` themselves before rendering.
+    // etc.) are not run here.  The post-resolve mutation step belongs
+    // to whoever owns it: callers that drive Maki via SkinRuntime get
+    // widget mutations from the dispatched scripts; callers that want
+    // the static path can call `runKnownScripts(out, layoutW)`
+    // themselves before rendering.
 
     return true;
 }
@@ -846,8 +1316,7 @@ bool expandLayout(const SkinXml::Document &doc,
 // ──────────────────────────────────────────────────────────────────
 // Static equivalents of well-known Maki scripts.  Each does the
 // minimum geometry/visibility manipulation a script's onScriptLoaded
-// + onResize handlers would otherwise do at runtime.  Removed once
-// real Maki bindings ship in M13.
+// + onResize handlers would otherwise do at runtime.
 
 namespace knownscripts {
 
@@ -898,16 +1367,14 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
     auto *titleOverlay = findById(titlebar,
                                   QStringLiteral("window.titlebar.title.overlay"));
 
-    // Real text width from QFontMetrics, mirroring what
-    // wq_widget_textWidth (and Wasabi's Text::getPreferences
-    // SUGGESTED_W) compute for the Maki getAutoWidth binding:
-    // glyph advance + 4 per-segment (Wasabi convention) + 7 px to
-    // bridge the Win32-GDI / Qt-QFontMetrics gap for Arial Bold at
-    // the converted pixel size — the same constants libwasabiq
-    // applies (StandardBindings.cpp's getAutoWidth, +11 total).
-    // Without these, the streak gap math runs against a smaller
-    // text width than is actually painted and the right streak
-    // overlaps the title text.
+    // Text width = the Wasabi Text widget's SUGGESTED_W (getAutoWidth):
+    // `advance + 4 + lpadding + rpadding`.  This MUST match what the Maki
+    // getAutoWidth binding (wq_widget_textWidth) returns and what the
+    // renderer paints, all three using the same per-font pixel mapping
+    // (wasabiFontPixelSize) and the same +4 box pad.  Earlier this path
+    // used a 6/7 ratio and a +11 GDI fudge to compensate for the old
+    // under-sized 5/7 render; with the faithful font mapping those fudges
+    // over-size the box and the right streak no longer matches the title.
     int textWidth = 0;
     if (title) {
         QString s = title->attrs.value(QStringLiteral("text"));
@@ -923,21 +1390,17 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
             bool ok = false;
             const int fontsize = title->attrs.value(
                 QStringLiteral("fontsize")).toInt(&ok);
-            if (ok && fontsize > 0) {
-                int rn = 6, rd = 7;
-                if (const char *r = ::getenv("WASABIQT_FONT_RATIO")) {
-                    int a = 0, b = 0;
-                    if (sscanf(r, "%d,%d", &a, &b) == 2 && a > 0 && b > 0) {
-                        rn = a; rd = b;
-                    }
-                }
-                f.setPixelSize(qMax(1, (fontsize * rn + rd/2) / rd));
-            }
-            if (title->attrs.value(QStringLiteral("bold")) ==
-                QStringLiteral("1"))
-                f.setBold(true);
+            const bool bold = title->attrs.value(QStringLiteral("bold")) ==
+                QStringLiteral("1");
+            if (ok && fontsize > 0)
+                f.setPixelSize(wasabiFontPixelSize(fontsize, family, bold));
+            if (bold) f.setBold(true);
             QFontMetrics fm(f);
-            textWidth = fm.horizontalAdvance(s) + 11;
+            const int lpad =
+                title->attrs.value(QStringLiteral("lpadding")).toInt();
+            const int rpad =
+                title->attrs.value(QStringLiteral("rpadding")).toInt();
+            textWidth = fm.horizontalAdvance(s) + 4 + lpad + rpad;
         }
     }
     if (textWidth <= 0) textWidth = 50;
@@ -946,20 +1409,21 @@ void applyTitlebarResize(ResolvedWidget &titlebar,
     //
     //   lx = (layout_width - text_width) / 2;     // layout coords
     //   lx -= sg.getLeft();                       // → titlebar-local
-    //   center.setXmlParam("x", lx + cen);        // cen = 2
+    //   center.setXmlParam("x", lx);              // box left = lx
     //   left.setXmlParam ("x", padleft);
     //   left.setXmlParam ("w", lx - padleft);
     //   right.setXmlParam("x", lx + text_width + 1);
     //   right.setXmlParam("w", -(lx + text_width + padright + 2));
     //   right.setXmlParam("relatw", "1");
     //
-    // The earlier version used the titlebar's own width as the
-    // centring base (`innerW`).  That centred the title within the
-    // titlebar group instead of within the layout, which on
-    // off-centre frames (Wasabi:MainFrame:NoStatus has the titlebar
-    // at x=10, w=relative-29) shifted the text plus both streaks
-    // off-axis.
-    const int cen = 2;
+    // The box left is `lx` with NO extra inset: the renderer draws the
+    // glyph at box.left + (2 - shadowx), so the 1px left bearing inside
+    // the +4-wide box is what gives the title its faithful slight-left
+    // bias.  (The old `cen = 2` double-counted that inset and pushed the
+    // title right.)  Centring is against the layout width, not the
+    // titlebar group's own width, so off-centre frames (e.g.
+    // Wasabi:MainFrame:NoStatus, titlebar at x=10) stay on-axis.
+    const int cen = 0;
     const int lx = (layoutWidth - textWidth) / 2 - titlebarLayoutX;
 
     if (title) {
@@ -1025,6 +1489,10 @@ void applyTo(ResolvedWidget &root, int layoutWidth) {
             w.id  == QStringLiteral("wasabi.titlebar")) {
             const int titlebarX = xOffset +
                 w.attrs.value(QStringLiteral("x")).toInt();
+            if (qEnvironmentVariableIntValue("WASABIQT_TRACE_MAKI") == 1)
+                fprintf(stderr, "[titlebar] resize id=%s tag=%s lw=%d x=%d\n",
+                        w.id.toLocal8Bit().constData(),
+                        w.tag.toLocal8Bit().constData(), layoutWidth, titlebarX);
             applyTitlebarResize(w, layoutWidth, titlebarX,
                                 newPadLeft, newPadRight);
         }
@@ -1111,11 +1579,11 @@ void runKnownScripts(ResolvedWidget &root, int layoutWidth) {
                             const int fs = src->attrs
                                 .value(QStringLiteral("fontsize"))
                                 .toInt(&ok);
+                            const bool bold = src->attrs.value(
+                                QStringLiteral("bold")) == QStringLiteral("1");
                             if (ok && fs > 0)
-                                f.setPixelSize(qMax(1, (fs * 5 + 3) / 7));
-                            if (src->attrs.value(QStringLiteral("bold")) ==
-                                QStringLiteral("1"))
-                                f.setBold(true);
+                                f.setPixelSize(wasabiFontPixelSize(fs, family, bold));
+                            if (bold) f.setBold(true);
                             QFontMetrics fm(f);
                             width = fm.horizontalAdvance(s) + 24;
                         }
@@ -1620,4 +2088,322 @@ void paintRegionCutouts(QPainter &p, const ResolvedWidget &root,
     p.setRenderHint(QPainter::SmoothPixmapTransform, savedSP);
 }
 
-}  // namespace WasabiQt::Layout
+namespace {
+// Walk one container's immediate children, find the first widget
+// that declares both `cfgattrib=` and `high=` (the canonical
+// "stepper anchor": a slider whose `high` defines the int range).
+// Returns nullptr when this container doesn't host a stepper.
+const ResolvedWidget *findStepperAnchor(
+        const ResolvedWidget &parent) {
+    for (const auto &child : parent.children) {
+        if (!child) continue;
+        const QString cfg = child->attrs.value(QStringLiteral("cfgattrib"));
+        if (cfg.isEmpty()) continue;
+        if (!child->attrs.contains(QStringLiteral("high"))) continue;
+        return child.get();
+    }
+    return nullptr;
+}
+
+// Recursive walker: for each container, look for the stepper anchor,
+// then wire its sibling Decrease/Increase buttons + Display text(s)
+// to the same cfgattrib key.
+void wireSteppersIn(ResolvedWidget &parent) {
+    const ResolvedWidget *anchor = findStepperAnchor(parent);
+    if (anchor) {
+        const QString key = anchor->attrs.value(
+            QStringLiteral("cfgattrib"));
+        bool ok = false;
+        int low  = anchor->attrs.value(QStringLiteral("low"),
+                                        QStringLiteral("0")).toInt(&ok);
+        if (!ok) low = 0;
+        int high = anchor->attrs.value(QStringLiteral("high")).toInt(&ok);
+        if (!ok) high = 0;
+        int step = anchor->attrs.value(QStringLiteral("step"),
+                                        QStringLiteral("1")).toInt(&ok);
+        if (!ok || step <= 0) step = 1;
+        // Tag each sibling button / display by writing the stepper
+        // metadata into its attrs.  The widget subclasses
+        // (ButtonWidget::onAttrsInitialized / TextWidget) read these
+        // attrs to wire themselves to CfgAttribStore.  Attrs are the
+        // only persistent state we can rely on — widgets are
+        // re-instantiated each load via the factory.
+        for (auto &child : parent.children) {
+            if (!child) continue;
+            const QString id = child->id;
+            if (id.isEmpty()) continue;
+            if (id.endsWith(QLatin1String("Decrease"),
+                             Qt::CaseInsensitive) ||
+                id.endsWith(QLatin1String("Increase"),
+                             Qt::CaseInsensitive) ||
+                id.endsWith(QLatin1String("Display"),
+                             Qt::CaseInsensitive)) {
+                child->attrs.insert(QStringLiteral("_stepper_key"),  key);
+                child->attrs.insert(QStringLiteral("_stepper_low"),
+                                     QString::number(low));
+                child->attrs.insert(QStringLiteral("_stepper_high"),
+                                     QString::number(high));
+                child->attrs.insert(QStringLiteral("_stepper_step"),
+                                     QString::number(step));
+                // Re-fire the widget's init hook so its cached
+                // stepper fields pick up the new attrs.  Safe to
+                // call again — the cfgattrib subscription path is
+                // idempotent.
+                child->onAttrsInitialized();
+            }
+        }
+    }
+    // Recurse into children regardless — every nested container
+    // may host its own stepper group.
+    for (auto &child : parent.children) {
+        if (child) wireSteppersIn(*child);
+    }
+}
+}  // namespace
+
+void wireSteppers(ResolvedWidget &root) {
+    wireSteppersIn(root);
+}
+
+// Re-split a Wasabi:Frame against a new divider position — the runtime
+// counterpart of the addPane expansion, driving the live FrameWnd model.
+// `frameNode` must carry the `_frame_*` metadata planted at expansion;
+// each pane child carries `_frame_pane` = fixed|rem.  Rewrites only the
+// main-axis attrs (the cross axis always fills the parent and is set once
+// at expansion), then re-inits each pane.  The caller re-resolves the tree
+// + repaints.  Follows the Winamp FrameWnd getDividerPos/setDividerPos
+// semantics: pos is the fixed pane's pixel extent (the pullbarpos).
+void applyFrameDividerPos(ResolvedWidget &frameNode, int pos) {
+    if (!frameNode.attrs.contains(QStringLiteral("_frame_divpos"))) return;
+    if (pos < 0) pos = 0;
+    frameNode.attrs.insert(QStringLiteral("_frame_divpos"), QString::number(pos));
+    const bool vertical = frameNode.attrs.value(QStringLiteral("_frame_vertical")) == QStringLiteral("1");
+    const bool fromFar  = frameNode.attrs.value(QStringLiteral("_frame_fromfar"))  == QStringLiteral("1");
+    const int  minRem   = frameNode.attrs.value(QStringLiteral("_frame_minrem")).toInt();
+    const QString mainPos    = vertical ? QStringLiteral("x") : QStringLiteral("y");
+    const QString mainSz     = vertical ? QStringLiteral("w") : QStringLiteral("h");
+    const QString mainRel    = vertical ? QStringLiteral("relatw") : QStringLiteral("relath");
+    const QString mainRelPos = vertical ? QStringLiteral("relatx") : QStringLiteral("relaty");
+    for (auto &cptr : frameNode.children) {
+        if (!cptr) continue;
+        ResolvedWidget &pane = *cptr;
+        const QString role = pane.attrs.value(QStringLiteral("_frame_pane"));
+        if (role.isEmpty()) continue;
+        const bool fixedHere = (role == QStringLiteral("fixed"));
+        // Clear stale main-axis flags before re-applying (a previous pos
+        // may have set relat/cap/min that the new pos doesn't want).
+        pane.attrs.remove(mainRel);
+        pane.attrs.remove(mainRelPos);
+        pane.attrs.remove(QStringLiteral("_frame_cap_") + mainSz);
+        pane.attrs.remove(QStringLiteral("_frame_cap_far"));
+        pane.attrs.remove(QStringLiteral("_frame_min_") + mainSz);
+        if (fixedHere) {
+            if (fromFar) {
+                pane.attrs.insert(mainPos, QString::number(-pos));
+                pane.attrs.insert(mainRelPos, QStringLiteral("1"));
+            } else {
+                pane.attrs.insert(mainPos, QStringLiteral("0"));
+            }
+            pane.attrs.insert(mainSz, QString::number(pos));
+            if (minRem > 0) {
+                pane.attrs.insert(QStringLiteral("_frame_cap_") + mainSz, QString::number(minRem));
+                if (fromFar) pane.attrs.insert(QStringLiteral("_frame_cap_far"), QStringLiteral("1"));
+            }
+        } else {
+            pane.attrs.insert(mainPos, fromFar ? QStringLiteral("0") : QString::number(pos));
+            pane.attrs.insert(mainSz, QString::number(-pos));
+            pane.attrs.insert(mainRel, QStringLiteral("1"));
+            if (minRem > 0)
+                pane.attrs.insert(QStringLiteral("_frame_min_") + mainSz, QString::number(minRem));
+        }
+        pane.onAttrsInitialized();
+    }
+}
+
+
+// `wireMenuBackgrounds` — engine-level fix for the Bento/Big Bento
+// "discontinuous titlebar" symptom.  Bento's `mainmenu.maki` uses
+// OPCODE_CALLM2 (DLF-index dispatch) to look up sibling background
+// layers `menu.layer.<X>.normal/hover/down` by name and set their
+// width to match each menu item's text autoWidth.  The CALLM2
+// dispatch path returns 0 instead of the registered binding ptr
+// (DLF-table indexing issue in our Maki VM port), so the lookups
+// fail silently → background layers stay at default w=0 → titlebar
+// background looks discontinuous behind the menu items because
+// only the text glyphs paint, no per-item highlight overlay.
+//
+// Workaround: after Maki dispatch, walk the tree; for each pair of
+// `menu.text.X` + `menu.layer.X.{normal,hover,down}`, copy x/w from
+// the text widget onto each layer sibling.  Skin-agnostic — any
+// skin using the canonical Wasabi `menu.text.X` / `menu.layer.X`
+// naming convention gets the per-item background highlight band
+// without depending on the Maki VM's CALLM2 path.
+namespace {
+void collectByIdSubstring(ResolvedWidget &node,
+                           const QString &substr,
+                           QList<ResolvedWidget *> &out) {
+    if (node.id.contains(substr, Qt::CaseInsensitive))
+        out.append(&node);
+    for (auto &child : node.children) {
+        if (child) collectByIdSubstring(*child, substr, out);
+    }
+}
+}  // namespace
+
+void wireMenuAlign(ResolvedWidget &root, const SkinXml::Document &doc,
+                   BitmapRegistry &reg) {
+    auto bitmapWidth = [&](const QString &imgId) {
+        QImage im = reg.imageFor(imgId);
+        return im.isNull() ? 0 : im.width();
+    };
+    std::function<ResolvedWidget *(ResolvedWidget &, const QString &)> findById =
+        [&](ResolvedWidget &n, const QString &id) -> ResolvedWidget * {
+        if (n.id == id) return &n;
+        for (auto &c : n.children)
+            if (c) if (auto *r = findById(*c, id)) return r;
+        return nullptr;
+    };
+    for (const auto &ref : doc.scripts) {
+        if (!ref.file.contains(QStringLiteral("menualign"),
+                                Qt::CaseInsensitive))
+            continue;
+        ResolvedWidget *group = findById(root, ref.ownerGroupId);
+        if (!group) continue;
+        int offset = 0;
+        for (const QString &id : ref.param.split(QChar(','),
+                                                 Qt::SkipEmptyParts)) {
+            const QString name = id.trimmed();
+            ResolvedWidget *target = nullptr;
+            for (auto &c : group->children)
+                if (c && c->id == name) { target = c.get(); break; }
+            if (!target) continue;
+            target->setXmlParam(QStringLiteral("x"), QString::number(offset));
+            const QString aws =
+                target->attrs.value(QStringLiteral("autowidthsource"));
+            int w = 0;
+            if (!aws.isEmpty())
+                if (ResolvedWidget *src = findById(*target, aws)) {
+                    const QString img =
+                        src->attrs.value(QStringLiteral("image"));
+                    if (!img.isEmpty()) w = bitmapWidth(img);
+                }
+            if (w > 0) {
+                target->setXmlParam(QStringLiteral("w"), QString::number(w));
+                offset += w;
+            }
+        }
+    }
+}
+
+void resolveBitmapAutoWidths(ResolvedWidget &root, BitmapRegistry &reg) {
+    // Find a descendant of `n` (excluding n) whose id matches, scoped so
+    // groups that reuse a child id ("label.txt") resolve their OWN child.
+    std::function<ResolvedWidget *(ResolvedWidget &, const QString &)> findIn =
+        [&](ResolvedWidget &n, const QString &id) -> ResolvedWidget * {
+        for (auto &c : n.children) {
+            if (!c) continue;
+            if (c->id == id) return c.get();
+            if (ResolvedWidget *r = findIn(*c, id)) return r;
+        }
+        return nullptr;
+    };
+    std::function<void(ResolvedWidget &)> walk = [&](ResolvedWidget &w) {
+        const QString aws = w.attrs.value(QStringLiteral("autowidthsource"));
+        if (!aws.isEmpty()) {
+            const QString curW = w.attrs.value(QStringLiteral("w"));
+            if (curW.isEmpty() || curW.toInt() <= 0) {
+                if (ResolvedWidget *src = findIn(w, aws)) {
+                    const QString img =
+                        src->attrs.value(QStringLiteral("image"));
+                    if (!img.isEmpty()) {
+                        const QImage im = reg.imageFor(img);
+                        if (!im.isNull())
+                            w.attrs.insert(QStringLiteral("w"),
+                                           QString::number(im.width()));
+                    }
+                }
+            }
+        }
+        for (auto &c : w.children) if (c) walk(*c);
+    };
+    walk(root);
+}
+
+void wireMenuBackgrounds(ResolvedWidget &root) {
+    // Find all menu.text.X widgets — they're the canonical anchors
+    // that Maki positions correctly.
+    QList<ResolvedWidget *> textLayers;
+    collectByIdSubstring(root, QStringLiteral("menu.text."), textLayers);
+
+    QList<ResolvedWidget *> bgLayers;
+    collectByIdSubstring(root, QStringLiteral("menu.layer."), bgLayers);
+
+    if (textLayers.isEmpty() || bgLayers.isEmpty()) return;
+
+    for (auto *tl : textLayers) {
+        // menu.text.<X> → X
+        const int dotPos = tl->id.lastIndexOf(QChar('.'));
+        if (dotPos < 0) continue;
+        const QString suffix = tl->id.mid(dotPos + 1);
+        // The text widget's x/w (set by Maki) become the
+        // corresponding menu.layer.X.normal/hover/down's x/w.
+        const QString xVal = tl->attrs.value(QStringLiteral("x"));
+        // For width, prefer the text widget's w; fall back to a
+        // sensible width derived from the bound bitmap so the
+        // highlight band still covers the text glyphs.
+        QString wVal = tl->attrs.value(QStringLiteral("w"));
+        if (wVal.isEmpty() || wVal == QStringLiteral("0")) {
+            // Best-effort: read the source bitmap width via the
+            // layer's `image=` attr (the bitmap registry would
+            // normally resolve this).  Fall back to 30 so the
+            // highlight band exists.
+            wVal = QStringLiteral("30");
+        }
+        for (auto *bl : bgLayers) {
+            // Match suffix: menu.layer.<suffix>.{normal,hover,down}
+            const QString needle = QStringLiteral("menu.layer.") +
+                                    suffix + QStringLiteral(".");
+            if (!bl->id.startsWith(needle, Qt::CaseInsensitive)) continue;
+            bl->attrs.insert(QStringLiteral("x"), xVal);
+            bl->attrs.insert(QStringLiteral("w"), wVal);
+        }
+    }
+}
+
+// ── dumpResolved ──────────────────────────────────────────────────
+namespace {
+
+void dumpResolvedRec(const ResolvedWidget &node, QSize canvas,
+                      int depth, FILE *out) {
+    QRect r = Widget::resolveRectFromAttrs(node.attrs, canvas);
+    const QString id = node.id;
+    const QString tag = node.tag;
+    const QString vis = node.attrs.value(QStringLiteral("visible"));
+    const QString visTag = vis == QStringLiteral("0") ? "(hidden)" : "";
+    QString indent(depth * 2, QChar(' '));
+    fprintf(out, "%s%s[%s] %dx%d@(%d,%d) %s\n",
+            indent.toLocal8Bit().constData(),
+            tag.toLocal8Bit().constData(),
+            id.isEmpty() ? "-" : id.toLocal8Bit().constData(),
+            r.width(), r.height(), r.x(), r.y(),
+            visTag.toLocal8Bit().constData());
+    // Recurse with the resolved rect as the child canvas (Container
+    // semantics — children are positioned relative to parent rect).
+    const QSize childCanvas(qMax(0, r.width()), qMax(0, r.height()));
+    for (const auto &child : node.children) {
+        if (child) dumpResolvedRec(*child, childCanvas, depth + 1, out);
+    }
+}
+
+}  // namespace
+
+void dumpResolved(const ResolvedWidget &root, QSize canvas, FILE *out) {
+    if (!out) out = stderr;
+    fprintf(out, "── qtWasabi resolved tree dump (canvas=%dx%d) ──\n",
+            canvas.width(), canvas.height());
+    dumpResolvedRec(root, canvas, 0, out);
+    fprintf(out, "── end ──\n");
+    fflush(out);
+}
+
+}  // namespace qtWasabi::Layout

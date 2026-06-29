@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/Host.h>
+#include <qtWasabi/Host.h>
 
 #include <QChar>
 #include <QFileDialog>
@@ -10,7 +10,7 @@
 #include <QStringList>
 #include <QWidget>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace {
 QString fmtMs(qint64 ms) {
@@ -87,12 +87,14 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
             k == QStringLiteral("songinfo")  ||
             k == QStringLiteral("songticker")) {
             // Plain title — Modern skins expect the bare track name
-            // here.  The "N. <title> (M:SS)" playlist-entry format
-            // is what Maki scripts BUILD via setXmlParam when a real
-            // playlist is selected; until SkinRuntime drives that
-            // per-skin, the host's plain title is the right default.
-            const QString t = host->songTitle();
-            return t.isEmpty() ? QStringLiteral("(no song loaded)") : t;
+            // here.  Empty when no track is loaded (real Winamp
+            // Bento shows an empty songticker in that state, not a
+            // placeholder).  The "N. <title> (M:SS)" playlist-entry
+            // format is what Maki scripts BUILD via setXmlParam
+            // when a real playlist is selected; until SkinRuntime
+            // drives that per-skin, the host's plain title is the
+            // right default.
+            return host->songTitle();
         }
         if (k == QStringLiteral("filename"))
             return host->songFilename();
@@ -115,7 +117,17 @@ bool dispatchAction(const QString &action, Host *host,
                     QWidget *embedder) {
     if (!host) return false;
     const QString a = action.toUpper();
-    if (a == QLatin1String("PLAY"))     { host->play();  return true; }
+    if (a == QLatin1String("PLAY")) {
+        // Winamp parity: PLAY with nothing loaded (empty playlist and no
+        // current file) opens a file to play instead of being a silent
+        // no-op.  Skins whose only transport is PLAY — no EJECT button,
+        // like HeadAMP — can then still start a song.
+        if (host->playlistRowCount() == 0 && host->songFilename().isEmpty())
+            host->pickFile(embedder);
+        else
+            host->play();
+        return true;
+    }
     if (a == QLatin1String("PAUSE"))    { host->pause(); return true; }
     if (a == QLatin1String("STOP"))     { host->stop();  return true; }
     if (a == QLatin1String("NEXT"))     { host->next();  return true; }
@@ -153,7 +165,12 @@ bool dispatchAction(const QString &action, Host *host,
     if (a.startsWith(QLatin1String("PL_MENUHOTKEY_"))) return true;
     // VID_FS = toggle fullscreen video.  Default no-op-consume.
     if (a == QLatin1String("VID_FS"))   return true;
+    // Playlist-editor chrome buttons → embedder's playlist menus.
+    if (a == QLatin1String("PE_ADD")  || a == QLatin1String("PE_REM")  ||
+        a == QLatin1String("PE_SEL")  || a == QLatin1String("PE_MISC") ||
+        a == QLatin1String("PE_LIST"))
+        return host->pleditCommand(a);
     return false;
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

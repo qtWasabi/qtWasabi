@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/LayerPainter.h>
-#include <WasabiQt/BitmapRegistry.h>
+#include <qtWasabi/LayerPainter.h>
+#include <qtWasabi/BitmapRegistry.h>
 
+#include <QColor>
 #include <QImage>
 #include <QPainter>
 #include <QRect>
 #include <QSize>
 
-namespace WasabiQt::LayerPainter {
+namespace qtWasabi::LayerPainter {
 
 namespace {
 int attrInt(const QHash<QString, QString> &a,
@@ -17,18 +18,71 @@ int attrInt(const QHash<QString, QString> &a,
     auto it = a.constFind(key);
     if (it == a.constEnd()) return defVal;
     bool ok = false;
-    const int v = it.value().toInt(&ok);
-    return ok ? v : defVal;
+    // Parse through toDouble() then truncate: Wasabi XML coords may be
+    // fractional (Big Bento's `y="26.9"`).  toInt() rejects decimal
+    // strings (ok=false) and would fall back to defVal=0, snapping every
+    // fractional-coord layer to the container's top/left edge — Big
+    // Bento's KBPS/KHZ labels float at the display's top instead of the
+    // mid band.  Mirrors Widget::resolveRectFromAttrs.  General fix.
+    const double d = it.value().toDouble(&ok);
+    return ok ? int(d) : defVal;
 }
 bool attrBool(const QHash<QString, QString> &a, const QString &key) {
     return a.value(key) == QStringLiteral("1");
+}
+// Parse a Wasabi "r,g,b" / "r,g,b,a" colour string into a QColor.
+QColor parseColor(const QString &csv) {
+    if (csv.isEmpty()) return QColor();
+    const auto parts = csv.split(QChar(','));
+    if (parts.size() < 3) return QColor();
+    bool ok = false;
+    const int r = parts[0].trimmed().toInt(&ok); if (!ok) return QColor();
+    const int g = parts[1].trimmed().toInt(&ok); if (!ok) return QColor();
+    const int b = parts[2].trimmed().toInt(&ok); if (!ok) return QColor();
+    const int a = (parts.size() >= 4) ? parts[3].trimmed().toInt() : 255;
+    return QColor(qBound(0, r, 255), qBound(0, g, 255),
+                  qBound(0, b, 255), qBound(0, a, 255));
 }
 }  // namespace
 
 bool paintLayer(QPainter *p, BitmapRegistry &reg,
                 const QHash<QString, QString> &attrs,
-                const QSize &containerSize) {
+                const QSize &containerSize, bool windowActive) {
     const QString image = attrs.value(QStringLiteral("image"));
+
+    // Solid-colour fill — Wasabi's `file="$solid"` + `color="r,g,b"`
+    // bitmaps and any layer carrying a `color=` with no resolvable
+    // image.  The standard frame-divider bitmap is transparent plus a
+    // 1px line, so the visible grey divider bar has to come from a fill
+    // (Layout.cpp paints the synthetic frame divider this way).  When
+    // both an image and a colour are present the image path wins below.
+    const QColor fill = parseColor(attrs.value(QStringLiteral("color")));
+    if (fill.isValid() && (image.isEmpty() || image.startsWith(QChar('$')))) {
+        int x = attrInt(attrs, QStringLiteral("x"));
+        int y = attrInt(attrs, QStringLiteral("y"));
+        int w = attrInt(attrs, QStringLiteral("w"), 0);
+        int h = attrInt(attrs, QStringLiteral("h"), 0);
+        if (attrBool(attrs, QStringLiteral("relatx"))) x = containerSize.width()  + x;
+        if (attrBool(attrs, QStringLiteral("relaty"))) y = containerSize.height() + y;
+        if (attrBool(attrs, QStringLiteral("relatw"))) w = containerSize.width()  + w;
+        if (attrBool(attrs, QStringLiteral("relath"))) h = containerSize.height() + h;
+        y += attrInt(attrs, QStringLiteral("_shift_y"));
+        if (w <= 0 || h <= 0) return true;
+        qreal savedOp = -1.0;
+        auto aIt = attrs.constFind(QStringLiteral("alpha"));
+        if (aIt != attrs.constEnd()) {
+            bool ok = false;
+            const int a = aIt.value().toInt(&ok);
+            if (ok && a >= 0 && a < 255) {
+                savedOp = p->opacity();
+                p->setOpacity(savedOp * (a / 255.0));
+            }
+        }
+        p->fillRect(QRect(x, y, w, h), fill);
+        if (savedOp >= 0.0) p->setOpacity(savedOp);
+        return true;
+    }
+
     if (image.isEmpty()) return false;
     // For chrome layers (no sysregion or sysregion="1"), use the
     // cutout-baked bitmap so the chrome's alpha already carries any
@@ -68,34 +122,35 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
     if (w <= 0) w = src.width();
     if (h <= 0) h = src.height();
 
-    // `activeAlpha` / `inactiveAlpha` — Wasabi convention for
-    // window-state-driven layer pairs.  Many widgets ship two
-    // bitmaps (active vs inactive) and the engine fades between
-    // them as the window gains/loses focus.  Without honouring
-    // these, both layers paint at full opacity and the inactive
-    // bitmap (carrying its own alpha-blended pixel pattern at
-    // alpha=140) overlays on the active silver, producing visible
-    // dark seams inside the streaks.  We assume the player is
-    // *active* (it's our foreground app) and skip layers whose
-    // activeAlpha is 0.
-    {
-        auto it = attrs.constFind(QStringLiteral("activealpha"));
-        if (it != attrs.constEnd() && it.value().trimmed() ==
-            QStringLiteral("0"))
-            return true;
-    }
+    // `activeAlpha` / `inactiveAlpha` — Wasabi's window-focus convention.
+    // Every layer blits at `isActive() ? activealpha : inactivealpha`
+    // (default 255).  Skins ship `.active`/`.inactive` pairs: the `.active`
+    // layer carries `inactiveAlpha=0`, the `.inactive` layer `activeAlpha=0`.
+    // So the focused window draws the active variants (inactive ones skip)
+    // and an unfocused window draws the inactive variants (active ones
+    // skip).  A partial value (a title's 128) dims rather than skips.
+    // Keys only off the standard attrs → general for any skin's pairs.
+    const int stateAlpha = windowActive
+        ? attrInt(attrs, QStringLiteral("activealpha"),   255)
+        : attrInt(attrs, QStringLiteral("inactivealpha"), 255);
+    if (stateAlpha == 0) return true;
 
-    // `alpha=` (0-255) — Wasabi-style attribute for layer-wide
-    // translucency.  Honour it via QPainter::opacity around the
+    // `alpha=` (0-255) — Wasabi layer-wide translucency.  Combine it with
+    // the focus-state alpha and honour via QPainter::opacity around the
     // drawImage call.
     qreal savedOpacity = -1.0;
-    auto alphaIt = attrs.constFind(QStringLiteral("alpha"));
-    if (alphaIt != attrs.constEnd()) {
-        bool ok = false;
-        const int a = alphaIt.value().toInt(&ok);
-        if (ok && a >= 0 && a < 255) {
+    {
+        int a = 255;
+        auto alphaIt = attrs.constFind(QStringLiteral("alpha"));
+        if (alphaIt != attrs.constEnd()) {
+            bool ok = false;
+            const int v = alphaIt.value().toInt(&ok);
+            if (ok) a = v;
+        }
+        const int combined = qBound(0, stateAlpha * a / 255, 255);
+        if (combined < 255) {
             savedOpacity = p->opacity();
-            p->setOpacity(savedOpacity * (a / 255.0));
+            p->setOpacity(savedOpacity * (combined / 255.0));
         }
     }
     // `tile="1"` — tile the bitmap in BOTH axes to fill the layer
@@ -166,4 +221,57 @@ bool paintLayer(QPainter *p, BitmapRegistry &reg,
     return true;
 }
 
-}  // namespace WasabiQt::LayerPainter
+bool paintLayerAtNaturalSize(QPainter *p, BitmapRegistry &reg,
+                              const QHash<QString, QString> &attrs,
+                              const QSize &containerSize, bool windowActive) {
+    // Variant of paintLayer for `<button>` widgets — Wasabi buttons
+    // treat their bound image as a single sprite, not a tileable
+    // chrome strip.  When the declared button rect is larger than
+    // the bitmap (e.g. sysmenu at w=20 with a 15×13 bitmap), real
+    // Wasabi draws the bitmap ONCE at its natural size positioned
+    // at the rect's top-left.  Our chrome path (above) would tile
+    // a partial second copy ("1.5 icons" sysmenu bug); short-circuit
+    // here for non-chrome widgets.
+    const QString image = attrs.value(QStringLiteral("image"));
+    if (image.isEmpty()) return false;
+    QImage src = reg.imageFor(image);
+    if (src.isNull()) return false;
+
+    // Window-focus active/inactive skip (see paintLayer): a titlebar
+    // button's `.inactive` sprite carries activeAlpha=0 and its `.active`
+    // sprite inactiveAlpha=0, so the focused window shows the active sprite
+    // and an unfocused window the inactive one.
+    const int stateAlpha = windowActive
+        ? attrInt(attrs, QStringLiteral("activealpha"),   255)
+        : attrInt(attrs, QStringLiteral("inactivealpha"), 255);
+    if (stateAlpha == 0) return true;
+
+    int x = attrInt(attrs, QStringLiteral("x"));
+    int y = attrInt(attrs, QStringLiteral("y"));
+    if (attrBool(attrs, QStringLiteral("relatx")))
+        x = containerSize.width()  + x;
+    if (attrBool(attrs, QStringLiteral("relaty")))
+        y = containerSize.height() + y;
+    y += attrInt(attrs, QStringLiteral("_shift_y"));
+
+    qreal savedOpacity = -1.0;
+    {
+        int a = 255;
+        auto alphaIt = attrs.constFind(QStringLiteral("alpha"));
+        if (alphaIt != attrs.constEnd()) {
+            bool ok = false;
+            const int v = alphaIt.value().toInt(&ok);
+            if (ok) a = v;
+        }
+        const int combined = qBound(0, stateAlpha * a / 255, 255);
+        if (combined < 255) {
+            savedOpacity = p->opacity();
+            p->setOpacity(savedOpacity * (combined / 255.0));
+        }
+    }
+    p->drawImage(x, y, src);
+    if (savedOpacity >= 0) p->setOpacity(savedOpacity);
+    return true;
+}
+
+}  // namespace qtWasabi::LayerPainter

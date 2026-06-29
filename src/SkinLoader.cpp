@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/Skin.h>
-#include <WasabiQt/Host.h>
+#include <qtWasabi/Skin.h>
+#include <qtWasabi/Host.h>
 
 #include <QWidget>
 #include <QString>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Skin::Private {
 public:
@@ -44,4 +44,4 @@ bool Skin::reload()
 QWidget *Skin::widget() const  { return d->widget; }
 QString  Skin::skinName() const { return d->skinName; }
 
-} // namespace WasabiQt
+} // namespace qtWasabi

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/TextPainter.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
+#include <qtWasabi/TextPainter.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
 
 #include <QColor>
 #include <QFont>
@@ -16,7 +16,47 @@
 #include <QSize>
 #include <QString>
 
-namespace WasabiQt::TextPainter {
+namespace qtWasabi {
+
+int wasabiFontPixelSize(int lfHeight, const QString &family,
+                        bool bold, bool italic) {
+    if (lfHeight <= 0) return 1;
+    static QHash<quint64, int> cache;
+    const quint64 key =
+        (quint64(uint(qHash(family))) << 20) ^
+        (quint64(uint(lfHeight)) << 2) ^ (bold ? 2u : 0u) ^ (italic ? 1u : 0u);
+    if (auto it = cache.constFind(key); it != cache.constEnd()) return *it;
+    QFont f;
+    if (!family.isEmpty()) f.setFamily(family);
+    f.setBold(bold);
+    f.setItalic(italic);
+    // Binary-search the largest pixelSize whose QFontMetrics::height()
+    // (ascent+descent) does not exceed the Win32 lfHeight cell — that's the
+    // pixel size CreateFontW(lfHeight) maps to.  WASABIQT_FONT_RATIO still
+    // overrides for ad-hoc tuning (N,D → lfHeight*N/D).
+    int px;
+    if (const char *r = ::getenv("WASABIQT_FONT_RATIO")) {
+        int a = 0, b = 0;
+        if (sscanf(r, "%d,%d", &a, &b) == 2 && a > 0 && b > 0)
+            px = qMax(1, (lfHeight * a + b / 2) / b);
+        else px = qMax(1, lfHeight);
+    } else {
+        int lo = 1, hi = lfHeight * 2, best = 1;
+        while (lo <= hi) {
+            const int mid = (lo + hi) / 2;
+            f.setPixelSize(mid);
+            if (QFontMetrics(f).height() <= lfHeight) { best = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        px = best;
+    }
+    cache.insert(key, px);
+    return px;
+}
+
+}  // namespace qtWasabi
+
+namespace qtWasabi::TextPainter {
 
 namespace {
 
@@ -25,8 +65,13 @@ int attrInt(const QHash<QString, QString> &a,
     auto it = a.constFind(key);
     if (it == a.constEnd()) return defVal;
     bool ok = false;
-    const int v = it.value().toInt(&ok);
-    return ok ? v : defVal;
+    // Parse through toDouble() then truncate: Wasabi XML coords may be
+    // fractional (Big Bento's `y="26.9"`).  toInt() rejects decimal
+    // strings (ok=false) and would fall back to defVal=0, snapping every
+    // fractional-coord widget to the container's top/left edge.  Mirrors
+    // Widget::resolveRectFromAttrs.  General: any skin, any widget.
+    const double d = it.value().toDouble(&ok);
+    return ok ? int(d) : defVal;
 }
 bool attrBool(const QHash<QString, QString> &a, const QString &key) {
     auto it = a.constFind(key);
@@ -46,8 +91,14 @@ bool paintText(QPainter *p,
                const ColorRegistry *colors,
                const GammasetRegistry *gammasets,
                bool clipToWidget) {
-    const QString fontId = attrs.value(QStringLiteral("font"));
-    if (fontId.isEmpty()) return false;
+    // Resolve font.  Wasabi text widgets fall back to a system
+    // default font when the widget's `font=` attr is empty (canonical
+    // case: Bento's `<SongTicker>` declares no font — the player
+    // widget uses a system Arial-equivalent).  Substitute
+    // "sans-serif" here so TextPainter can still render the track
+    // title via Qt's QFontDatabase default.
+    QString fontId = attrs.value(QStringLiteral("font"));
+    if (fontId.isEmpty()) fontId = QStringLiteral("sans-serif");
 
     const auto *fontDef = fontReg.find(fontId);
     const bool isBitmap = (fontDef != nullptr);
@@ -85,6 +136,14 @@ bool paintText(QPainter *p,
     }
     if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
     if (text.isEmpty()) text = attrs.value(QStringLiteral("text"));
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1) {
+        std::fprintf(stderr,
+              "[textpaint] id='%s' resolved='%s' attrtext='%s' display='%s' rect=%dx%d@(%d,%d)\n",
+              attrs.value(QStringLiteral("id")).toLocal8Bit().constData(),
+              text.toLocal8Bit().constData(),
+              attrs.value(QStringLiteral("text")).toLocal8Bit().constData(),
+              display.toLocal8Bit().constData(), w, h, x, y);
+    }
     if (text.isEmpty()) return true;
 
     if (attrBool(attrs, QStringLiteral("forceuppercase")))
@@ -109,8 +168,7 @@ bool paintText(QPainter *p,
         // narrower than digits — Winamp's classic BIGNUM has a slim
         // colon glyph (6 px) inside a 9-px cell, and the skin advances
         // the cursor by 6 instead of 9 to remove the dead space.
-        // Wasabi's BIGNUM time-display convention (measured against
-        // upstream DeClassified at 275×116):
+        // Wasabi's BIGNUM time-display convention:
         //   * digit cells advance by `charWidth + hSpacing`
         //   * the colon's cell is just `timecolonwidth` wide with NO
         //     trailing hSpacing — the colon's own width absorbs the
@@ -124,8 +182,7 @@ bool paintText(QPainter *p,
         };
         auto trailingSpace = [&](QChar c) {
             // No trailing space after the colon: its 6-wide cell IS
-            // the gap to the next digit (verified against upstream's
-            // pixel positions).
+            // the gap to the next digit.
             return c == u':' ? 0 : fontDef->hSpacing;
         };
         int lineW = 0;
@@ -136,10 +193,10 @@ bool paintText(QPainter *p,
         }
         // Wasabi's text widget reserves `hSpacing + 1` of right
         // padding for right-aligned bitmap-font text — it's the
-        // "trailing hSpacing after the last char" that Wasabi's
-        // upstream Text::onPaint adds before measuring against the
-        // widget's right edge.  Derives from the font's own metrics,
-        // so different skins / fonts adapt automatically.
+        // "trailing hSpacing after the last char" that Wasabi adds
+        // before measuring against the widget's right edge.  Derives
+        // from the font's own metrics, so different skins / fonts adapt
+        // automatically.
         const int timePadRight =
             (align == QStringLiteral("right"))
                 ? fontDef->hSpacing + 1
@@ -155,8 +212,8 @@ bool paintText(QPainter *p,
         // in the bitmap at all (Winamp 2's BIGNUM had only 0–9 and
         // `-`).  Detect by sampling: if `:`'s extracted cell has no
         // bright pixels matching the digit color, paint it as two
-        // small dots procedurally — the same dots stock Wasabi/WACUP
-        // draws for time displays.
+        // small dots procedurally — the same dots a classic time
+        // display draws for the colon separator.
         // Pick a representative glyph color from the digit `0`, which
         // we'll re-use for procedurally-drawn colon dots if the font
         // has no colon glyph of its own (classic NUMBERS.BMP style).
@@ -210,8 +267,7 @@ bool paintText(QPainter *p,
             if (ch == u':' && colonIsBlank) {
                 // 3-wide × 1-tall dots at the left of the colon's
                 // narrow cell.  Two stacked at thirds of the digit
-                // cell — exactly where the upstream reference paints
-                // them.
+                // cell — the classic colon-dot positions.
                 const int dotH = 1;
                 const int dotW = 3;
                 const int dotX = cx;
@@ -239,36 +295,64 @@ bool paintText(QPainter *p,
     // Wasabi's `font="Arial"` etc. — render via QPainter::drawText.
     // Honours fontsize, bold, italic, color (best-effort string→QColor),
     // align, antialias.
+    //
+    // Most distros don't ship the Microsoft Web Fonts that classic
+    // Winamp skins assume.  Substitute the closest metrically-similar
+    // open replacement so tab labels and tickers don't fall through
+    // to whatever fc-match picks at random (Bitstream Vera, which
+    // visibly differs from Tahoma/Arial in both stroke weight and
+    // x-height).  Liberation Sans is the canonical Tahoma/Arial
+    // replacement and is in Fedora's base.  Done once at startup
+    // because QFont::insertSubstitution is process-global.
+    static const bool fontSubsInstalled = [] {
+        QFont::insertSubstitution(QStringLiteral("Tahoma"),
+                                   QStringLiteral("Liberation Sans"));
+        QFont::insertSubstitution(QStringLiteral("Arial"),
+                                   QStringLiteral("Liberation Sans"));
+        QFont::insertSubstitution(QStringLiteral("Verdana"),
+                                   QStringLiteral("Liberation Sans"));
+        QFont::insertSubstitution(QStringLiteral("Microsoft Sans Serif"),
+                                   QStringLiteral("Liberation Sans"));
+        return true;
+    }();
+    (void)fontSubsInstalled;
     QFont qf(fontId);
     const int fontsize = attrInt(attrs, QStringLiteral("fontsize"), 12);
-    // Wasabi `fontsize` is a Win32 lfHeight (character cell height);
-    // Qt's setPixelSize is the EM bounding box.  Pixel-sampled
-    // against the WACUP reference (354x164 native): bold "WACUP"
-    // glyphs span 37 px at fontsize=14, which Qt setPixelSize(10)
-    // hits exactly — a 5/7 ratio.  Earlier 4/7 came from a deleted
-    // hand-tuned C++ titlebar's setPixelSize(8) magic for Win32 GDI's
-    // narrower character-cell rendering of Arial Bold.
-    // Wasabi fontsize → Qt setPixelSize.  Default 6/7 matches the
-    // WACUP titlebar reference (Arial Bold 14 → 12px) much better
-    // than the prior 5/7 (which rendered at 10px and looked thin
-    // compared to GDI's native rendering).  WASABIQT_FONT_RATIO=N,D
-    // overrides for ad-hoc tuning.
-    int rn = 6, rd = 7;
-    if (const char *r = ::getenv("WASABIQT_FONT_RATIO")) {
-        int a = 0, b = 0;
-        if (sscanf(r, "%d,%d", &a, &b) == 2 && a > 0 && b > 0) {
-            rn = a; rd = b;
-        }
-    }
-    const int qpx = qMax(1, (fontsize * rn + rd/2) / rd);
+    // Wasabi `fontsize` is a Win32 lfHeight (character cell height),
+    // whereas Qt's setPixelSize is the EM bounding box, so the two
+    // don't map 1:1.  A 5/7 ratio (~0.71) approximates the conversion:
+    // a bold title at fontsize=14 lands at setPixelSize(10), matching
+    // the small bitmap-style display font of the classic titlebar.
+    // GDI renders Arial Bold's character cell narrower than Qt does,
+    // so the scale-down is needed to avoid oversized text.
+    // WASABIQT_FONT_RATIO=N,D overrides the ratio for ad-hoc tuning.
+    const bool isBold   = attrBool(attrs, QStringLiteral("bold"));
+    const bool isItalic = attrBool(attrs, QStringLiteral("italic"));
+    // Win32 lfHeight → Qt pixel size (faithful per-font mapping; replaces
+    // the old 5/7 ratio that under-sized every skin's text).
+    const int qpx = wasabiFontPixelSize(fontsize, fontId, isBold, isItalic);
     qf.setPixelSize(qpx);
-    if (attrBool(attrs, QStringLiteral("bold")))   qf.setBold(true);
-    if (attrBool(attrs, QStringLiteral("italic"))) qf.setItalic(true);
+    if (isBold)   qf.setBold(true);
+    if (isItalic) qf.setItalic(true);
+
+    // Wasabi `antialias`: "1" forces smoothing on, "0" forces it OFF
+    // (crisp bitmap-style text — Bento's info-display lines set this so
+    // their small fonts render sharp, not the smooth TrueType default).
+    // Toggling QPainter::TextAntialiasing alone does NOT disable TrueType
+    // smoothing in Qt — the QFont style strategy has to carry NoAntialias.
+    // Absent → leave Qt's default untouched.
+    const QString aa = attrs.value(QStringLiteral("antialias"));
+    if (aa == QStringLiteral("0"))
+        qf.setStyleStrategy(QFont::NoAntialias);
+    else if (aa == QStringLiteral("1"))
+        qf.setStyleStrategy(QFont::PreferAntialias);
 
     p->save();
     p->setFont(qf);
-    if (attrBool(attrs, QStringLiteral("antialias")))
+    if (aa == QStringLiteral("1"))
         p->setRenderHint(QPainter::TextAntialiasing, true);
+    else if (aa == QStringLiteral("0"))
+        p->setRenderHint(QPainter::TextAntialiasing, false);
 
     // Colour: literal "r,g,b" or a named id registered via
     // `<color id="X" gammagroup="Y" value="r,g,b"/>`.  Named ids
@@ -290,16 +374,69 @@ bool paintText(QPainter *p,
     else if (align == QStringLiteral("right"))  qFlag |= Qt::AlignRight;
     else                                        qFlag |= Qt::AlignLeft;
 
-    // Wasabi's Text::onPaint draws left-aligned text at
-    // `r.left + 2 - shadowx + lpadding` (Src/Wasabi/api/skin/widgets/
-    // text.cpp:804).  The +2 inset is what gives the titlebar's
-    // WACUP its breathing room from the left streak.  Apply only
-    // for left-aligned text — Qt's natural centre/right alignment
-    // already handles the others.
+    const int shadowX0 = attrInt(attrs, QStringLiteral("shadowx"), 0);
+
+    // Shadow colour (shared by both the single- and multi-line paths).
+    QColor shadowColor(0, 0, 0, 180);
+    const bool hasShadow = attrBool(attrs, QStringLiteral("shadow"));
+    if (hasShadow) {
+        const QString shadowColorStr =
+            attrs.value(QStringLiteral("shadowcolor"));
+        if (colors && !shadowColorStr.isEmpty()) {
+            shadowColor = colors->resolve(shadowColorStr, gammasets,
+                                           shadowColor);
+        } else if (shadowColorStr.contains(QChar(','))) {
+            const auto parts = shadowColorStr.split(QChar(','));
+            if (parts.size() >= 3)
+                shadowColor = QColor(parts[0].toInt(), parts[1].toInt(),
+                                      parts[2].toInt());
+        }
+    }
+    const int sx = attrInt(attrs, QStringLiteral("shadowx"), 0);
+    const int sy = attrInt(attrs, QStringLiteral("shadowy"), 1);
+
+    // Single-line text: place it by centring the actual glyph INK in the
+    // widget box, then draw at an explicit baseline.  This reproduces the
+    // reference, where Wasabi (GDI) centres the font cell so an all-caps
+    // title sits dead-centre in the bar — Qt::AlignVCenter instead centres
+    // the line box (ascent+descent+leading) and, with the substituted
+    // metric-compatible font's asymmetric ascent, lifts the ink a couple
+    // px high.  tightBoundingRect is the measured ink, so this self-
+    // corrects for any font/size with no magic offset.  (Multi-line text
+    // keeps the flag-based block centring below.)
+    if (!text.contains(QLatin1Char('\n'))) {
+        QFontMetrics qfm(qf);
+        const QRect ink = qfm.tightBoundingRect(text);   // rel. to baseline
+        const int baseline = y + (h - ink.height()) / 2 - ink.top();
+        const int adv = qfm.horizontalAdvance(text);
+        int tx;
+        if (align == QStringLiteral("center"))
+            tx = x + (w - adv) / 2;
+        else if (align == QStringLiteral("right"))
+            tx = x + w - adv;
+        else
+            tx = x + (2 - qMax(0, shadowX0));   // Wasabi left inset
+        if (hasShadow) {
+            const QPen savedPen = p->pen();
+            p->setPen(shadowColor);
+            p->drawText(tx + sx, baseline + sy, text);
+            p->setPen(savedPen);
+        }
+        p->drawText(tx, baseline, text);
+        p->restore();
+        p->restore();  // outer save for clipRect
+        return true;
+    }
+
+    // Multi-line fallback: centre the whole text block in the box.
     QRect drawRect(x, y, w, h);
-    if ((qFlag & Qt::AlignHorizontal_Mask) == Qt::AlignLeft) {
-        const int shadowX = attrInt(attrs, QStringLiteral("shadowx"), 0);
-        drawRect.translate(2 - qMax(0, shadowX), 0);
+    if ((qFlag & Qt::AlignHorizontal_Mask) == Qt::AlignLeft)
+        drawRect.translate(2 - qMax(0, shadowX0), 0);
+    if (hasShadow) {
+        const QPen savedPen = p->pen();
+        p->setPen(shadowColor);
+        p->drawText(drawRect.translated(sx, sy), qFlag, text);
+        p->setPen(savedPen);
     }
     p->drawText(drawRect, qFlag, text);
     p->restore();
@@ -307,4 +444,4 @@ bool paintText(QPainter *p,
     return true;
 }
 
-}  // namespace WasabiQt::TextPainter
+}  // namespace qtWasabi::TextPainter

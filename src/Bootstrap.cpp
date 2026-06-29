@@ -10,10 +10,10 @@
 // source compile lands — this file marks the integration point.
 //
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 // One-shot service registry init.  Idempotent; safe to call from
-// multiple WasabiQt::Skin constructors.
+// multiple qtWasabi::Skin constructors.
 void bootstrapWasabiServices()
 {
     // TODO:
@@ -23,4 +23,4 @@ void bootstrapWasabiServices()
     //   - register HostAdapter as the playback / config provider
 }
 
-} // namespace WasabiQt
+} // namespace qtWasabi

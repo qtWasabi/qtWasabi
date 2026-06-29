@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/SkinQuickItem.h>
+#include <qtWasabi/SkinQuickItem.h>
 
-#include <WasabiQt/HitCtx.h>
-#include <WasabiQt/PaintCtx.h>
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/SkinRuntime.h>
-#include <WasabiQt/TreePainter.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/HitCtx.h>
+#include <qtWasabi/PaintCtx.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/SkinRuntime.h>
+#include <qtWasabi/TreePainter.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/Widget.h>
 
 #include <QHash>
 #include <QImage>
 #include <QMetaObject>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QPainter>
 #include <QPointer>
 #include <QQuickWindow>
@@ -25,7 +26,7 @@
 #include <QVariantAnimation>
 #include <QWindow>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 SkinQuickItem::SkinQuickItem(QQuickItem *parent) : QQuickItem(parent) {
     setFlag(QQuickItem::ItemHasContents, true);
@@ -54,8 +55,13 @@ SkinQuickItem::SkinQuickItem(QQuickItem *parent) : QQuickItem(parent) {
             // the visible chop.  rebuildWindowRegion runs once at
             // the animation's finish handler to settle the input
             // region back to the final shape.
+            // Coalesce the (expensive) region rebuild — a single Maki
+            // onTimer tick can issue many setAttr calls, and rebuilding
+            // synchronously per call saturates the GUI thread, starving
+            // click/hover hit-testing and the file dialog.  update() is
+            // cheap (Qt coalesces repaints) so keep it synchronous.
             if (widgetAnimationsActive() == 0 && !v->m_layoutAnimActive)
-                v->rebuildWindowRegion();
+                v->scheduleRegionRebuild();
             v->update();
         }
     });
@@ -127,6 +133,11 @@ void SkinQuickItem::animatedResizeLayoutTo(const QSize &target, int durationMs) 
 
 void SkinQuickItem::resizeLayoutTo(const QSize &size) {
     if (!size.isValid() || size.width() <= 0 || size.height() <= 0) return;
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_RESIZE") == 1) {
+        fprintf(stderr, "[SkinQuickItem] resizeLayoutTo %dx%d (was %dx%d)\n",
+                size.width(), size.height(),
+                m_nativeSize.width(), m_nativeSize.height());
+    }
     m_nativeSize = size;
     m_tree.attrs.insert(QStringLiteral("w"),
                         QString::number(size.width()));
@@ -166,64 +177,14 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     m_colors.loadFromDocument(doc);
     m_registry.setGammasetRegistry(&m_gammasets);
 
-    // Static menualign.maki equivalent: walk doc.scripts for any
-    // menualign references, then lay out the named widgets in the
-    // owner group side-by-side.  Mirrors menualign.m's onScriptLoaded
-    // loop: `tmp.setXMLparam("x", offset); offset += tmp.getAutoWidth();`.
-    // <script> elements are filtered out during expansion, so we
-    // can't search the resolved tree for them — but doc.scripts
-    // preserves them with ownerGroupId pointing to the enclosing
-    // <groupdef>.  This runs at load time because we need the
-    // BitmapRegistry for text-bitmap widths.
-    {
-        auto bitmapWidth = [&](const QString &imgId) {
-            QImage im = m_registry.imageFor(imgId);
-            return im.isNull() ? 0 : im.width();
-        };
-        std::function<Widget *(Widget &, const QString &)> findById =
-            [&](Widget &n, const QString &id) -> Widget * {
-            if (n.id == id) return &n;
-            for (auto &c : n.children)
-                if (c)
-                    if (auto *r = findById(*c, id)) return r;
-            return nullptr;
-        };
-        for (const auto &ref : doc.scripts) {
-            if (!ref.file.contains(QStringLiteral("menualign"),
-                                    Qt::CaseInsensitive))
-                continue;
-            // Find the owner group's widget in the live tree.
-            Widget *group = findById(m_tree, ref.ownerGroupId);
-            if (!group) continue;
-            int offset = 0;
-            for (const QString &id : ref.param.split(QChar(','),
-                                                     Qt::SkipEmptyParts)) {
-                const QString name = id.trimmed();
-                Widget *target = nullptr;
-                for (const auto &c : group->children) {
-                    if (c && c->id == name) { target = c.get(); break; }
-                }
-                if (!target) continue;
-                target->setXmlParam(QStringLiteral("x"),
-                                      QString::number(offset));
-                const QString aws = target->attrs.value(
-                    QStringLiteral("autowidthsource"));
-                int w = 0;
-                if (!aws.isEmpty()) {
-                    if (Widget *src = findById(*target, aws)) {
-                        const QString img = src->attrs.value(
-                            QStringLiteral("image"));
-                        if (!img.isEmpty()) w = bitmapWidth(img);
-                    }
-                }
-                if (w > 0) {
-                    target->setXmlParam(QStringLiteral("w"),
-                                          QString::number(w));
-                    offset += w;
-                }
-            }
-        }
-    }
+    // The menubar (File/Play/Options/…) is POSITIONED by the Maki VM running
+    // the skin's own menualign.maki — `offset += tmp.getAutoWidth()` per
+    // item — during the embedder's loadScripts/dispatchOnScriptLoaded pass.
+    // Each menu group's WIDTH (its hover/click area) is the autoWidth of its
+    // label bitmap, resolved here now the registry is populated — the engine
+    // resolves group autoWidth, the script only sets x.  Without this the
+    // groups keep relatw=1 and every menu item's hover spans the full bar.
+    Layout::resolveBitmapAutoWidths(m_tree, m_registry);
     // Pair every sysregion="-N" cutout layer with its sibling chrome
     // layer.  These are TALL narrowing-strip cutouts that get baked
     // INTO the chrome bitmap's alpha (BitmapRegistry::chromeImageFor
@@ -259,19 +220,18 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
 
 // ── Scene Graph paint ───────────────────────────────────────────────
 //
-// Bridge approach for phase 0/1: paint the resolved widget tree to an
-// offscreen QImage using the existing TreePainter, then upload the
-// result as a single QSGTexture and present it via QSGSimpleTextureNode.
+// Bridge approach: paint the resolved widget tree to an offscreen
+// QImage using the existing TreePainter, then upload the result as a
+// single QSGTexture and present it via QSGSimpleTextureNode.
 // Functionally identical to SkinView::paintEvent, just hosted in a
 // QQuickItem container so:
 //   - we benefit from the QQuickWindow's transparent + frameless flags
-//   - alpha-aware hit-test via contains() override (phase 4)
-//   - Wayland setMask via QWindow::setMask (phase 5)
-//   - QPropertyAnimation can drive widget attrs (phase 4)
-// Once the bridge works end-to-end, later phases incrementally replace
-// the QImage-painter with per-widget QSGNodes (layer → QSGSimpleTextureNode,
-// text → QSGGeometryNode per glyph, grid → 3-slice, vis → custom
-// geometry, etc.).
+//   - alpha-aware hit-test via contains() override
+//   - Wayland setMask via QWindow::setMask
+//   - QPropertyAnimation can drive widget attrs
+// The QImage-painter can be incrementally replaced with per-widget
+// QSGNodes (layer → QSGSimpleTextureNode, text → QSGGeometryNode per
+// glyph, grid → 3-slice, vis → custom geometry, etc.).
 void SkinQuickItem::paintInto(QPainter *p, const QSize &canvas) {
     if (m_host) {
         TreePainter::paintTree(p, m_tree, m_registry, m_fonts,
@@ -280,6 +240,19 @@ void SkinQuickItem::paintInto(QPainter *p, const QSize &canvas) {
         TreePainter::paintTree(p, m_tree, m_registry, m_fonts,
                                 canvas, m_resolver);
     }
+}
+
+void SkinQuickItem::scheduleRegionRebuild() {
+    if (m_regionRebuildPending) return;     // coalesce the burst
+    m_regionRebuildPending = true;
+    // Queued so it runs after the current Maki dispatch returns to the
+    // event loop — many setAttr in one onTimer tick collapse to one
+    // rebuild, using the post-script attribute values.
+    QMetaObject::invokeMethod(this, [this]() {
+        m_regionRebuildPending = false;
+        if (widgetAnimationsActive() == 0 && !m_layoutAnimActive)
+            rebuildWindowRegion();
+    }, Qt::QueuedConnection);
 }
 
 void SkinQuickItem::rebuildWindowRegion() {
@@ -291,8 +264,8 @@ void SkinQuickItem::rebuildWindowRegion() {
     // window is mapped, setMask can race with the surface state and
     // cause the window to disappear from foreign-toplevel
     // enumeration.  Skin the mask off for QQuickWindow path entirely
-    // — the input region was a Phase 5 nice-to-have (click-through
-    // on transparent chrome), not a requirement.  The visual is
+    // — the input region was a nice-to-have (click-through on
+    // transparent chrome), not a requirement.  The visual is
     // unaffected because the QSGTexture upload already carries the
     // chrome's alpha.  WASABIQT_INPUT_REGION=1 re-enables it.
     // setMask path: defer the FIRST mask via a 100ms one-shot timer
@@ -300,7 +273,16 @@ void SkinQuickItem::rebuildWindowRegion() {
     // setMask without dropping the surface), then update on every
     // subsequent region rebuild.  isExposed() never goes true for a
     // QQuickWindow on Wayfire/Asahi so we can't gate on that.
-    if (!::getenv("WASABIQT_NO_MASK")) {
+    // setMask defines the OS-level INPUT region on Wayland (wlroots/
+    // Wayfire): pointer events outside the mask pass straight through to
+    // the desktop.  Our computeWindowRegion silhouette does NOT cover the
+    // full chrome (e.g. the enlarged playlist column + the ML tab strip),
+    // so applying it made those areas unclickable — the user's "I click
+    // straight through the window".  The window already has an alpha
+    // buffer, so transparent chrome pixels are transparent WITHOUT a mask;
+    // the mask was only a click-through-on-corners nicety.  Default OFF
+    // (full-window input region); opt back in with WASABIQT_INPUT_REGION=1.
+    if (::getenv("WASABIQT_INPUT_REGION")) {
         if (auto *w = window()) {
             if (!m_maskInitialised) {
                 m_maskInitialised = true;
@@ -443,9 +425,8 @@ bool SkinQuickItem::contains(const QPointF &point) const {
     if (!QRectF(QPointF(0, 0), QSizeF(m_nativeSize)).contains(point))
         return false;
     // If we haven't painted yet, fall through to the inclusive default
-    // so the first click reaches us.  Later phases populate per-widget
-    // alpha; for phase 0 we treat the painted-buffer alpha as the
-    // single source of truth.
+    // so the first click reaches us.  We treat the painted-buffer alpha
+    // as the single source of truth.
     auto it = m_alphaCache.constFind(&m_tree);
     if (it == m_alphaCache.constEnd() || it->isNull()) return true;
     const QImage &buf = it.value();
@@ -517,6 +498,15 @@ SkinQuickItem::alphaHitTestList(QPoint pointInLayout, bool actionOnly,
     return out;
 }
 
+void SkinQuickItem::testClick(QPointF localPoint) {
+    QMouseEvent press(QEvent::MouseButtonPress, localPoint, localPoint, localPoint,
+                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    mousePressEvent(&press);
+    QMouseEvent rel(QEvent::MouseButtonRelease, localPoint, localPoint, localPoint,
+                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    mouseReleaseEvent(&rel);
+}
+
 QString SkinQuickItem::dispatchClickAt(QPointF localPoint) {
     const QPoint p = localPoint.toPoint();
     const auto hits = alphaHitTestList(p, /*actionOnly=*/false);
@@ -524,18 +514,131 @@ QString SkinQuickItem::dispatchClickAt(QPointF localPoint) {
         if (!w || w->id.isEmpty()) continue;
         const int fired = fireWidgetEvent(w->id, L"onLeftClick");
         if (fired > 0) return w->id;
+        // Event bubbling: a click is delivered to the embed_xui surface, but
+        // the onLeftClick handler is often bound on an ENCLOSING group — e.g.
+        // a tab strip binds switch.X.onLeftClick while the real hit target is
+        // the nested mousetrap button (id reused across all tabs).  If the
+        // leaf didn't consume the click, walk up its parent chain and fire
+        // onLeftClick on each id'd ancestor until one handles it.  Receiver-
+        // gated, so passive ancestors cost nothing.  This is what lets the
+        // Maki tab flow (switch_X.onLeftClick -> switchToX) run.
+        for (const Widget *a = w->parentWidget; a; a = a->parentWidget) {
+            if (a->id.isEmpty()) continue;
+            if (fireWidgetEvent(a->id, L"onLeftClick") > 0) return a->id;
+        }
+    }
+    // onAction caller — Wasabi Buttons dispatch their `action=` attr
+    // through the script-overridable onAction(action, param, x, y, …) when
+    // a plain click wasn't consumed.  Scripts hook onAction to drive tab
+    // switching, drawer toggles, and layout reflow — the behaviour the
+    // wireTabs/force-visible crutches currently fake.  Receiver-gated
+    // (fireWidgetActionEvent only fires where onAction is actually bound),
+    // so passive widgets pay nothing, and it only runs on a real click so
+    // static renders stay byte-identical.  Wasabi action syntax is "VERB"
+    // or "VERB;param"; the onAction handler may sit on the button itself
+    // or on an enclosing group, so walk up the parent chain.
+    for (const auto *w : hits) {
+        if (!w || w->id.isEmpty()) continue;
+        const QString act = w->attrs.value(QStringLiteral("action"));
+        if (act.isEmpty()) continue;
+        const int semi      = act.indexOf(QLatin1Char(';'));
+        const QString verb  = semi < 0 ? act : act.left(semi);
+        const QString param = semi < 0 ? QString() : act.mid(semi + 1);
+        for (const Widget *cur = w; cur; cur = cur->parentWidget) {
+            if (cur->id.isEmpty()) continue;
+            const int fired = fireWidgetActionEvent(
+                cur->id, verb, param, p.x(), p.y(), 0, 0, w->id);
+            if (fired > 0) return w->id;
+        }
     }
     return QString();
 }
 
 // ── Mouse handling ──────────────────────────────────────────────────
 
+// Resize-grab edge detection shared by press + hover.  Edges get an 8px
+// margin; corners a larger 20px zone so the bottom-right resize spot is
+// easy to hit (the classic Winamp grip).  w/h are the item's logical size,
+// which equals the toplevel's, so the margins sit at the real window edge.
+static Qt::Edges resizeEdgesAt(const QPointF &lp, qreal w, qreal h) {
+    const qreal EM = 8.0;    // edge margin
+    const qreal CM = 20.0;   // corner margin (larger)
+    const bool L  = lp.x() <= EM,      R  = lp.x() >= w - EM;
+    const bool T  = lp.y() <= EM,      B  = lp.y() >= h - EM;
+    const bool Lc = lp.x() <= CM,      Rc = lp.x() >= w - CM;
+    const bool Tc = lp.y() <= CM,      Bc = lp.y() >= h - CM;
+    if (Rc && Bc) return Qt::RightEdge | Qt::BottomEdge;
+    if (Lc && Bc) return Qt::LeftEdge  | Qt::BottomEdge;
+    if (Rc && Tc) return Qt::RightEdge | Qt::TopEdge;
+    if (Lc && Tc) return Qt::LeftEdge  | Qt::TopEdge;
+    Qt::Edges e;
+    if (L)      e |= Qt::LeftEdge;
+    else if (R) e |= Qt::RightEdge;
+    if (T)      e |= Qt::TopEdge;
+    else if (B) e |= Qt::BottomEdge;
+    return e;
+}
+
+bool SkinQuickItem::beginEdgeResize(const QPointF &localPos,
+                                    const QPoint &globalPos) {
+    auto *w = window();
+    if (!w) return false;
+    const Qt::Edges edges = resizeEdgesAt(localPos, width(), height());
+    if (!edges) return false;
+    // Native compositor resize (X11, and Wayland compositors that honour
+    // it).  Returns false on Wayfire → fall back to the manual drag.
+    if (w->startSystemResize(edges)) return true;
+    m_resizeEdges        = edges;
+    m_resizeStartGeom    = w->geometry();
+    m_resizeOriginGlobal = globalPos;
+    return true;
+}
+
+// Build a PaintCtx wired to this item's live registries + host so a
+// captured widget (slider/scrollbar) can read/write its position exactly
+// as the paint path does.  A captured slider needs a real host in its
+// PaintCtx so SliderWidget::onMouseMove can write the new value back.
+qtWasabi::PaintCtx SkinQuickItem::makeEventCtx() {
+    qtWasabi::PaintCtx ctx{};
+    ctx.bmp       = &m_registry;
+    ctx.font      = &m_fonts;
+    ctx.host      = m_host;
+    ctx.gammasets = &m_gammasets;
+    ctx.colors    = &m_colors;
+    ctx.resolver  = m_resolver;
+    return ctx;
+}
+
 void SkinQuickItem::mousePressEvent(QMouseEvent *e) {
     if (e->button() != Qt::LeftButton) { QQuickItem::mousePressEvent(e); return; }
     const QPointF lp = e->position();
+    // Press-routing: a capture-style widget (slider, scrollbar thumb)
+    // takes the press for press→move→release dragging.  Route the press to
+    // its onLeftButtonDown and hold the capture; never start a window
+    // drag/resize underneath it.  Passive widgets fall through to the
+    // onLeftClick dispatch + drag path below.
+    if (qtWasabi::Widget *w =
+            const_cast<qtWasabi::Widget *>(topmostWidgetAt(lp.toPoint(), false))) {
+        if (w->capturesMouse()) {
+            m_activeWidget = w;
+            qtWasabi::PaintCtx ctx = makeEventCtx();
+            w->onLeftButtonDown(lp.toPoint(), ctx);
+            update();
+            e->accept();
+            return;
+        }
+    }
     const QString consumedId = dispatchClickAt(lp);
     if (!consumedId.isEmpty()) {
         update();
+        e->accept();
+        return;
+    }
+    // Empty-area press near a window edge/corner → resize the toplevel.
+    // Frameless windows have no native border to grab, so we expose a grab
+    // margin (see resizeEdgesAt).  Checked only AFTER widget hit testing so
+    // it never steals a button/list click near the border.
+    if (beginEdgeResize(lp, e->globalPosition().toPoint())) {
         e->accept();
         return;
     }
@@ -557,6 +660,41 @@ void SkinQuickItem::mousePressEvent(QMouseEvent *e) {
 }
 
 void SkinQuickItem::mouseMoveEvent(QMouseEvent *e) {
+    // While a capture widget holds the press, feed it move events so
+    // the slider thumb tracks the cursor.  Takes priority over drag/resize.
+    if (m_activeWidget) {
+        qtWasabi::PaintCtx ctx = makeEventCtx();
+        m_activeWidget->onMouseMove(e->position().toPoint(), ctx);
+        update();
+        e->accept();
+        return;
+    }
+    if (m_resizeEdges) {
+        if (auto *w = window()) {
+            const QPoint d = e->globalPosition().toPoint() - m_resizeOriginGlobal;
+            const QRect  g = m_resizeStartGeom;
+            const int MINW = 300, MINH = 160;
+            int nx = g.x(), ny = g.y(), nw = g.width(), nh = g.height();
+            if (m_resizeEdges & Qt::RightEdge)
+                nw = qMax(MINW, g.width()  + d.x());
+            if (m_resizeEdges & Qt::BottomEdge)
+                nh = qMax(MINH, g.height() + d.y());
+            if (m_resizeEdges & Qt::LeftEdge) {
+                nw = qMax(MINW, g.width() - d.x());
+                nx = g.right() - nw + 1;
+            }
+            if (m_resizeEdges & Qt::TopEdge) {
+                nh = qMax(MINH, g.height() - d.y());
+                ny = g.bottom() - nh + 1;
+            }
+            // Size change with an unchanged origin (right/bottom) is honoured
+            // by Wayland; left/top also nudge the origin (may be clamped by
+            // the compositor).  The resize triggers the main-loop relayout.
+            w->setGeometry(nx, ny, nw, nh);
+        }
+        e->accept();
+        return;
+    }
     if (m_dragging) {
         if (auto *w = window()) {
             const QPoint d = e->globalPosition().toPoint() - m_dragOriginGlobal;
@@ -569,8 +707,45 @@ void SkinQuickItem::mouseMoveEvent(QMouseEvent *e) {
 }
 
 void SkinQuickItem::mouseReleaseEvent(QMouseEvent *e) {
+    // End any capture-widget drag (slider) with onLeftButtonUp.
+    if (m_activeWidget) {
+        qtWasabi::PaintCtx ctx = makeEventCtx();
+        m_activeWidget->onLeftButtonUp(e->position().toPoint(), ctx);
+        m_activeWidget = nullptr;
+        update();
+    }
     m_dragging = false;
+    m_resizeEdges = {};
     QQuickItem::mouseReleaseEvent(e);
+}
+
+void SkinQuickItem::wheelEvent(QWheelEvent *e) {
+    // Route a vertical scroll into the widget under the cursor so list
+    // holders (playlist / library) and any scroll-aware widget react —
+    // generic, no per-skin wiring.  One notch (120 eighths-of-a-degree)
+    // = one step; positive steps = wheel-up = scroll toward the top.
+    const QPointF lp = e->position();
+    qtWasabi::Widget *w = const_cast<qtWasabi::Widget *>(
+        topmostWidgetAt(lp.toPoint(), false));
+    // Only handle the wheel over a list-style holder (playlist / library);
+    // elsewhere leave it for other behaviour.
+    if (w && w->capturesMouse()) {
+        // Accumulate sub-notch deltas (Wayland sends e.g. 95, not 120) and
+        // emit one scroll step per full notch, keeping the remainder so a
+        // slow fine-grained wheel still scrolls.
+        m_wheelAccumY += e->angleDelta().y();
+        const int steps = m_wheelAccumY / 120;
+        if (steps != 0) {
+            m_wheelAccumY -= steps * 120;
+            qtWasabi::PaintCtx ctx = makeEventCtx();
+            w->onMouseWheel(lp.toPoint(), steps, ctx);
+            update();
+        }
+        e->accept();
+        return;
+    }
+    m_wheelAccumY = 0;   // reset when the cursor leaves a list
+    QQuickItem::wheelEvent(e);
 }
 
 // ── Hover routing ─────────────────────────────────────────────────
@@ -584,8 +759,30 @@ void SkinQuickItem::mouseReleaseEvent(QMouseEvent *e) {
 
 void SkinQuickItem::hoverMoveEvent(QHoverEvent *e) {
     const QPoint p = e->position().toPoint();
-    WasabiQt::Widget *now =
-        const_cast<WasabiQt::Widget *>(topmostWidgetAt(p, false));
+    // Resize-grab affordance: a directional resize cursor inside the edge
+    // grab margin of the (frameless) toplevel, matching mousePressEvent.
+    {
+        const Qt::Edges he = resizeEdgesAt(e->position(), width(), height());
+        const bool L = he & Qt::LeftEdge,  R = he & Qt::RightEdge;
+        const bool T = he & Qt::TopEdge,   B = he & Qt::BottomEdge;
+        Qt::CursorShape cs = Qt::ArrowCursor;
+        if ((L && T) || (R && B))      cs = Qt::SizeFDiagCursor;
+        else if ((R && T) || (L && B)) cs = Qt::SizeBDiagCursor;
+        else if (L || R)               cs = Qt::SizeHorCursor;
+        else if (T || B)               cs = Qt::SizeVerCursor;
+        const Qt::CursorShape cur = cursor().shape();
+        const bool wasResize =
+            cur == Qt::SizeFDiagCursor || cur == Qt::SizeBDiagCursor ||
+            cur == Qt::SizeHorCursor   || cur == Qt::SizeVerCursor;
+        if (cs != Qt::ArrowCursor) {
+            if (cs != cur) setCursor(cs);
+            QQuickItem::hoverMoveEvent(e);
+            return;
+        }
+        if (wasResize) unsetCursor();
+    }
+    qtWasabi::Widget *now =
+        const_cast<qtWasabi::Widget *>(topmostWidgetAt(p, false));
     if (::getenv("WASABIQT_TRACE_HOVER"))
         fprintf(stderr, "[hover] (%d,%d) -> tag=%s id=%s\n",
             p.x(), p.y(),
@@ -618,4 +815,4 @@ void SkinQuickItem::hoverLeaveEvent(QHoverEvent *e) {
     QQuickItem::hoverLeaveEvent(e);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi
