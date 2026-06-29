@@ -3,7 +3,7 @@
 
 #include "QtTimerAdapter.h"
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 QtTimerAdapter::QtTimerAdapter(QObject *parent)
     : QObject(parent)
@@ -19,4 +19,4 @@ void QtTimerAdapter::stop()                  { m_timer.stop(); }
 bool QtTimerAdapter::isActive() const        { return m_timer.isActive(); }
 void QtTimerAdapter::setCallback(Callback cb){ m_cb = std::move(cb); }
 
-} // namespace WasabiQt
+} // namespace qtWasabi

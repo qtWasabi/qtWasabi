@@ -15,7 +15,7 @@
 #include <QHash>
 #include <QString>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace SkinXml { struct Document; }
 class GammasetRegistry;
@@ -42,4 +42,4 @@ private:
     QHash<QString, Entry> m_colors;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

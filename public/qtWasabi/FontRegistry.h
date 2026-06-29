@@ -18,7 +18,7 @@
 #include <QImage>
 #include <QString>
 
-namespace WasabiQt {
+namespace qtWasabi {
 namespace SkinXml { struct Document; }
 
 class BitmapRegistry;
@@ -62,4 +62,4 @@ private:
     QString                       m_skinDir;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -5,14 +5,10 @@
 //
 // QtCanvasAdapter — bridges Wasabi's GDI-style canvas API onto QPainter.
 //
-// Wasabi's BltCanvas / Canvas / TextInfoCanvas (api/wnd/*) use Win32
-// HDC concepts: BitBlt, StretchBlt, TextOut, GetTextExtentPoint32,
+// Wasabi's BltCanvas / Canvas / TextInfoCanvas use Win32 HDC
+// concepts: BitBlt, StretchBlt, TextOut, GetTextExtentPoint32,
 // CreateFont, etc.  This adapter routes those calls through Qt's
 // QPainter, with HiDPI awareness and Wayland-safe transforms.
-//
-// Reference (NOT source): /Src/Wasabi/qt6/QtCanvasAdapter.{h,cpp} —
-// the 2015-era stub.  Useful for what surface to expose; the
-// implementation here is fresh.
 //
 
 #include "Win32Shim.h"
@@ -25,7 +21,7 @@ QT_BEGIN_NAMESPACE
 class QPaintDevice;
 QT_END_NAMESPACE
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class QtCanvasAdapter {
 public:
@@ -69,4 +65,4 @@ private:
     QPainter *m_borrowed = nullptr;        // when handed an external painter
 };
 
-} // namespace WasabiQt
+} // namespace qtWasabi

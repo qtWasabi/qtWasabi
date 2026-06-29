@@ -3,7 +3,7 @@
 #pragma once
 
 //
-// WasabiQt::Host — abstract player-side interface that Modern skins
+// qtWasabi::Host — abstract player-side interface that Modern skins
 // query for live state (current position, song title, volume, …) and
 // drive for transport actions (PLAY / PAUSE / STOP / NEXT / …).
 //
@@ -36,7 +36,7 @@
 
 class QWidget;
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Host {
 public:
@@ -55,6 +55,22 @@ public:
     // ── Track metadata (read) ───────────────────────────────────
     virtual QString songTitle()    const = 0;
     virtual QString songFilename() const { return songTitle(); }
+    // Rich per-field metadata for the skin's file-info display
+    // (fileinfo.maki reads these via System.getPlayItemMetaDataString).
+    // `field` is the canonical Wasabi/Winamp tag name, lower-case:
+    // "title", "artist", "album", "albumartist", "track", "year",
+    // "genre", "disc", "composer", "publisher", "streamgenre", …
+    // Default empty → the field's line stays hidden (idle behaviour).
+    virtual QString playItemMetaData(const QString &field) const {
+        Q_UNUSED(field);
+        return {};
+    }
+    // Display title (artist - title style) the skin shows as the
+    // primary track label; falls back to the plain title.
+    virtual QString playItemDisplayTitle() const { return songTitle(); }
+    // Decoder/codec name shown on the "Decoder:" line (e.g. the MPEG
+    // audio decoder description).  Empty → line hidden.
+    virtual QString decoderName() const { return {}; }
 
     // ── Transport actions (write) ───────────────────────────────
     virtual void    play()  = 0;
@@ -90,6 +106,25 @@ public:
     //    isn't slider-shaped.  The default handles VOLUME + SEEK
     //    + PAN from the standard audio-state methods; embedders
     //    override for EQ_BAND etc.
+    //
+    //    `param` is the slider's XML `param=` attr (empty when the
+    //    slider doesn't carry one).  Required for `EQ_BAND` where
+    //    `param` names the band ("1".."10" or "preamp"), and for
+    //    any future param-aware slider action.  Hosts that don't
+    //    care about per-band routing leave the default
+    //    implementations alone — they forward to the no-param
+    //    overload below, which is what every pre-existing host
+    //    override hooked into.
+    virtual double sliderPosition(const QString &action,
+                                   const QString &param) const {
+        Q_UNUSED(param);
+        return sliderPosition(action);
+    }
+    virtual void   setSliderPosition(const QString &action, double v,
+                                      const QString &param) {
+        Q_UNUSED(param);
+        setSliderPosition(action, v);
+    }
     virtual double sliderPosition(const QString &action) const;
     virtual void   setSliderPosition(const QString &action, double v);
 
@@ -121,6 +156,37 @@ public:
     //    integrate with their tag parser (e.g. TagLib / Qt6
     //    QMediaMetaData::CoverArtImage) and return the QImage here.
     virtual QImage albumArt() const { return QImage(); }
+
+    // ── Playlist accessors used by the engine-level <playlistpro>
+    //    renderer (and any windowholder embedding the canonical
+    //    Playlist Editor GUID `{45F3F7C1-A6F3-4ee6-A15E-125E92FC3F8D}`).
+    //    Defaults give an empty playlist; embedders override
+    //    forwarding to their own playlist data model.
+    virtual int     playlistRowCount() const                  { return 0; }
+    virtual QString playlistRowText(int row) const            { Q_UNUSED(row); return {}; }
+    virtual qint64  playlistRowDurationMs(int row) const      { Q_UNUSED(row); return 0; }
+    virtual int     playlistCurrentRow() const                { return -1; }
+    virtual void    playlistSetCurrentRow(int row)            { Q_UNUSED(row); }
+    virtual void    playlistPlayRow(int row)                  { Q_UNUSED(row); }
+
+    // Playlist-editor chrome buttons (the modern skin's Wasabi
+    // `action="PE_Add|PE_Rem|PE_Sel|PE_Misc|PE_List"` buttons).  The verb
+    // is the UPPERCASED action; embedders pop the matching menu (Add /
+    // Remove / Select / Misc / Manage Playlist) at the cursor and run the
+    // chosen operation on their playlist model.  Default: unhandled.
+    virtual bool    pleditCommand(const QString &verb)        { Q_UNUSED(verb); return false; }
+
+    // ── Library tree accessors used by the engine-level
+    //    <playlistdirectory> renderer (and any windowholder
+    //    embedding the canonical Media Library GUID
+    //    `{6B0EDF80-C9A5-11D3-9F26-00C04F39FFC6}`).  `parent` is an
+    //    opaque path-shaped token; the empty string means "root".
+    //    Embedders typically forward to QFileSystemModel or a real
+    //    tag-indexed library.  Default: empty tree.
+    virtual int     libraryRowCount(const QString &parent) const         { Q_UNUSED(parent); return 0; }
+    virtual QString libraryRowLabel(const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
+    virtual QString libraryRowPath (const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
+    virtual bool    libraryRowHasChildren(const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return false; }
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;
@@ -147,4 +213,4 @@ DisplayResolver makeDefaultDisplayResolver(Host *host);
 bool dispatchAction(const QString &action, Host *host,
                     QWidget *embedder = nullptr);
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

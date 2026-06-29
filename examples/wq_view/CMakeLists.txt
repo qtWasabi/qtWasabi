@@ -3,7 +3,7 @@
 
 add_executable(wq_view main.cpp)
 target_link_libraries(wq_view PRIVATE
-    wasabiqt
+    qtwasabi
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets)

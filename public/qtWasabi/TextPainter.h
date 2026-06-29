@@ -18,12 +18,22 @@
 class QPainter;
 class QSize;
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class BitmapRegistry;
 class FontRegistry;
 class ColorRegistry;
 class GammasetRegistry;
+
+// Map a Wasabi `fontsize` (a Win32 lfHeight = font CELL height, what
+// CreateFontW(lfHeight>0) matches) to the Qt `setPixelSize` value that
+// reproduces it: binary-search the pixel size so QFontMetrics::height()
+// (ascent+descent) equals `lfHeight`.  The faithful per-font mapping that
+// replaces the old global 5/7 ratio (which under-sized text in every
+// skin).  Shared by the renderer (TextPainter) and the measurement paths
+// (getAutoWidth / autowidthsource) so the measured box == rendered glyphs.
+int wasabiFontPixelSize(int lfHeight, const QString &family,
+                        bool bold, bool italic = false);
 
 namespace TextPainter {
 
@@ -47,4 +57,4 @@ bool paintText(QPainter *p,
                bool clipToWidget = true);
 
 }  // namespace TextPainter
-}  // namespace WasabiQt
+}  // namespace qtWasabi

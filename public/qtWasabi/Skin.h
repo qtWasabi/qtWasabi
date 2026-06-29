@@ -3,11 +3,11 @@
 #pragma once
 
 //
-// WasabiQt::Skin — load a .wal skin and render it inside a QWidget.
+// qtWasabi::Skin — load a .wal skin and render it inside a QWidget.
 //
 // Embedder responsibility:
-//   1. Implement WasabiQt::Host (playback/mixer/config bridge)
-//   2. WasabiQt::Skin skin(host);
+//   1. Implement qtWasabi::Host (playback/mixer/config bridge)
+//   2. qtWasabi::Skin skin(host);
 //   3. skin.load("/path/to/skin.wal")  — or an unpacked directory
 //   4. Hand skin.widget() to your QMainWindow / QStackedWidget / etc.
 //
@@ -20,7 +20,7 @@ QT_BEGIN_NAMESPACE
 class QWidget;
 QT_END_NAMESPACE
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Host;
 
@@ -56,4 +56,4 @@ private:
     std::unique_ptr<Private> d;
 };
 
-} // namespace WasabiQt
+} // namespace qtWasabi

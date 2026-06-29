@@ -22,7 +22,7 @@ class QKeyEvent;
 class QResizeEvent;
 QT_END_NAMESPACE
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class QtWindowAdapter : public QWidget {
 public:
@@ -53,4 +53,4 @@ protected:
     void resizeEvent(QResizeEvent *event) override;
 };
 
-} // namespace WasabiQt
+} // namespace qtWasabi

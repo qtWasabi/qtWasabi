@@ -16,7 +16,7 @@
 #include <QString>
 #include <functional>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Widget;
 
@@ -59,4 +59,4 @@ struct HitCtx {
     QList<Widget *> *collect = nullptr;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

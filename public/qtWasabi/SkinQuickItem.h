@@ -18,26 +18,28 @@
 // API mirrors SkinView's surface so embedders can migrate incrementally.
 //
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
-#include <WasabiQt/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/PaintCtx.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/Layout.h>
 
 #include <QHash>
 #include <QImage>
 #include <QList>
 #include <QPointer>
 #include <QQuickItem>
+#include <QRect>
 #include <QSize>
 #include <QString>
 #include <functional>
 
 class QVariantAnimation;
 
-namespace WasabiQt::SkinXml { struct Document; }
+namespace qtWasabi::SkinXml { struct Document; }
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Host;
 
@@ -75,7 +77,9 @@ public:
 
     // Switch to a named gammaset (Color Theme).  Empty/unknown name
     // means "Default" (identity transform).  Triggers a repaint.
-    void setActiveGammaset(const QString &name);
+    // Virtual so an embedder can react to a theme change — e.g. re-tint
+    // its own (non-skin) chrome to match the newly active theme.
+    virtual void setActiveGammaset(const QString &name);
 
     // Resize the layout to a new size (e.g. from a Maki Layout.setTarget*
     // / gotoTarget chain).  Updates m_nativeSize, syncs the layout root
@@ -125,6 +129,14 @@ public:
     // QQuickWindow's input-region mask stays in sync with what the
     // chrome actually paints.  Loading the skin already does it once.
     void rebuildWindowRegion();
+    // Coalesced variant: marks the region dirty and rebuilds at most
+    // once when control returns to the event loop.  A Maki onTimer can
+    // fire dozens of setAttr per tick; computeWindowRegion is a full
+    // re-render + per-pixel alpha scan, so doing it synchronously per
+    // setAttr saturates the GUI thread (dead clicks / no hover).  This
+    // collapses a burst to one rebuild, still on the GUI thread and
+    // after the script dispatch (so post-script attr values are used).
+    void scheduleRegionRebuild();
     const QRegion &windowRegion() const { return m_windowRegion; }
 
     // Auto-shrink the QQuickWindow to the painted-region's bounding
@@ -142,6 +154,12 @@ public:
     // canonical Wasabi click dispatch without re-implementing the
     // walk.  Public so MouseArea handlers can call it.
     Q_INVOKABLE QString dispatchClickAt(QPointF localPoint);
+
+    // Test hook: run a full left press+release through the REAL handlers
+    // (mousePressEvent / mouseReleaseEvent), exactly as a live click does —
+    // offscreen QQuickItems don't receive synthesised platform mouse events,
+    // so this is how offscreen tests exercise the true click path.
+    Q_INVOKABLE void testClick(QPointF localPoint);
 
     // Re-point the borrowed document pointer.  Used by subclasses
     // that take ownership of the parsed Document (QtampPlayerWindow
@@ -175,13 +193,30 @@ protected:
     // visually behind them.
     bool contains(const QPointF &point) const override;
 
-    // Phase 6: route mouse press through the alpha-hit-list +
-    // Maki onLeftClick dispatch.  Empty-area clicks initiate a window
-    // drag via QWindow::startSystemMove on Wayland (or a manual
-    // setPosition fallback elsewhere).
+    // Route mouse press through the alpha-hit-list + Maki onLeftClick
+    // dispatch.  Empty-area clicks initiate a window drag via
+    // QWindow::startSystemMove on Wayland (or a manual setPosition
+    // fallback elsewhere).
     void mousePressEvent(QMouseEvent *e) override;
     void mouseMoveEvent (QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
+    // Wheel routing — dispatches scroll notches into the widget under the
+    // cursor (onMouseWheel), so list-style holders (playlist / library)
+    // and any scroll-aware widget scroll generically on every skin.
+    void wheelEvent(QWheelEvent *e) override;
+
+    // Begin a window resize if localPos is within the edge/corner grab
+    // margin of the (frameless) toplevel.  Tries the compositor's native
+    // resize first; if that's refused (Wayfire) it arms the manual
+    // setGeometry fallback that mouseMoveEvent applies.  Returns true if a
+    // resize was started and the caller should consume the press.  Exposed
+    // so embedder subclasses that override mousePressEvent (and handle
+    // window-move themselves) can offer edge-resize before their own move.
+    bool beginEdgeResize(const QPointF &localPos, const QPoint &globalPos);
+
+    // Build a PaintCtx wired to this item's registries/host, used to route
+    // mouse events into capture widgets (sliders) the same way paint does.
+    qtWasabi::PaintCtx makeEventCtx();
 
     // Hover-event routing — dispatches Qt hover events into the
     // widget tree's virtual chain so ButtonWidget / MenuWidget /
@@ -214,10 +249,29 @@ private:
     bool   m_dragging = false;
     QPoint m_dragOriginGlobal;
     QPoint m_dragWindowStart;
+    // Manual window-resize fallback for when QWindow::startSystemResize is
+    // unsupported by the compositor (Wayfire returns false → the press would
+    // otherwise fall through to a window MOVE).  Records the grabbed edges,
+    // the window geometry and the global cursor at press; mouseMoveEvent then
+    // setGeometry's per edge.  Wayland honours size-only changes, so the
+    // bottom/right edges (and the bottom-right corner) resize correctly.
+    Qt::Edges m_resizeEdges;
+    QRect     m_resizeStartGeom;
+    QPoint    m_resizeOriginGlobal;
     // Widget currently under the mouse cursor (for hover state).
     // Set by hoverMoveEvent; cleared by hoverLeaveEvent and by
     // move-to-different-widget transitions.
-    WasabiQt::Widget *m_hoverWidget = nullptr;
+    qtWasabi::Widget *m_hoverWidget = nullptr;
+    // Widget that captured the current press (slider/scrollbar thumb).
+    // Set in mousePressEvent when capturesMouse(); receives onMouseMove
+    // until mouseReleaseEvent fires its onLeftButtonUp + clears it.  While
+    // non-null, no window drag/resize is started.
+    qtWasabi::Widget *m_activeWidget = nullptr;
+    // Accumulates fractional wheel deltas: Wayland/libinput delivers
+    // high-resolution sub-notch angleDelta (e.g. 95, not 120), so a plain
+    // /120 floors every event to zero steps.  We sum until a full 120-unit
+    // notch is reached, emit the step(s), and keep the remainder.
+    int m_wheelAccumY = 0;
     // Cached window region from the last rebuildWindowRegion call.
     QRegion m_windowRegion;
     // Auto-shrink to painted extent toggle (off by default).
@@ -233,10 +287,13 @@ private:
     // First setMask deferred via a 150 ms one-shot timer so Wayfire's
     // first wl_surface.commit lands BEFORE setMask is applied.
     bool   m_maskInitialised = false;
+    // Set when scheduleRegionRebuild has a queued rebuild pending, so a
+    // burst of setAttr calls coalesces to a single region recompute.
+    bool   m_regionRebuildPending = false;
     // Borrowed (not owned) pointer to the parsed skin document — used
     // by the per-paint GroupXFade page-resolution pass to instantiate
     // a groupdef into a target widget by id at runtime.
     const SkinXml::Document *m_doc = nullptr;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

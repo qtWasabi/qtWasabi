@@ -6,7 +6,7 @@
 #include <QFont>
 #include <QFontMetrics>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 QtCanvasAdapter::QtCanvasAdapter(QPainter *painter)
     : m_borrowed(painter)
@@ -111,4 +111,4 @@ void QtCanvasAdapter::setBkColor(COLORREF c)
 QImage       &QtCanvasAdapter::image()       { return m_image; }
 const QImage &QtCanvasAdapter::image() const { return m_image; }
 
-} // namespace WasabiQt
+} // namespace qtWasabi

@@ -1,9 +1,9 @@
 #pragma once
 //
-// TreePainter — walks a WasabiQt::Layout::ResolvedWidget tree and
+// TreePainter — walks a qtWasabi::Layout::ResolvedWidget tree and
 // paints every supported widget kind with one QPainter pass.
 //
-// What's supported in M7:
+// What's supported:
 //
 //   <layer>        — bitmap blit (delegates to LayerPainter)
 //   <button>       — paints the `image` (normal-state) bitmap;
@@ -32,7 +32,7 @@
 
 class QPainter;
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class BitmapRegistry;
 class FontRegistry;
@@ -40,7 +40,7 @@ class ColorRegistry;
 class GammasetRegistry;
 class Host;
 class Widget;
-namespace Layout { using ResolvedWidget = ::WasabiQt::Widget; }
+namespace Layout { using ResolvedWidget = ::qtWasabi::Widget; }
 
 namespace TreePainter {
 
@@ -77,7 +77,8 @@ void paintTree(QPainter *p, const Layout::ResolvedWidget &root,
                int colorthemesTopRowIn,
                QRect *colorthemesListBboxOut,
                int  *colorthemesTopRowOut,
-               int  visMode = 1);   // 0=off, 1=spectrum, 2=osc, 3=VU
+               int  visMode = 1,    // 0=off, 1=spectrum, 2=osc, 3=VU
+               bool windowActive = true);  // false → inactive chrome
 
 }  // namespace TreePainter
-}  // namespace WasabiQt
+}  // namespace qtWasabi

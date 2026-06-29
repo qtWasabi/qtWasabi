@@ -11,7 +11,7 @@
 #include <QTimer>
 #include <functional>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class QtTimerAdapter : public QObject {
     Q_OBJECT
@@ -31,4 +31,4 @@ private:
     Callback m_cb;
 };
 
-} // namespace WasabiQt
+} // namespace qtWasabi

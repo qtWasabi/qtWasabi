@@ -3,7 +3,7 @@
 # The Wasabi source (from the 2024 Llama Group release, mirrored on
 # archive.org) is licensed under the Winamp Collaborative License,
 # which forbids redistribution by anyone but Llama Group itself.
-# WasabiQT therefore does not ship any of it.  The user provides
+# qtWasabi therefore does not ship any of it.  The user provides
 # their own copy via:
 #
 #   1. -DWASABI_SRC_DIR=/path/to/Src  (preferred; explicit)
@@ -26,8 +26,8 @@ endif()
 if(NOT WASABI_SRC_DIR OR NOT EXISTS "${WASABI_SRC_DIR}")
     message(FATAL_ERROR
         "
-        WasabiQT requires you to supply the Wasabi source tree
-        separately.  WasabiQT does not redistribute it (the Winamp
+        qtWasabi requires you to supply the Wasabi source tree
+        separately.  qtWasabi does not redistribute it (the Winamp
         Collaborative License forbids that).
 
         Quickest path:

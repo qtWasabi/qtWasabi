@@ -21,7 +21,7 @@
 #include <QRect>
 #include <functional>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class BitmapRegistry;
 class ColorRegistry;
@@ -54,6 +54,14 @@ struct PaintCtx {
     // Visualisation mode (0=Off, 1=Spectrum, 2=Oscilloscope, 3=VU).
     // Read by VisWidget; embedder picks via right-click submenu.
     int                    visMode = 1;
+
+    // Window focus state for the active/inactive layer convention.  Real
+    // Winamp blits each layer at `isActive() ? activealpha : inactivealpha`;
+    // skins ship `.active`/`.inactive` titlebar (and other) pairs gated on
+    // those attrs.  The host sets this false for non-focused windows (the
+    // container subwindows in a multi-window screenshot) so their chrome
+    // renders the dim inactive variant.  Default true (the focused player).
+    bool                   windowActive = true;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

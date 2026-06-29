@@ -9,7 +9,7 @@
 #include <QResizeEvent>
 #include <QKeyEvent>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace {
 // Cookie ↔ adapter registry.  HWND opaques are non-null pointers we
@@ -98,4 +98,4 @@ void QtWindowAdapter::mouseMoveEvent(QMouseEvent *event)    { Q_UNUSED(event); }
 void QtWindowAdapter::keyPressEvent(QKeyEvent *event)       { Q_UNUSED(event); }
 void QtWindowAdapter::resizeEvent(QResizeEvent *event)      { Q_UNUSED(event); }
 
-} // namespace WasabiQt
+} // namespace qtWasabi

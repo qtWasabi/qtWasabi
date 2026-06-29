@@ -3,7 +3,7 @@
 //
 // wq_view — minimal skin viewer.  Opens a Wasabi/Modern skin's
 // container/layout in a frameless QWidget so you can see what
-// WasabiQT actually renders for a real skin.
+// qtWasabi actually renders for a real skin.
 //
 // Usage:
 //
@@ -13,8 +13,8 @@
 //
 // Drag from the title strip to move; close on Escape.
 
-#include <WasabiQt/SkinView.h>
-#include <WasabiQt/SkinXml.h>
+#include <qtWasabi/SkinView.h>
+#include <qtWasabi/SkinXml.h>
 
 #include <QApplication>
 #include <QCommandLineParser>
@@ -22,7 +22,7 @@
 #include <QMouseEvent>
 #include <QStringList>
 
-class ViewerWindow : public WasabiQt::SkinView {
+class ViewerWindow : public qtWasabi::SkinView {
 public:
     using SkinView::SkinView;
 protected:
@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
 
     QCommandLineParser cli;
     cli.setApplicationDescription(QStringLiteral(
-        "WasabiQT skin viewer — opens a container's layout"));
+        "qtWasabi skin viewer — opens a container's layout"));
     cli.addHelpOption();
     cli.addPositionalArgument(QStringLiteral("skin.xml"),
                               QStringLiteral("path to the skin's skin.xml"));
@@ -74,9 +74,9 @@ int main(int argc, char **argv) {
     const QString containerId = args.value(1, QStringLiteral("main"));
     const QString layoutId    = args.value(2, QStringLiteral("normal"));
 
-    WasabiQt::SkinXml::Document doc;
+    qtWasabi::SkinXml::Document doc;
     QString err;
-    if (!WasabiQt::SkinXml::parse(skinPath, doc, &err)) {
+    if (!qtWasabi::SkinXml::parse(skinPath, doc, &err)) {
         qCritical("Skin parse failed: %s", qPrintable(err));
         return 1;
     }
@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
         qCritical("Layout load failed: %s", qPrintable(err));
         return 1;
     }
-    w.setWindowTitle(QStringLiteral("WasabiQT — %1 / %2 / %3")
+    w.setWindowTitle(QStringLiteral("qtWasabi — %1 / %2 / %3")
                          .arg(doc.skinName.isEmpty()
                                   ? QStringLiteral("(unnamed)")
                                   : doc.skinName,

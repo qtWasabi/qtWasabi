@@ -16,9 +16,8 @@
 // QtWindowAdapter / QtCanvasAdapter.  Internal Wasabi code receives
 // opaque handles; only the adapter knows how to resolve them.
 //
-// Reference (not source): /Src/Wasabi/qt6/win32_types.h.  That file
-// targets a 2015-era Qt and pulls Q_OBJECT into the typedefs; we
-// avoid both.
+// We deliberately keep these typedefs free of Q_OBJECT so the
+// handles stay plain opaque cookies.
 //
 
 #include <cstdint>
@@ -33,31 +32,31 @@
 // Opaque pointer typedefs.  Wasabi treats these as cookies; only
 // the Qt adapter knows how to dereference.
 
-struct WasabiQtOpaque_HWND;
-struct WasabiQtOpaque_HDC;
-struct WasabiQtOpaque_HBITMAP;
-struct WasabiQtOpaque_HFONT;
-struct WasabiQtOpaque_HPEN;
-struct WasabiQtOpaque_HBRUSH;
-struct WasabiQtOpaque_HRGN;
-struct WasabiQtOpaque_HMENU;
-struct WasabiQtOpaque_HMODULE;
-struct WasabiQtOpaque_HINSTANCE;
-struct WasabiQtOpaque_HCURSOR;
-struct WasabiQtOpaque_HICON;
+struct qtWasabiOpaque_HWND;
+struct qtWasabiOpaque_HDC;
+struct qtWasabiOpaque_HBITMAP;
+struct qtWasabiOpaque_HFONT;
+struct qtWasabiOpaque_HPEN;
+struct qtWasabiOpaque_HBRUSH;
+struct qtWasabiOpaque_HRGN;
+struct qtWasabiOpaque_HMENU;
+struct qtWasabiOpaque_HMODULE;
+struct qtWasabiOpaque_HINSTANCE;
+struct qtWasabiOpaque_HCURSOR;
+struct qtWasabiOpaque_HICON;
 
-using HWND      = WasabiQtOpaque_HWND*;
-using HDC       = WasabiQtOpaque_HDC*;
-using HBITMAP   = WasabiQtOpaque_HBITMAP*;
-using HFONT     = WasabiQtOpaque_HFONT*;
-using HPEN      = WasabiQtOpaque_HPEN*;
-using HBRUSH    = WasabiQtOpaque_HBRUSH*;
-using HRGN      = WasabiQtOpaque_HRGN*;
-using HMENU     = WasabiQtOpaque_HMENU*;
-using HMODULE   = WasabiQtOpaque_HMODULE*;
-using HINSTANCE = WasabiQtOpaque_HINSTANCE*;
-using HCURSOR   = WasabiQtOpaque_HCURSOR*;
-using HICON     = WasabiQtOpaque_HICON*;
+using HWND      = qtWasabiOpaque_HWND*;
+using HDC       = qtWasabiOpaque_HDC*;
+using HBITMAP   = qtWasabiOpaque_HBITMAP*;
+using HFONT     = qtWasabiOpaque_HFONT*;
+using HPEN      = qtWasabiOpaque_HPEN*;
+using HBRUSH    = qtWasabiOpaque_HBRUSH*;
+using HRGN      = qtWasabiOpaque_HRGN*;
+using HMENU     = qtWasabiOpaque_HMENU*;
+using HMODULE   = qtWasabiOpaque_HMODULE*;
+using HINSTANCE = qtWasabiOpaque_HINSTANCE*;
+using HCURSOR   = qtWasabiOpaque_HCURSOR*;
+using HICON     = qtWasabiOpaque_HICON*;
 
 using BOOL      = int;
 using BYTE      = unsigned char;

@@ -1,6 +1,6 @@
 #pragma once
 //
-// SkinView — a QWidget that paints a WasabiQt resolved layout.
+// SkinView — a QWidget that paints a qtWasabi resolved layout.
 //
 // Embedders create one of these per <container>/<layout> they want
 // on screen, hand it the parsed Document and the ids, and the widget
@@ -8,16 +8,19 @@
 // `paint()` is just a TreePainter call on its tree; the size hint
 // comes from the layout's `w`/`h` (or `minimum_w`/`minimum_h`).
 //
-// Input handling is a stub for now — clicks/drags are reported via
-// signals but the widget doesn't dispatch them to script bindings
-// (that's M9+'s job).
+// Input handling mirrors the main window: a press on a capture-style
+// widget (slider/scrollbar) routes press→move→release; a press on a
+// passive widget fires its onLeftClick / action; a press on the bare
+// titlebar/chrome drags the frameless toplevel.  This is what makes
+// the Playlist Editor, Media Library, and detached Video/Visualizer
+// subwindows draggable by their titlebar and their buttons clickable.
 //
 
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
 
 #include <QList>
 #include <QRegion>
@@ -26,12 +29,15 @@
 #include <functional>
 
 class QVariantAnimation;
+class QMouseEvent;
 
-namespace WasabiQt::SkinXml { struct Document; }
+namespace qtWasabi::SkinXml { struct Document; }
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class Host;
+class SkinRuntime;
+struct PaintCtx;
 
 class SkinView : public QWidget {
     Q_OBJECT
@@ -51,7 +57,7 @@ public:
     // back to minimum_w x minimum_h, or sizeHint default).
     QSize layoutNativeSize() const { return m_nativeSize; }
 
-    // Access the parsed tree, e.g. for hit-testing in M9.
+    // Access the parsed tree, e.g. for hit-testing.
     const Layout::ResolvedWidget &tree() const { return m_tree; }
     BitmapRegistry               &registry()   { return m_registry; }
     FontRegistry                 &fonts()      { return m_fonts; }
@@ -158,9 +164,24 @@ public:
 
 protected:
     void paintEvent(QPaintEvent *e) override;
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
+    void wheelEvent(QWheelEvent *e) override;
+    void resizeEvent(QResizeEvent *e) override;
     QSize sizeHint() const override { return m_nativeSize; }
 
 private:
+    // Route a left-click at `p` through onLeftClick + onAction bubbling,
+    // exactly like the main window's dispatchClickAt: try the topmost
+    // alpha-opaque widget, walk its parent chain for a script handler,
+    // then fall back to its `action=` verb.  Returns the consuming id,
+    // or empty when nothing claimed it (→ the press becomes a drag).
+    QString dispatchClickAt(QPoint p);
+    // Build a PaintCtx wired to this view's registries + host so a
+    // captured widget (slider/scrollbar) reads/writes exactly as paint.
+    PaintCtx makeEventCtx();
+
     Layout::ResolvedWidget m_tree;
     BitmapRegistry         m_registry;
     ColorRegistry          m_colors;
@@ -182,6 +203,24 @@ private:
     QVariantAnimation     *m_resizeAnim = nullptr;
     // setAutoShrinkToRegion toggle.
     bool                   m_autoShrink = false;
+    // This subwindow's OWN Maki runtime (per-window).  Created in load()
+    // and scoped to this view's tree root so its scripts (menu layout,
+    // drawers, …) run through the VM without clobbering the player's
+    // registration.  Owned; torn down in the destructor.
+    SkinRuntime           *m_runtime = nullptr;
+    // Capture-style widget (slider/scrollbar) holding the current
+    // press for press→move→release dragging; null when none.
+    Widget                *m_activeWidget = nullptr;
+    // Manual window-drag fallback (used when the compositor's
+    // startSystemMove() isn't available): tracks the toplevel origin.
+    bool                   m_dragging = false;
+    QPoint                 m_dragOriginGlobal;
+    QPoint                 m_dragWindowStart;
+    // Manual edge-resize (frameless subwindows have no native border;
+    // the compositor declines startSystemResize on Wayfire).
+    Qt::Edges              m_resizeEdges;
+    QRect                  m_resizeStartGeom;
+    QPoint                 m_resizeOriginGlobal;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -8,6 +8,6 @@
 // non-header symbol on platforms where empty archives confuse the
 // linker (older macOS toolchains).
 
-namespace WasabiQt::detail {
-const char *win32_shim_anchor = "WasabiQT::Win32Shim";
+namespace qtWasabi::detail {
+const char *win32_shim_anchor = "qtWasabi::Win32Shim";
 }

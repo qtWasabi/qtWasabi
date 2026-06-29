@@ -40,18 +40,18 @@
 #include <QSize>
 #include <QString>
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/Widget.h>
 
 class QPainter;
 
-namespace WasabiQt {
+namespace qtWasabi {
 namespace SkinXml { struct Document; }
 
 namespace Layout {
 
-// ResolvedWidget = Widget — phase-2 of the class-per-widget refactor
-// makes the layout tree polymorphic.  The `Widget` base holds the same
+// ResolvedWidget = Widget — the class-per-widget design makes the
+// layout tree polymorphic.  The `Widget` base holds the same
 // data fields ResolvedWidget historically did (tag/id/attrs/source-
 // info); subclasses (LayerWidget, ButtonWidget, …) add per-tag paint /
 // hitTest / event-handler overrides plus per-instance runtime state.
@@ -60,7 +60,7 @@ namespace Layout {
 // std::vector<std::unique_ptr<Widget>> (polymorphic).  Existing
 // `for (const auto &c : node.children)` walks still iterate, but
 // element access is `c->tag` / `c->attrs` (c is a unique_ptr).
-using ResolvedWidget = ::WasabiQt::Widget;
+using ResolvedWidget = ::qtWasabi::Widget;
 
 // Find (containerId, layoutId) in `doc` and produce its expanded
 // tree.  Returns false if the container or layout isn't present;
@@ -154,9 +154,8 @@ QHash<QString, QList<ChromeCutout>>
 // Used by SkinQuickItem after paintInto: the QQuickWindow's setMask
 // only sets the Wayland input region, not the visible surface shape,
 // so the rounded corners and drawer-edge cuts have to live in the
-// texture's alpha channel itself.  This matches the per-pixel alpha
-// approach taken by lord3nd3r's winamp-linux f8448ec4 ("setMask is
-// redundant when alpha is correctly painted").
+// texture's alpha channel itself.  setMask is redundant once the
+// alpha is painted correctly.
 void paintRegionCutouts(QPainter &p, const ResolvedWidget &root,
                         BitmapRegistry &registry, QSize canvas);
 
@@ -177,11 +176,85 @@ void resolveGroupXFadePages(ResolvedWidget &root,
 // Apply static equivalents of well-known Maki scripts to a resolved
 // tree.  Mirrors the geometry / visibility mutations a script's
 // load-time handlers would otherwise do (titlebar.m's resizeObjects,
-// etc.).  M14b moved this out of expandLayout — call it explicitly
+// etc.).  This is separate from expandLayout — call it explicitly
 // when you want the legacy static path; skip it when SkinRuntime
 // will dispatch the real .maki scripts and mutate widgets through
 // setXmlParam.
 void runKnownScripts(ResolvedWidget &root, int layoutWidth);
 
+// Wire up the engine-level "stepper" pattern that Wasabi skins
+// use for incremented/decremented config values (canonical example:
+// the crossfade time slider + Decrease/Increase buttons + numeric
+// display in WinampModernPP/Winamp Modern/Bento).  Walks the tree
+// once and for each container scope where this structure exists:
+//
+//   • a widget with `cfgattrib=` AND `high=` (defines int range)
+//   • sibling button(s) whose `id` ends in `Decrease` / `Increase`
+//   • sibling text widget(s) whose `id` ends in `Display`
+//
+// it caches the cfgattrib key + low/high/step on the matching
+// button so its `onLeftButtonUp` inc/decs via `CfgAttribStore`,
+// and binds the text widget to the same key so it auto-rewrites
+// when the value changes.  Skin-agnostic; no per-skin XML edits
+// needed.
+void wireSteppers(ResolvedWidget &root);
+
+
+// `applyPlaylistEnlarge` is intentionally absent — the Maki VM drives
+// Bento's playlist enlarge itself (pledit.m playlist_enlarge_attrib.onDataChanged +
+// g_playlist.onResize + playlistpro.frameGroup.onResize), settled to a
+// geometry fixpoint by SkinRuntime::dispatchInitialResize.  No per-skin
+// emulation needed; works for any .wal skin that drives its own onResize.
+
+// Re-split a Wasabi:Frame node against a new divider position (the live
+// pullbar position).  Backs the Maki Frame.setPosition() binding; the
+// frame node must carry the `_frame_*` metadata planted at expansion.
+void applyFrameDividerPos(ResolvedWidget &frameNode, int pos);
+
+// `wireMenuBackgrounds` — propagate menu.text.X widget's x/w to its
+// sibling menu.layer.X.normal/hover/down background layers so the
+// titlebar's per-menu-item highlight band paints continuously.
+// Engine-level workaround for a CALLM2 DLF-dispatch bug in our
+// Maki VM port that prevents Bento's mainmenu.maki from setting
+// the background layer widths directly.  Call after Maki dispatch.
+void wireMenuBackgrounds(ResolvedWidget &root);
+
+// `wireMenuAlign` — static menualign.maki equivalent: lay the named
+// menu groups (File/Playlist/Sort/Help, …) side-by-side under their
+// owner group, each at the running x offset, advancing by the width of
+// its `autowidthsource=` label bitmap.  Mirrors menualign.m's
+// onScriptLoaded loop (`tmp.setXmlParam("x", offset); offset +=
+// tmp.getAutoWidth()`).  Must run at load time (it needs the
+// BitmapRegistry for the label widths) on ANY window that carries a
+// menubar — the main player AND the Playlist Editor / Media Library
+// subwindows — so their menu items don't collapse onto x=0.
+void wireMenuAlign(ResolvedWidget &root, const SkinXml::Document &doc,
+                   BitmapRegistry &reg);
+
+// `resolveBitmapAutoWidths` — set `w` on any widget that declares an
+// `autowidthsource=` pointing at a child with an `image=` (a bitmap
+// label), to that bitmap's width.  The Wasabi layout engine resolves a
+// group's autoWidth from its label this way; the menubar's File/Play/…
+// groups rely on it so their hover/click area is the label width (the VM's
+// menualign.maki only sets each group's x, not its width).  Must run AFTER
+// the BitmapRegistry is populated (unlike the text-source autowidth pass in
+// expandLayout, which runs before the registry exists).  Scoped per widget
+// — the Playlist/Media-Library menu groups all reuse the child id
+// "label.txt", so the lookup is restricted to each group's own subtree.
+// General: any skin's autowidthsource-bitmap widget, no per-skin ids.
+void resolveBitmapAutoWidths(ResolvedWidget &root, BitmapRegistry &reg);
+
+// `dumpResolved` — diagnostic walker.  Prints every widget that
+// matched a paint pass (`lastCanvasRect.isValid()` or `attrs[w]/h`
+// declare a size) along with its id, tag, resolved rect, and
+// visibility.  Useful for diagnosing layout problems where on-
+// screen positions don't match the XML's expectation — by reading
+// the actual rendered geometry tree we can pinpoint which
+// groupdef / Wasabi:Frame / `relatw=` cascade produced the wrong
+// number.  Gated by `WASABIQT_TRACE_LAYOUTROOT=1` in qtamp's
+// startup path.  `out` defaults to stderr if null.
+void dumpResolved(const ResolvedWidget &root, QSize canvas,
+                  FILE *out = nullptr);
+
 }  // namespace Layout
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -1,19 +1,10 @@
 #pragma once
 //
 // SkinRuntime — owns Maki script execution against a resolved widget
-// tree.  M13 scaffold.  Each widget gets a `WidgetScriptObject*`
-// (created via maki-bridge); each `<script file=…/>` reference in
-// the skin XML gets loaded into the opensourced VCPU; per-script `param=`
-// tokens drive the variable→widget binding.
-//
-// Foundation only at this stage — wires the data flow but doesn't
-// yet make scripts visibly drive widget state.  Iterations:
-//
-//   M13a  load .maki blobs + bind WidgetScriptObjects                ← here
-//   M13b  real SOM/ObjectTable bodies + run onScriptLoaded
-//   M13c  setXmlParam / findObject / getAutoWidth wired into widgets
-//   M13d  remove static `runKnownScripts` titlebar hack — let the
-//         real titlebar.maki do it
+// tree.  Each widget gets a `WidgetScriptObject*` (created via
+// maki-bridge); each `<script file=…/>` reference in the skin XML gets
+// loaded into the Maki VCPU; per-script `param=` tokens drive the
+// variable→widget binding.
 
 #include <QtCore/qglobal.h>
 #include <QHash>
@@ -22,11 +13,11 @@
 #include <QStringList>
 #include <functional>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace SkinXml { struct Document; }
 class Widget;
-namespace Layout  { using ResolvedWidget = ::WasabiQt::Widget; }
+namespace Layout  { using ResolvedWidget = ::qtWasabi::Widget; }
 
 class SkinRuntime {
 public:
@@ -39,19 +30,53 @@ public:
     int loadScripts(const SkinXml::Document &doc,
                     Layout::ResolvedWidget &root);
 
+    // Provide the bitmap registry so `<layer>` widgets' getAutoWidth
+    // / getAutoHeight can return the bound bitmap's intrinsic size.
+    // Bento's mainmenu.maki uses these to lay out the File/Play/
+    // Options/View/Help menu items sequentially across the titlebar.
+    // Call before dispatchOnScriptLoaded.
+    void setBitmapRegistry(class BitmapRegistry *reg);
+
     // Fire the System.onScriptLoaded handler for every loaded script.
     // Returns the number of scripts where dispatch actually started
     // (i.e. their DLF table contains an "onScriptLoaded" entry AND
     // the bound SystemObject has a matching event entry).
     //
-    // BIG WARNING (M13b): this WILL hit unimplemented stubs partway
+    // BIG WARNING: this WILL hit unimplemented stubs partway
     // through real script execution.  Several SOM / GuiObject / Group
     // method bodies still return defaults, and the opensourced VM hits
     // ASSERTs (or worse) once those defaults violate an invariant.
     // Run with WASABIQT_FATAL_ASSERTS=0 (the default) to log rather
-    // than abort.  Stable use needs M13c — real method bodies for
+    // than abort.  Stable use needs real method bodies for
     // setXmlParam / findObject / getAutoWidth / etc.
     int dispatchOnScriptLoaded();
+
+    // Register the embedder's play-item metadata resolver so the
+    // skin's file-info scripts (fileinfo.maki) can read real track
+    // metadata.  `key` is lower-case: "playitem:string" (filename),
+    // "playitem:displaytitle", "decoder", "meta:<field>"
+    // (title/artist/album/year/genre/albumartist/composer/...).
+    // Return an empty QString for unknown/no-track.
+    void setPlayItemMetadataResolver(
+        std::function<QString(const QString &key)> resolver);
+
+    // Fire System.onTitleChange(title) on every loaded script — call
+    // when the current track (or its metadata) changes so fileinfo.maki
+    // repopulates + shows the Title/Artist/Album/… lines.  Returns the
+    // number of scripts that handled it.
+    int dispatchTitleChange(const QString &title);
+
+    // Playback transport state — maps to the Maki System playback
+    // callbacks below.  Resumed is distinct from Playing so a skin can
+    // tell a fresh start (onPlay) from un-pausing (onResume).
+    enum class PlaybackState { Playing, Resumed, Paused, Stopped };
+
+    // Fire the matching System playback callback (onPlay / onResume /
+    // onPause / onStop) on every loaded script — call when the host's
+    // transport state changes so a skin can swap its play/pause chrome
+    // (e.g. HeadAMP's overlaid Play/Pause buttons).  Returns the number
+    // of scripts that handled it.
+    int dispatchPlaybackState(PlaybackState state);
 
     // After onScriptLoaded, fire System.onSetXuiParam(name, value)
     // for every non-standard attribute on a frame instantiation
@@ -90,7 +115,7 @@ private:
     Impl *m_d;
 };
 
-// M14c: register a callback the runtime fires whenever a script
+// Register a callback the runtime fires whenever a script
 // mutates a widget attribute. SkinView wires this up in its ctor so
 // scripts that change padleft/padright/etc. trigger a repaint.
 // Pass an empty std::function to unregister.
@@ -102,6 +127,14 @@ void registerSkinRepaintCallback(std::function<void()> cb);
 // Pass an empty std::function to unregister (getStatus() then
 // returns 0).
 void registerSkinPlaybackStatusCallback(std::function<int()> cb);
+
+// Register the named-window callback for Maki System.showWindow /
+// hideNamedWindow / isNamedWindowVisible.  The reference is a window
+// GUID ("{0000000A-…}") or container id; op: 0 = hide, 1 = show,
+// 2 = query.  Return the window's visibility (0/1) after the operation.
+// The embedder routes this to its subwindow machinery (the same path
+// the TOGGLE action uses).  Pass an empty std::function to unregister.
+void registerNamedWindowCallback(std::function<int(const QString &, int)> cb);
 
 // Register a callback Maki Layout.setTarget* + gotoTarget invokes
 // when scripts resize the layout (e.g. videoavs.m opening the
@@ -173,4 +206,67 @@ void fireTargetReached();
 // `onMouseMove`, `onMouseEnter`, `onMouseLeave`.
 int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName);
 
-}  // namespace WasabiQt
+// Simulate a real click on the widget identified by `widgetId`, performing
+// its `action=` exactly as a mouse click would (builtin transport/window
+// verbs, TOGGLE, action_target/onAction).  The embedder registers the
+// handler; the engine calls it from Maki's GuiObject.leftClick()/rightClick()
+// after the onLeftClick/onRightClick script callback didn't consume the click
+// — so a script that delegates a click (`otherButton.leftClick()`) drives the
+// other button's ACTION too, not just its script handler, on any skin.
+// Returns true if the click was handled.
+bool triggerWidgetClick(const QString &widgetId, bool right);
+void registerSkinWidgetClickCallback(
+    std::function<bool(const QString &widgetId, bool right)> cb);
+
+// Graphic-equalizer bridge: Maki System.setEqBand(band,val)/getEqBand(band)
+// route through these so a skin's EQ reset / +/- buttons and any script that
+// reads or recalls band gains work on EVERY skin.  `band` is 0-9; `val` is
+// Wasabi's signed gain (-127..127, 0 = flat).  The embedder maps it onto its
+// own EQ store so the buttons and the EQ sliders stay in lockstep.
+void registerSkinEqCallbacks(std::function<void(int band, int val)> setBand,
+                             std::function<int(int band)> getBand);
+
+// Slider bridge: Maki Slider.setPosition(value)/getPosition() route through
+// these (the embedder maps the slider's `action=`/`param=` onto its own host
+// axis).  `value` is the Winamp API slider value space, 0..255 (128 = centre
+// for a balance/pan slider).  getPos returns -1 when the action has no host
+// value.  This is what makes scripted balance/volume buttons (which call
+// Slider.setPosition on the target slider) actually move the audio on any skin.
+void registerSkinSliderCallbacks(
+    std::function<void(const QString &action, const QString &param,
+                       int value255)> setPos,
+    std::function<int(const QString &action, const QString &param)> getPos);
+
+// Volume bridge: Maki System.setVolume(v)/getVolume() route through these.
+// `v` is the Winamp API 0..255 scale; the embedder maps onto its own store.
+void registerSkinVolumeCallbacks(std::function<void(int v255)> setVol,
+                                 std::function<int()> getVol);
+
+// ── Per-window Maki dispatch scoping ───────────────────────────────
+// The single Maki VM resolves widget ids / the layout-root pseudo /
+// repaint+resize callbacks against the ACTIVE "script root" — mirroring
+// real Wasabi resolving findObject relative to the dispatching window
+// (getRootWnd()->findWindow).  `rootKey` is a window's layout-tree root
+// pointer (`&SkinView::tree()` / the player's root Widget*).  The player
+// is the permanent resting root; a subwindow brackets its own
+// load / dispatch / input with ScopedScriptRoot so the player's context
+// is restored on scope exit.  Single-window sessions never switch root,
+// so this is a no-op for them.
+void        setActiveScriptRoot(const void *rootKey);
+const void *activeScriptRoot();
+// Whether a root is still live (the active root, or a saved snapshot in
+// the root registry).  Async VM entries (Maki timers) use this to refuse
+// firing for a window that has been torn down (skin switch).
+bool        scriptRootAlive(const void *rootKey);
+// Drop a window's per-root snapshot once its runtime has been torn down.
+void        dropScriptRoot(const void *rootKey);
+struct ScopedScriptRoot {
+    explicit ScopedScriptRoot(const void *rootKey);
+    ~ScopedScriptRoot();
+    ScopedScriptRoot(const ScopedScriptRoot &) = delete;
+    ScopedScriptRoot &operator=(const ScopedScriptRoot &) = delete;
+private:
+    const void *m_prev;
+};
+
+}  // namespace qtWasabi

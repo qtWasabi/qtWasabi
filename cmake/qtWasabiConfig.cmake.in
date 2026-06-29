@@ -1,0 +1,29 @@
+@PACKAGE_INIT@
+
+# Find Qt6 deps that qtWasabi exposes through its public API.
+include(CMakeFindDependencyMacro)
+find_dependency(Qt6 6.6 COMPONENTS Core Gui Widgets)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qtWasabiTargets.cmake")
+
+# Re-publish the friendly alias names downstream consumers expect.
+# CMake doesn't export ALIAS targets through install(EXPORT), so we
+# create them again here against the real exported targets.
+if(TARGET qtWasabi::qtwasabi AND NOT TARGET qtWasabi::qtWasabi)
+    add_library(qtWasabi::qtWasabi INTERFACE IMPORTED)
+    target_link_libraries(qtWasabi::qtWasabi INTERFACE qtWasabi::qtwasabi)
+endif()
+if(TARGET qtWasabi::qtwasabi_static AND NOT TARGET qtWasabi::Static)
+    add_library(qtWasabi::Static INTERFACE IMPORTED)
+    target_link_libraries(qtWasabi::Static INTERFACE qtWasabi::qtwasabi_static)
+endif()
+
+# Embedders pick whichever fits their distribution model:
+#
+#   target_link_libraries(my_player PRIVATE qtWasabi::qtWasabi)
+#       — runtime dep on libqtwasabi.so (system / RPM install)
+#
+#   target_link_libraries(my_plugin PRIVATE qtWasabi::Static)
+#       — bundled into the .so / .app / AppImage; no runtime dep
+
+check_required_components(qtWasabi)

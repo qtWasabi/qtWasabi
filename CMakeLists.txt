@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.21)
-project(WasabiQT
+project(qtWasabi
     VERSION 0.0.1
     DESCRIPTION "Qt-native Wasabi/Maki skin engine"
-    HOMEPAGE_URL "https://github.com/kleberbaum/WasabiQT"
+    HOMEPAGE_URL "https://github.com/kleberbaum/qtWasabi"
     LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -14,7 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Qt6 (Core, Gui, Widgets, Multimedia for vis hooks).
-# WasabiQT targets the LATEST Qt6 — no fallback to 6.0/6.1 era.
+# qtWasabi targets the LATEST Qt6 — no fallback to 6.0/6.1 era.
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets Quick Qml)
 
 set(CMAKE_AUTOMOC ON)
@@ -35,39 +35,58 @@ add_subdirectory(qt6)
 
 # wasabi-port/ — minimum BFC subset from WASABI_SRC_DIR, compiled
 # against wasabi-port-shim.h to bridge the unported Linux/macOS layers.
-# Exposes WASABIQT_PORT_OBJECTS / _SHIM / _INCLUDES to the parent scope.
+# Exposes QTWASABI_PORT_OBJECTS / _SHIM / _INCLUDES to the parent scope.
 add_subdirectory(wasabi-port)
+
+# wasabi-compat/ — Win32 + Wasabi-API compatibility layer for porting
+# gen_ml / ml_* plugins.  Sibling to wasabi-port/ at a different layer:
+# the BFC port papers over BFC's unported Linux hooks, while this one
+# provides Win32 typedefs + Wasabi service implementations so a real
+# ml plugin compiles unmodified against Qt6 instead of Win32 + Wasabi.
+# Exposes QTWASABI_COMPAT_OBJECTS / _SHIM / _INCLUDES.
+add_subdirectory(wasabi-compat)
 
 # src/ — engine integration glue (host bridge, skin loader bootstrap).
 # Compiles against the user's Wasabi source via WASABI_SRC_DIR.
+# Builds the `qtwasabi` SHARED library that plugins link against.
 add_subdirectory(src)
 
+# plugins/ — ported gen_ml + ml_* plugin .so modules.  Each is loaded
+# at runtime via dlopen by `loadBuiltinMlPlugins()` in src/ml/.
+# Plugins link against libqtwasabi for the wasabi-compat layer's
+# SendMessageW / ImageList_* / handle-registry / etc., so this MUST
+# come after `src/` so the qtwasabi target exists to link against.
+option(QTWASABI_BUILD_PLUGINS "Build ported gen_ml + ml_* plugins" ON)
+if(QTWASABI_BUILD_PLUGINS)
+    add_subdirectory(plugins)
+endif()
+
 # Tests — pixel-regression harness against canonical reference renders.
-option(WASABIQT_BUILD_TESTS "Build WasabiQT regression tests" ON)
-if(WASABIQT_BUILD_TESTS)
+option(QTWASABI_BUILD_TESTS "Build qtWasabi regression tests" ON)
+if(QTWASABI_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tests)
     add_subdirectory(tests/visual)
 endif()
 
 # Examples — minimal skin viewer that opens a layout in a Qt window.
-option(WASABIQT_BUILD_EXAMPLES "Build WasabiQT example apps" ON)
-if(WASABIQT_BUILD_EXAMPLES)
+option(QTWASABI_BUILD_EXAMPLES "Build qtWasabi example apps" ON)
+if(QTWASABI_BUILD_EXAMPLES)
     add_subdirectory(examples/wq_view)
 endif()
 
 # Reference embedder: github.com/kleberbaum/winamp-linux  (separate
-# repo, links against this lib via find_package(WasabiQT)).  No
+# repo, links against this lib via find_package(qtWasabi)).  No
 # in-tree example player — winamp-linux IS the example.
 
 # ── Install ─────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
-install(DIRECTORY public/WasabiQt
+install(DIRECTORY public/qtWasabi
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.h")
 
-message(STATUS "WasabiQT ${PROJECT_VERSION} configured")
+message(STATUS "qtWasabi ${PROJECT_VERSION} configured")
 message(STATUS "  Qt6:           ${Qt6_VERSION}")
 message(STATUS "  WASABI_SRC_DIR: ${WASABI_SRC_DIR}")
 message(STATUS "  C++ standard:  ${CMAKE_CXX_STANDARD}")

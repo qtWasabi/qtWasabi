@@ -51,7 +51,7 @@
 
 class QPainter;
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 struct PaintCtx;
 struct HitCtx;
@@ -66,6 +66,12 @@ public:
     QString instanceId;
     QHash<QString, QString>               attrs;
     std::vector<std::unique_ptr<Widget>>  children;
+    // Back-pointer to the owning parent in the resolved tree, set by
+    // cacheResolvedRects on every layout pass.  Lets the Maki getParent()
+    // binding return the real parent group (real Wasabi behaviour) instead
+    // of the widget itself — e.g. centerlayer.m centers the branding layer
+    // in its parent's width, which must be the holder, not the widget.
+    Widget *parentWidget = nullptr;
     QString sourceFile;
     int     sourceLine = -1;
 
@@ -92,6 +98,16 @@ public:
     // only for unusual sizing (e.g. Text auto-width from its display
     // string).
     virtual QRect resolveRect(const QSize &canvas) const;
+
+    // Walk the tree top-down, resolving each widget's rect against the
+    // actual canvas and caching the absolute result in lastCanvasRect.
+    // This lets Maki getWidth()/getHeight() return EFFECTIVE pixel
+    // sizes for relat-sized widgets (w="0" relatw="1") even before the
+    // first paint or hit-test — e.g. Bento's `info.component.holder`
+    // resolves to the real ~200px so fileinfo.maki's centerlayer macro
+    // computes the WINAMP logo's x as (200-100)/2=50 instead of -50.
+    // Called once after layout + before the script onResize dispatch.
+    void cacheResolvedRects(QPoint origin, const QSize &canvas);
 
     // Single render entrypoint — every subclass overrides.  The
     // default recurses children with the parent canvas as a
@@ -121,6 +137,26 @@ public:
     // buttons inside a templated component still receive clicks.
     virtual bool isInteractive() const { return false; }
 
+    // Canvas-space rect of the widget's own self-bbox, cached by
+    // `Widget::hitTest` whenever this widget matches.  Widgets whose
+    // event handlers need to translate canvas-relative click coords
+    // back into widget-local coords (sliders, scrollbars, anything
+    // with continuous dragging) read this — `attrs` only has the
+    // PARENT-relative rect, which doesn't combine with the click
+    // point in canvas coords.  Default-constructed when the widget
+    // has never been hit-tested.
+    QRect lastCanvasRect;
+
+    // Wall-clock ms (QDateTime::currentMSecsSinceEpoch) when paint()
+    // last ran for this widget.  Bumped by `MilkdropWidget` and any
+    // `WindowHolderWidget` that hosts an AVS / video slot — lets
+    // embedders detect "this widget is currently being painted"
+    // independently of the visible attr (parent groups may be hidden
+    // even when the leaf attr says visible=1).  Zero when the widget
+    // has never been painted.  Widgets that don't need this leave it
+    // at zero; cost is one int64 per widget.
+    qint64 lastPaintedAtMs = 0;
+
     // Per-paint / per-hit-test child-origin shift applied INSIDE the
     // widget's resolved rect before recursing into children.
     // ComponentBucket overrides this to apply `-scroll * step`; the
@@ -138,7 +174,34 @@ public:
     virtual void onLeftButtonUp   (QPoint, PaintCtx &) {}
     virtual void onMouseMove      (QPoint, PaintCtx &) {}
     virtual void onMouseLeave     (PaintCtx &)         {}
+    // Wheel notches under the cursor (+ = up/away, − = down/toward).
+    virtual void onMouseWheel     (QPoint, int /*steps*/, PaintCtx &) {}
     virtual void onTargetReached  ()                   {}
+
+    // True for widgets that need press→move→release capture (sliders,
+    // scrollbar thumbs).  The embedder routes the press to this widget's
+    // onLeftButtonDown and keeps it captured for move/up — and crucially
+    // does NOT start a window drag.  Passive widgets (buttons fire on
+    // click; backgrounds want the drag) return false.
+    virtual bool capturesMouse() const { return false; }
+
+    // True for widgets that are a SOLID rectangular interactive region —
+    // every pixel inside the bbox is clickable, independent of painted
+    // alpha.  List controls (the playlist / library holders) qualify:
+    // real Winamp hosts them as an opaque child HWND, but qtWasabi paints
+    // them "list-only" (transparent between rows) so the chrome shows
+    // through, which would otherwise make the alpha hit-test reject a
+    // click landing in the gap between two rows.  Default widgets stay
+    // alpha-gated so transparent skin-bitmap regions click through.
+    virtual bool isSolidHitRegion() const { return false; }
+
+    // Called once after the XML attrs have been bulk-assigned into
+    // `attrs` (right after `makeResolved` copies src.attrs).  Lets
+    // subclasses register attr-driven side effects (e.g. ToggleButton
+    // subscribing to its `cfgattrib` key on CfgAttribStore) without
+    // overriding setXmlParam — the bulk assignment skips setXmlParam.
+    // Default is a no-op.  Children are NOT yet expanded at this point.
+    virtual void onAttrsInitialized() {}
 
     // Maki-script setXmlParam dispatch — Wasabi's runtime hook for
     // mutating widget attributes from script.  The default writes
@@ -167,4 +230,4 @@ public:
         const QHash<QString, QString> &attrs, QSize canvas);
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi
