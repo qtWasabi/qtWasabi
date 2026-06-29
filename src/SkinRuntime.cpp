@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 
-#include <WasabiQt/SkinRuntime.h>
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
+#include <qtWasabi/SkinRuntime.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
 
 #include "../wasabi-port/maki-bridge.h"
 
@@ -23,15 +23,21 @@
 #include <vector>
 
 // Bridge entry points implemented in src/SkinRuntimeBridge.cpp.
-namespace WasabiQt {
+namespace qtWasabi {
+class BitmapRegistry;
 void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
                               void *scriptObjectHandle);
+int  fireStaticTextChanged();
+int  firePerObjectResize(void *skipObj);
+void clearGeometryDirty();
+bool geometryDirty();
 void clearWidgetRegistry();
 void setLayoutRootScriptObject(void *handle);
+void setBitmapRegistry(BitmapRegistry *reg);
 void setScriptOwnerWidget(int sid, void *scriptObjectHandle);
 }
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 struct SkinRuntime::Impl {
     // Per-widget ScriptObject handles, keyed by widget id.  A handle
@@ -61,14 +67,21 @@ struct SkinRuntime::Impl {
     // Script paths relative to skin root, for diagnostics.
     QStringList scriptPaths;
 
-    // M14a fix: addScript stores a raw pointer into the blob we hand it
+    // addScript stores a raw pointer into the blob we hand it
     // (codeBlock = p, no copy) so we have to keep every script's bytes
     // alive for the runtime's lifetime, otherwise the dispatcher reads
     // freed memory and walks off into opcode-table gaps.
     QList<QByteArray> scriptBlobs;
 
+    // This runtime's window root (the layout-tree root passed to
+    // loadScripts).  Identifies its per-window script context so dispatch
+    // can switch the active root to it.  Stable across a skin reload (the
+    // embedder reuses the same root object), so for the player it never
+    // changes and the active-root switch is a no-op.
+    const void *rootKey = nullptr;
+
     void destroyAll() {
-        // M14h: loadedScripts may carry the same sid multiple times
+        // loadedScripts may carry the same sid multiple times
         // when skin.xml referenced one (file, param) more than once.
         // Run the per-sid teardown only once each.
         QSet<int> uniqueIds;
@@ -76,6 +89,10 @@ struct SkinRuntime::Impl {
         for (int id : uniqueIds) {
             Maki::registerScriptSystemObject(id, nullptr);
             Maki::registerScriptParam(id, nullptr);
+            // Drop this runtime's owner-widget mapping by sid (g_scriptOwner
+            // is shared across windows, so it must be torn down per-sid here
+            // rather than globally in clearWidgetRegistry).
+            setScriptOwnerWidget(id, nullptr);
             Maki::removeScript(id);
         }
         loadedScripts.clear();
@@ -100,9 +117,29 @@ struct SkinRuntime::Impl {
 };
 
 SkinRuntime::SkinRuntime()  : m_d(new Impl) {}
-SkinRuntime::~SkinRuntime() { m_d->destroyAll(); delete m_d; }
+SkinRuntime::~SkinRuntime() {
+    // Tear down under THIS runtime's root so clearWidgetRegistry drops its
+    // own window's entries, not whatever root happens to be active, then
+    // forget the snapshot.  rootKey is null if it never loaded.
+    if (m_d->rootKey) {
+        ScopedScriptRoot guard(m_d->rootKey);
+        m_d->destroyAll();
+    } else {
+        m_d->destroyAll();
+    }
+    const void *key = m_d->rootKey;
+    delete m_d;
+    if (key) dropScriptRoot(key);
+}
 
-void SkinRuntime::reset() { m_d->destroyAll(); }
+void SkinRuntime::reset() {
+    if (m_d->rootKey) {
+        ScopedScriptRoot guard(m_d->rootKey);
+        m_d->destroyAll();
+    } else {
+        m_d->destroyAll();
+    }
+}
 
 namespace {
 void registerWidgets(Layout::ResolvedWidget &w,
@@ -133,6 +170,7 @@ Layout::ResolvedWidget *findOwnerWidget(Layout::ResolvedWidget &root,
     Layout::ResolvedWidget *byId = nullptr;
     Layout::ResolvedWidget *byTag = nullptr;
     Layout::ResolvedWidget *byInherit = nullptr;
+    Layout::ResolvedWidget *byExpansion = nullptr;
     std::function<void(Layout::ResolvedWidget &)> walk =
         [&](Layout::ResolvedWidget &w) {
         if (!byId       && w.id  == gid) byId = &w;
@@ -140,18 +178,38 @@ Layout::ResolvedWidget *findOwnerWidget(Layout::ResolvedWidget &root,
         if (!byInherit  &&
             w.attrs.value(QStringLiteral("inherit_group")) == gid)
             byInherit = &w;
+        // Expansion identity: groupdef instances (_srcgroupdef), XUI
+        // instances (instanceId), and frame `content=` groupdefs whose
+        // children were flattened into the frame node
+        // (_content_groupdef) — a <script> declared inside any of these
+        // owns the instantiating node.
+        if (!byExpansion &&
+            (w.instanceId == gid ||
+             w.attrs.value(QStringLiteral("_srcgroupdef")) == gid ||
+             w.attrs.value(QStringLiteral("_content_groupdef")) == gid))
+            byExpansion = &w;
         for (auto &c : w.children) if (c) walk(*c);
     };
     walk(root);
-    if (byId)      return byId;
-    if (byTag)     return byTag;
-    if (byInherit) return byInherit;
+    if (byId)        return byId;
+    if (byTag)       return byTag;
+    if (byInherit)   return byInherit;
+    if (byExpansion) return byExpansion;
     return nullptr;
 }
 }  // namespace
 
+void SkinRuntime::setBitmapRegistry(BitmapRegistry *reg) {
+    qtWasabi::setBitmapRegistry(reg);
+}
+
 int SkinRuntime::loadScripts(const SkinXml::Document &doc,
                              Layout::ResolvedWidget &root) {
+    // Activate THIS window's per-root script context before tearing down /
+    // registering, so registration, the layout-root pseudo, and the bitmap
+    // registry all land in this root's snapshot — not another window's.
+    m_d->rootKey = &root;
+    setActiveScriptRoot(&root);
     m_d->destroyAll();
 
     // 1) Build the widget-object table.
@@ -173,20 +231,94 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
             SkinXml::ScriptRef r; r.file = p; refs.append(r);
         }
     }
+
+    // Scope to THIS window: real Wasabi instantiates a container's own
+    // scripts, not every <script> in the skin.  doc.scripts is document
+    // -global, so without this filter a subwindow (Playlist Editor) also
+    // loads the PLAYER's scripts (drawer, configtabs, …) and its resize
+    // dispatch then fires their onResize with the SUBWINDOW's dimensions
+    // — repositioning the player's drawer content for the wrong window
+    // (the "opening/resizing the PL shifts the player's EQ drawer"
+    // corruption).  A ref belongs to this window iff its owner scope
+    // (closest enclosing groupdef/group/container/layout id) exists in
+    // this root's tree; shared groupdefs (standardframe, menubar) match
+    // in every window that instantiates them, so each still gets its own
+    // per-window instance.  Owner-less refs stay document-global.
+    {
+        // Use the SAME owner resolution the script binding uses
+        // (findOwnerWidget: id / tag / inherit_group) so a script loads
+        // here exactly when it can bind here — a hand-rolled id walk
+        // missed groupdefs instantiated through XUI `content=` params
+        // (the pledit's own pledit.content.group) and dropped the
+        // window's own scripts.
+        QList<SkinXml::ScriptRef> scoped;
+        for (const auto &r : refs) {
+            const bool keep = r.ownerGroupId.isEmpty() ||
+                              findOwnerWidget(root, r.ownerGroupId) != nullptr;
+            if (::getenv("WASABIQT_TRACE_SCRIPTSCOPE"))
+                std::fprintf(stderr, "[scriptscope] root=%p %s owner='%s' %s\n",
+                             (void *)&root, r.file.toLocal8Bit().constData(),
+                             r.ownerGroupId.toLocal8Bit().constData(),
+                             keep ? "KEEP" : "skip");
+            if (keep) scoped.append(r);
+        }
+        refs = scoped;
+    }
+
+    // Per-instance groupdef-body scripts.  A <script> inside a groupdef
+    // is parsed ONCE (ownerGroupId = the groupdef), so a groupdef
+    // instantiated N times shares a single script bound to one
+    // instance.  Bento's InfoLine (one per file-info line) needs each
+    // instance to run its OWN infoline.maki so each value positions
+    // after its own label.  For any groupdef instantiated MORE THAN
+    // ONCE, expand its script ref into one per instance (owner = the
+    // instance's id).  Single-instance groupdefs are left exactly as
+    // before — zero behavioural change for the rest of the chrome.
+    {
+        QList<SkinXml::ScriptRef> expanded;
+        for (const auto &ref : refs) {
+            QList<Layout::ResolvedWidget *> insts;
+            if (!ref.ownerGroupId.isEmpty()) {
+                std::function<void(Layout::ResolvedWidget &)> walk =
+                    [&](Layout::ResolvedWidget &w) {
+                        if (w.attrs.value(QStringLiteral("_srcgroupdef"))
+                                == ref.ownerGroupId && !w.id.isEmpty())
+                            insts.append(&w);
+                        for (auto &c : w.children) if (c) walk(*c);
+                    };
+                walk(root);
+            }
+            if (insts.size() > 1) {
+                for (auto *inst : insts) {
+                    SkinXml::ScriptRef r = ref;
+                    r.ownerGroupId = inst->id;   // findOwnerWidget keys on id
+                    expanded.append(r);
+                }
+            } else {
+                expanded.append(ref);
+            }
+        }
+        refs = expanded;
+    }
+
     // Stash params alive for the runtime's lifetime.
     m_d->scriptParams.clear();
     m_d->scriptParams.reserve(refs.size());
 
-    // M14h: dedupe identical (file, param) references so the same
+    // Dedupe identical (file, param) references so the same
     // script body + arg vector does not pay the addScript cost
     // multiple times. A common case is one .maki file referenced
     // twice in skin.xml under containers that happen to want the
     // exact same params. Refs that share the file path but differ
     // on param= still get distinct VM instances.
-    QHash<QString, int> seen;     // "file|param" -> sid
+    QHash<QString, int> seen;     // "file|param|owner" -> sid
     for (const auto &ref : refs) {
         const QString &relPath = ref.file;
-        const QString key = relPath + QStringLiteral("|") + ref.param;
+        // Include the owner in the dedup key so per-instance expansions
+        // (same file+param, different instance owner) get DISTINCT VM
+        // instances instead of collapsing to one.
+        const QString key = relPath + QStringLiteral("|") + ref.param +
+                            QStringLiteral("|") + ref.ownerGroupId;
         if (auto it = seen.constFind(key); it != seen.constEnd()) {
             const int sid = it.value();
             m_d->loadedScripts.append(sid);
@@ -223,10 +355,11 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         // Reserve a unique script id BEFORE addScript so each script
         // gets its own VM identity. assignNewScriptId() is what
         // actually increments VCPU::numScripts, scriptCount() merely
-        // reads it. M14a root cause: with predictedId derived from
-        // scriptCount() (which never advanced because addScript does
-        // not call assignNewScriptId itself), every script collided
-        // on id=0 and getCodeBlock(0) returned the wrong codeblock.
+        // reads it. Root cause of the id-collision bug: with predictedId
+        // derived from scriptCount() (which never advanced because
+        // addScript does not call assignNewScriptId itself), every
+        // script collided on id=0 and getCodeBlock(0) returned the
+        // wrong codeblock.
         const int predictedId = Maki::assignNewScriptId();
         Maki::registerScriptSystemObject(predictedId, sysObj);
 
@@ -259,7 +392,7 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         // (Config, Timer, …) at worst route through the same stubs
         // that already returned safe defaults via configDummy.
         Maki::hydrateNullObjectVars(sid, sysObj);
-        // M14a diagnostic: which file landed at which sid.
+        // Diagnostic: which file landed at which sid.
         if (qEnvironmentVariableIntValue("WASABIQT_TRACE_SCRIPTS") == 1)
             qInfo().noquote() << QStringLiteral("[script] sid=%1 -> %2")
                                      .arg(sid).arg(relPath);
@@ -295,7 +428,7 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
         m_d->scriptParams.push_back(ref.param.toStdWString());
         Maki::registerScriptParam(sid, m_d->scriptParams.back().c_str());
 
-        // M14h: remember this (file, param) so a later identical
+        // Remember this (file, param) so a later identical
         // ref reuses the same sid.
         seen.insert(key, sid);
     }
@@ -312,6 +445,53 @@ int SkinRuntime::dispatchOnScriptLoaded() {
         const int dlfId = Maki::fireEventByName(sid, L"onScriptLoaded");
         if (dlfId >= 0) ++fired;
     }
+    // Now that scripts have bound their per-widget handlers, replay
+    // onTextChanged on statically-labelled text widgets so layout
+    // handlers (InfoLine value positioning) run.
+    fireStaticTextChanged();
+    return fired;
+}
+
+void SkinRuntime::setPlayItemMetadataResolver(
+        std::function<QString(const QString &)> resolver) {
+    // Adapt the embedder's QString resolver to the wstring resolver the
+    // Maki bindings call.  Empty function → bindings fall back to "".
+    if (!resolver) {
+        Maki::setPlayItemMetaResolver({});
+        return;
+    }
+    Maki::setPlayItemMetaResolver(
+        [resolver = std::move(resolver)](const std::wstring &key) -> std::wstring {
+            const QString v = resolver(QString::fromStdWString(key));
+            return v.toStdWString();
+        });
+}
+
+int SkinRuntime::dispatchTitleChange(const QString &title) {
+    const std::wstring w = title.toStdWString();
+    int fired = 0;
+    for (int sid : m_d->loadedScripts) {
+        if (Maki::fireOnTitleChange(sid, w.c_str())) ++fired;
+    }
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1)
+        qInfo("[meta] dispatchTitleChange('%s'): %d/%lld scripts handled onTitleChange",
+              title.toLocal8Bit().constData(), fired,
+              (long long)m_d->loadedScripts.size());
+    return fired;
+}
+
+int SkinRuntime::dispatchPlaybackState(PlaybackState state) {
+    const wchar_t *ev = nullptr;
+    switch (state) {
+        case PlaybackState::Playing: ev = L"onPlay";   break;
+        case PlaybackState::Resumed: ev = L"onResume"; break;
+        case PlaybackState::Paused:  ev = L"onPause";  break;
+        case PlaybackState::Stopped: ev = L"onStop";   break;
+    }
+    if (!ev) return 0;
+    int fired = 0;
+    for (int sid : m_d->loadedScripts)
+        if (Maki::fireSystemZeroArgEvent(sid, ev)) ++fired;
     return fired;
 }
 
@@ -365,14 +545,36 @@ bool isStandardAttr(const QString &k) {
 
 void collectXuiParams(const Layout::ResolvedWidget &w,
                       QList<QPair<QString, QString>> &out) {
-    // Frame instantiations are recognised by xuitag-aliased tags
-    // (wasabi_*frame_*).  Every non-standard attr on them is an
-    // XUI param that the embedded group's script should receive.
-    if (w.tag.startsWith(QStringLiteral("wasabi_")) &&
-        w.tag.contains(QStringLiteral("frame"))) {
+    // Frame instantiations carry XUI params (padtitleleft/right, content,
+    // shade) that the embedded group's script (standardframe/titlebar.maki)
+    // must receive via onSetXuiParam.  They're recognised by the
+    // xuitag-aliased tag (wasabi_*frame_*) BEFORE layout expansion; AFTER
+    // expansion the Expander rewrites the node's tag to "group" but stamps
+    // the original groupdef id in `_srcgroupdef`, so also match a frame via
+    // that stamp — otherwise padtitleright never reaches titlebar.maki and
+    // the title streaks/buttons spacing is wrong.  General for any frame.
+    const QString srcdef = w.attrs.value(QStringLiteral("_srcgroupdef"));
+    const bool isFrame =
+        (w.tag.startsWith(QStringLiteral("wasabi_")) &&
+         w.tag.contains(QStringLiteral("frame"))) ||
+        srcdef.contains(QStringLiteral("frame"));
+    if (isFrame) {
         for (auto it = w.attrs.constBegin(); it != w.attrs.constEnd(); ++it) {
-            if (!isStandardAttr(it.key()))
-                out.append({it.key(), it.value()});
+            if (isStandardAttr(it.key())) continue;
+            // Forward only the titlebar-geometry XUI params.  `content`
+            // and `shade` are handled by the static content-injection /
+            // mousetrap paths; re-dispatching them through the VM would
+            // double-inject the content group.  padtitleleft/right are
+            // pure titlebar.maki resizeObjects inputs and safe to forward.
+            const QString &k = it.key();
+            if (k == QStringLiteral("padtitleleft") ||
+                k == QStringLiteral("padtitleright")) {
+                if (::getenv("WASABIQT_TRACE_XUI"))
+                    std::fprintf(stderr, "[xui] frame id=%s srcdef=%s emit %s=%s\n",
+                        w.id.toLocal8Bit().constData(), srcdef.toLocal8Bit().constData(),
+                        k.toLocal8Bit().constData(), it.value().toLocal8Bit().constData());
+                out.append({k, it.value()});
+            }
         }
     }
     for (const auto &c : w.children) if (c) collectXuiParams(*c, out);
@@ -381,13 +583,53 @@ void collectXuiParams(const Layout::ResolvedWidget &w,
 
 int SkinRuntime::dispatchInitialResize(int layoutW, int layoutH) {
     if (!m_d->layoutRootObject) return 0;
+    // Scope the whole cascade to THIS runtime's window: the per-object
+    // pass below must only reach widgets registered under this root.
+    // (A null rootKey — never loaded — re-selects the current root, a
+    // no-op switch.)
+    ScopedScriptRoot guard(m_d->rootKey ? m_d->rootKey : activeScriptRoot());
     int fired = 0;
+    // Root-bound onResize handlers (e.g. configtabs) get the whole-layout
+    // rect, as before.
     for (int sid : m_d->loadedScripts) {
         if (Maki::fireFourIntEvent(sid, m_d->layoutRootObject,
                                    L"onResize",
                                    0, 0, layoutW, layoutH))
             ++fired;
     }
+    // Faithful per-GuiObject cascade, iterated to a GEOMETRY FIXPOINT.  Fire
+    // onResize on every OTHER script-bound widget against its OWN resolved
+    // client rect, so non-root handlers (playlist toolbar show/hide, footer
+    // reflow) run — matching real Wasabi's per-object dispatch.  But a handler
+    // may REFLOW the tree: pledit's g_playlist.onResize grows the playlist
+    // column to full height, and only THEN (column tall) does playlistpro's
+    // frameGroup.onResize reveal the search header + offset the list.  Real
+    // Wasabi reacts to each geometry mutation by re-resolving and re-firing
+    // onResize until the layout settles; we mirror that here.  After each
+    // pass, if any geometry attr actually moved (g_geometryDirty), re-resolve
+    // the whole tree (so lastCanvasRect — what the cascade reads — reflects
+    // the new sizes) and run another pass.  Idempotent script guards
+    // ("if(topbar.isVisible()) return;") converge it; bounded so a
+    // pathological skin can't spin forever.  General: no skin-specific ids.
+    void *ro = Maki::opaqueOf(m_d->layoutRootObject);
+    auto *root = static_cast<Layout::ResolvedWidget *>(ro);
+    const int kMaxSettle = 8;
+    const bool traceSettle = ::getenv("WASABIQT_TRACE_SETTLE") != nullptr;
+    int iter = 0;
+    for (; iter < kMaxSettle; ++iter) {
+        clearGeometryDirty();
+        fired += firePerObjectResize(m_d->layoutRootObject);
+        if (!geometryDirty()) { ++iter; break; }
+        if (root) {
+            const QSize canvas = root->lastCanvasRect.size();
+            if (canvas.isValid() && !canvas.isEmpty())
+                root->cacheResolvedRects(QPoint(0, 0), canvas);
+        }
+    }
+    if (traceSettle)
+        std::fprintf(stderr, "[settle] onResize fixpoint: %d passes%s\n",
+                     iter, (iter >= kMaxSettle && geometryDirty())
+                               ? " (HIT CAP, still dirty!)" : " (converged)");
     return fired;
 }
 
@@ -395,12 +637,19 @@ int SkinRuntime::dispatchXuiParams(const Layout::ResolvedWidget &root) {
     QList<QPair<QString, QString>> params;
     collectXuiParams(root, params);
     int fired = 0;
+    const bool trc = ::getenv("WASABIQT_TRACE_XUI") != nullptr;
     for (const auto &kv : params) {
         const std::wstring nm = kv.first.toStdWString();
         const std::wstring val = kv.second.toStdWString();
-        for (int sid : m_d->loadedScripts) {
-            if (Maki::fireOnSetXuiParam(sid, nm.c_str(), val.c_str()))
-                ++fired;
+        for (int i = 0; i < m_d->loadedScripts.size(); ++i) {
+            const int sid = m_d->loadedScripts[i];
+            const bool ok = Maki::fireOnSetXuiParam(sid, nm.c_str(), val.c_str());
+            if (trc && (ok || i < m_d->scriptPaths.size()))
+                std::fprintf(stderr, "[xui] dispatch %s=%s -> sid=%d path=%s fired=%d\n",
+                    kv.first.toLocal8Bit().constData(), kv.second.toLocal8Bit().constData(),
+                    sid, i < m_d->scriptPaths.size() ? m_d->scriptPaths[i].toLocal8Bit().constData() : "?",
+                    ok ? 1 : 0);
+            if (ok) ++fired;
         }
     }
     return fired;
@@ -414,4 +663,4 @@ int SkinRuntime::widgetObjectCount() const {
     return m_d->widgetObjects.size();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -1,7 +1,7 @@
 # wasabi-port/ — minimum BFC subset + opensourced Maki VM compiled with the
 # port-shim.
 #
-# WasabiQT's hybrid approach: vendor the opensourced Maki VM source bit-perfect
+# qtWasabi's hybrid approach: vendor the opensourced Maki VM source bit-perfect
 # from the user's WASABI_SRC_DIR (NEVER from this repo's tree), build it
 # against a small force-included header that papers over the unported
 # Linux/macOS layers (`std_file`, `std_keyboard`, `std_wnd`, locale)
@@ -16,25 +16,25 @@
 # the dispatcher needs (object-shaped receiver acceptance, opcode/
 # CALLM tracing, configDummy fallback).
 
-set(WASABIQT_PORT_SHIM    ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-shim.h)
-set(WASABIQT_PORT_STUBDIR ${CMAKE_CURRENT_SOURCE_DIR}/include-stubs)
+set(QTWASABI_PORT_SHIM    ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-shim.h)
+set(QTWASABI_PORT_STUBDIR ${CMAKE_CURRENT_SOURCE_DIR}/include-stubs)
 
 # Generate a patched copy of vcpu.cpp into the build tree.
-set(WASABIQT_VCPU_PATCHED ${CMAKE_CURRENT_BINARY_DIR}/vcpu.cpp)
-set(WASABIQT_VCPU_PATCH   ${CMAKE_CURRENT_SOURCE_DIR}/patches/vcpu-qtwasabi.patch)
+set(QTWASABI_VCPU_PATCHED ${CMAKE_CURRENT_BINARY_DIR}/vcpu.cpp)
+set(QTWASABI_VCPU_PATCH   ${CMAKE_CURRENT_SOURCE_DIR}/patches/vcpu-qtwasabi.patch)
 add_custom_command(
-    OUTPUT  ${WASABIQT_VCPU_PATCHED}
+    OUTPUT  ${QTWASABI_VCPU_PATCHED}
     COMMAND ${CMAKE_COMMAND} -E copy
             ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
-            ${WASABIQT_VCPU_PATCHED}
+            ${QTWASABI_VCPU_PATCHED}
     COMMAND patch -p1 -d ${CMAKE_CURRENT_BINARY_DIR}
-            -i ${WASABIQT_VCPU_PATCH}
+            -i ${QTWASABI_VCPU_PATCH}
     DEPENDS ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
-            ${WASABIQT_VCPU_PATCH}
+            ${QTWASABI_VCPU_PATCH}
     COMMENT "Patching vcpu.cpp with qtWasabi mutations"
     VERBATIM)
 
-set(WASABIQT_BFC_SOURCES
+set(QTWASABI_BFC_SOURCES
     # ── BFC subset ───────────────────────────────────────────────
     # Pure containers / GUID / geometry — POSIX-clean, all compile
     # straight from WASABI_SRC_DIR with the port-shim.
@@ -61,9 +61,9 @@ set(WASABIQT_BFC_SOURCES
     # tracing, configDummy fallback, and accepting any object-shaped
     # receiver in callDLF.  Its header neighbours scriptmgr.cpp /
     # script.cpp are integration glue that pulls the entire skin/widget
-    # tree and is therefore *not* vendored — WasabiQT writes its own
-    # thin manager that wires the VM to the WasabiQt::Skin widget tree.
-    ${WASABIQT_VCPU_PATCHED}
+    # tree and is therefore *not* vendored — qtWasabi writes its own
+    # thin manager that wires the VM to the qtWasabi::Skin widget tree.
+    ${QTWASABI_VCPU_PATCHED}
 
     # ── Linux/Qt implementations ─────────────────────────────────
     # Platform hooks BFC declares but only provides on Win32 / macOS.
@@ -71,11 +71,11 @@ set(WASABIQT_BFC_SOURCES
 
     # Link-time bodies for the upstream classes our include-stubs/
     # headers declare.  Returning-default implementations so the
-    # opensourced vcpu.cpp links into libwasabiqt.  WasabiQT-own code
+    # opensourced vcpu.cpp links into libqtwasabi.  qtWasabi-own code
     # later supplies the real bodies (script bindings → Qt widgets).
     ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port-link-stubs.cpp
 
-    # Bridge between the opensourced VCPU class and the rest of WasabiQT.
+    # Bridge between the opensourced VCPU class and the rest of qtWasabi.
     # Sole TU that includes <api/script/vcpu.h> — limits the blast
     # radius of bfc/platform/linux.h's macro pollution.
     ${CMAKE_CURRENT_SOURCE_DIR}/maki-bridge.cpp
@@ -90,14 +90,14 @@ set(WASABIQT_BFC_SOURCES
 )
 
 # Object library — the .o files are pulled into both the shared and the
-# static libwasabiqt without rebuilding twice.  Downstream targets in
-# src/ refer to it via the WASABIQT_PORT_OBJECTS variable below.
-add_library(wasabiqt_port OBJECT ${WASABIQT_BFC_SOURCES})
+# static libqtwasabi without rebuilding twice.  Downstream targets in
+# src/ refer to it via the QTWASABI_PORT_OBJECTS variable below.
+add_library(qtwasabi_port OBJECT ${QTWASABI_BFC_SOURCES})
 
-set(WASABIQT_PORT_INCLUDES
+set(QTWASABI_PORT_INCLUDES
     # include-stubs/ FIRST so our overrides for entangled windowing
     # headers (Canvas.h, api_timer.h) win over WASABI_SRC_DIR.
-    ${WASABIQT_PORT_STUBDIR}
+    ${QTWASABI_PORT_STUBDIR}
     # vcpu.cpp lives in our build tree (patched copy), but does
     # `#include "vcpu.h"` — its upstream sibling, which we don't
     # patch.  Add the script/ dir directly so that "" lookup finds it.
@@ -107,10 +107,10 @@ set(WASABIQT_PORT_INCLUDES
     ${WASABI_SRC_DIR}/Wasabi/bfc
     CACHE INTERNAL "")
 
-target_include_directories(wasabiqt_port PRIVATE ${WASABIQT_PORT_INCLUDES})
+target_include_directories(qtwasabi_port PRIVATE ${QTWASABI_PORT_INCLUDES})
 
-target_compile_options(wasabiqt_port PRIVATE
-    -include ${WASABIQT_PORT_SHIM}
+target_compile_options(qtwasabi_port PRIVATE
+    -include ${QTWASABI_PORT_SHIM}
     -DLINUX
     -Wno-register
     -Wno-overflow
@@ -118,10 +118,10 @@ target_compile_options(wasabiqt_port PRIVATE
     -Wno-write-strings
     -Wno-narrowing)
 
-set_target_properties(wasabiqt_port PROPERTIES
+set_target_properties(qtwasabi_port PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
 
 # Expose to parent scope (consumed by src/CMakeLists.txt).
-set(WASABIQT_PORT_OBJECTS  $<TARGET_OBJECTS:wasabiqt_port>  PARENT_SCOPE)
-set(WASABIQT_PORT_SHIM     ${WASABIQT_PORT_SHIM}            PARENT_SCOPE)
-set(WASABIQT_PORT_INCLUDES ${WASABIQT_PORT_INCLUDES}        PARENT_SCOPE)
+set(QTWASABI_PORT_OBJECTS  $<TARGET_OBJECTS:qtwasabi_port>  PARENT_SCOPE)
+set(QTWASABI_PORT_SHIM     ${QTWASABI_PORT_SHIM}            PARENT_SCOPE)
+set(QTWASABI_PORT_INCLUDES ${QTWASABI_PORT_INCLUDES}        PARENT_SCOPE)

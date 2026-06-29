@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Florian Kleber
 //
-// wasabi-port-link-stubs.cpp — link-time bodies for the upstream
+// wasabi-port-link-stubs.cpp — link-time bodies for the Wasabi-API
 // classes whose headers we override in include-stubs/.  These exist
-// so the opensourced vcpu.cpp links into libwasabiqt; they are NOT a
-// functional implementation of those classes.  WasabiQT-own code
-// supplies real bodies for the methods it cares about (later
-// milestones), and may either replace this file's symbols at link
-// time or hide them behind weak attributes.
+// so the Maki VM core links into libqtwasabi; they are NOT a
+// functional implementation of those classes.  qtWasabi-own code
+// supplies real bodies for the methods it cares about, and may
+// either replace this file's symbols at link time or hide them
+// behind weak attributes.
 //
 // All bodies here return harmless defaults (0 / nullptr / empty).
 // Calling them at runtime won't crash but won't do anything either.
@@ -50,15 +50,102 @@ scriptVar ScriptObjectManager::makeVar(int type, ScriptObject *o) {
     scriptVar v{}; v.type = type; v.data.odata = o; return v;
 }
 
-void ScriptObjectManager::assign(scriptVar *v, const wchar_t *) { if (v) v->type = SCRIPT_STRING; }
+// Persistent string assignment — allocate a fresh wchar_t buffer
+// for each assign call and transfer ownership to the caller's slot.
+// Wasabi convention: `SOM::persistentstrassign(v, s)` makes the
+// variable slot OWN its own copy of the string; the Maki VM loader
+// explicitly FREE's `v->data.sdata` when the slot is reassigned or
+// destroyed.  Interning would leave dangling pointers when the
+// loader frees a slot we share with our store → crash on next skin
+// switch.
+//
+// THE ROOT CAUSE of Bento's menu titlebar "broken background" bug:
+// VCPU::OPCODE_ADD allocates a wchar_t buffer for the concatenation
+// result, calls SOM::assign(&v, s), then FREEs the buffer.  Our
+// stub `assign(scriptVar*, const wchar_t*)` used to only set
+// v->type without copying — so v->data.sdata pointed at the freed
+// buffer (or whatever was previously there).  Every subsequent
+// read of the stored string ran into freed memory, surfacing as
+// findObject() called with a null sdata, which returns null, which
+// causes `if (o) o.setXmlParam(...)` chains to silently skip every
+// menu background layer's positioning call.
+namespace {
+const wchar_t *dupWide(const wchar_t *s) {
+    // WMALLOC takes a wchar COUNT (not byte count).  Allocates a
+    // fresh buffer the caller's variable slot owns; the Maki VM
+    // loader's `FREE(v->data.sdata)` matches.
+    const size_t n = s ? wcslen(s) + 1 : 1;
+    wchar_t *r = (wchar_t *)WMALLOC(n);
+    if (!r) return L"";
+    if (s) wcscpy(r, s);
+    else   r[0] = 0;
+    return r;
+}
+// Forward decl — defined in the merged anon namespace further down; used by
+// ScriptObjectManager::assign(v1,v2) for the type-preserving STRING case.
+std::wstring svToStr(const scriptVar *v);
+}  // namespace
+
+void ScriptObjectManager::assign(scriptVar *v, const wchar_t *s) {
+    if (!v) return;
+    v->type = SCRIPT_STRING;
+    v->data.sdata = dupWide(s);
+}
 void ScriptObjectManager::assign(scriptVar *v, int i)            { if (v) { v->type = SCRIPT_INT;     v->data.idata = i; } }
 void ScriptObjectManager::assign(scriptVar *v, float f)          { if (v) { v->type = SCRIPT_FLOAT;   v->data.fdata = f; } }
 void ScriptObjectManager::assign(scriptVar *v, double d)         { if (v) { v->type = SCRIPT_DOUBLE;  v->data.ddata = d; } }
 void ScriptObjectManager::assign(scriptVar *v, ScriptObject *o)  { if (v) { v->type = SCRIPT_OBJECT;  v->data.odata = o; } }
-void ScriptObjectManager::assign(scriptVar *v1, scriptVar *v2)   { if (v1 && v2) *v1 = *v2; }
-void ScriptObjectManager::assignPersistent(scriptVar *v1, scriptVar *v2) { if (v1 && v2) *v1 = *v2; }
-void ScriptObjectManager::strflatassign(scriptVar *v, const wchar_t *)        { if (v) v->type = SCRIPT_STRING; }
-void ScriptObjectManager::persistentstrassign(scriptVar *v, const wchar_t *)  { if (v) v->type = SCRIPT_STRING; }
+void ScriptObjectManager::assign(scriptVar *v1, scriptVar *v2) {
+    if (!v1 || !v2) return;
+    // Faithful Wasabi assign: PRESERVE the destination's declared type
+    // and CONVERT the source value into it — do NOT clobber v1's type
+    // tag with `*v1=*v2`.  Clobbering flipped a declared `Int`/`String`
+    // slot to the source's type, so a later make*/comparison read the
+    // wrong field.  For the STRING case we stringify the source (svToStr)
+    // rather than read v2->data.sdata raw (which is a garbage pointer when
+    // v2 is numeric).  The default (object / as-yet-untyped slot) adopts
+    // the source verbatim (+ owns its string buffer).
+    // Assigning an OBJECT source must preserve the object regardless of the
+    // destination's prior type tag.  A `GuiObject o = someObject` whose slot
+    // is still tagged Int (untyped local) would otherwise coerce the object
+    // through makeInt -> 0 and silently lose it (e.g. suicore's
+    // `GuiObject o = sui_ml; if (o != NULL) o.show()` never showing the tab).
+    // Real Wasabi never coerces an object to a primitive; an object value
+    // always lands as an object.
+    if (v2->type == SCRIPT_OBJECT) {
+        v1->type = SCRIPT_OBJECT;
+        v1->data.odata = v2->data.odata;
+        return;
+    }
+    switch (v1->type) {
+        case SCRIPT_INT:     assign(v1, makeInt(v2));     break;
+        case SCRIPT_FLOAT:   assign(v1, makeFloat(v2));   break;
+        case SCRIPT_DOUBLE:  assign(v1, makeDouble(v2));  break;
+        case SCRIPT_BOOLEAN: { v1->type = SCRIPT_BOOLEAN; v1->data.idata = makeBoolean(v2) ? 1 : 0; } break;
+        case SCRIPT_STRING:  { const std::wstring s = svToStr(v2); strflatassign(v1, s.c_str()); } break;
+        default:
+            *v1 = *v2;
+            if (v2->type == SCRIPT_STRING && v2->data.sdata)
+                v1->data.sdata = dupWide(v2->data.sdata);
+            break;
+    }
+}
+void ScriptObjectManager::assignPersistent(scriptVar *v1, scriptVar *v2) {
+    if (!v1 || !v2) return;
+    *v1 = *v2;
+    if (v2->type == SCRIPT_STRING && v2->data.sdata)
+        v1->data.sdata = dupWide(v2->data.sdata);
+}
+void ScriptObjectManager::strflatassign(scriptVar *v, const wchar_t *s) {
+    if (!v) return;
+    v->type = SCRIPT_STRING;
+    v->data.sdata = dupWide(s);
+}
+void ScriptObjectManager::persistentstrassign(scriptVar *v, const wchar_t *s) {
+    if (!v) return;
+    v->type = SCRIPT_STRING;
+    v->data.sdata = dupWide(s);
+}
 
 // Comparison helpers — needed by `if (string == "literal")` and
 // `if (n < 5)` style guards in real scripts.  A returning-zero
@@ -81,13 +168,40 @@ int compareStrings(const wchar_t *a, const wchar_t *b) {
     if (!b) b = L"";
     return wcscmp(a, b);
 }
+// Stringify a scriptVar for a mixed-type comparison.  CRITICAL: when only
+// ONE operand is a string the old code read the OTHER's data.sdata union
+// (which holds an int/double/object bit pattern) and fed it to wcscmp as a
+// wchar_t* — a garbage-pointer deref / crash for any non-zero numeric
+// operand, plus wrong booleans.  Convert the non-string operand to its
+// string form instead (matches `if (intVar == "5")` intent).
+std::wstring svToStr(const scriptVar *v) {
+    if (!v) return std::wstring();
+    switch (v->type) {
+        case SCRIPT_STRING:  return v->data.sdata ? std::wstring(v->data.sdata) : std::wstring();
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: return std::to_wstring(v->data.idata);
+        case SCRIPT_FLOAT:   { wchar_t b[40]; swprintf(b, 40, L"%g", static_cast<double>(v->data.fdata)); return b; }
+        case SCRIPT_DOUBLE:  { wchar_t b[40]; swprintf(b, 40, L"%g", v->data.ddata); return b; }
+        default:             return std::wstring();
+    }
+}
 }  // namespace
 
 int ScriptObjectManager::compEq(scriptVar *v1, scriptVar *v2) {
     if (!v1 || !v2) return 0;
-    if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING) {
-        return compareStrings(v1->data.sdata, v2->data.sdata) == 0;
+    // Objects compare by IDENTITY.  asDouble(object) is 0 for every object,
+    // so the numeric path below made every object equal to every other object
+    // — and equal to NULL — which broke object/NULL gating: a script's
+    // `if (o != NULL) o.use()` (e.g. suicore's `if (sui_ml != NULL) sui_ml.show()`)
+    // always saw `o == NULL` and skipped.  Compare the held object pointers
+    // instead; a non-object operand (NULL constant / 0) counts as a null object.
+    if (v1->type == SCRIPT_OBJECT || v2->type == SCRIPT_OBJECT) {
+        void *a = (v1->type == SCRIPT_OBJECT) ? v1->data.odata : nullptr;
+        void *b = (v2->type == SCRIPT_OBJECT) ? v2->data.odata : nullptr;
+        return a == b;
     }
+    if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING)
+        return svToStr(v1) == svToStr(v2);
     return asDouble(v1) == asDouble(v2);
 }
 int ScriptObjectManager::compNeq(scriptVar *v1, scriptVar *v2) {
@@ -96,7 +210,7 @@ int ScriptObjectManager::compNeq(scriptVar *v1, scriptVar *v2) {
 int ScriptObjectManager::compA(scriptVar *v1, scriptVar *v2) {
     if (!v1 || !v2) return 0;
     if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING)
-        return compareStrings(v1->data.sdata, v2->data.sdata) > 0;
+        return svToStr(v1).compare(svToStr(v2)) > 0;
     return asDouble(v1) > asDouble(v2);
 }
 int ScriptObjectManager::compAe(scriptVar *v1, scriptVar *v2) {
@@ -105,7 +219,7 @@ int ScriptObjectManager::compAe(scriptVar *v1, scriptVar *v2) {
 int ScriptObjectManager::compB(scriptVar *v1, scriptVar *v2) {
     if (!v1 || !v2) return 0;
     if (v1->type == SCRIPT_STRING || v2->type == SCRIPT_STRING)
-        return compareStrings(v1->data.sdata, v2->data.sdata) < 0;
+        return svToStr(v1).compare(svToStr(v2)) < 0;
     return asDouble(v1) < asDouble(v2);
 }
 int ScriptObjectManager::compBe(scriptVar *v1, scriptVar *v2) {
@@ -179,16 +293,16 @@ int ScriptObjectManager::isNumericType(int t) {
 int  ScriptObjectManager::typeCheck(VCPUscriptVar *, int)        { return 1; }
 // Per-script SystemObject — set up by SkinRuntime via the public
 // `Maki::registerSystemObject(scriptId, ScriptObject*)` shim before
-// each addScript().  Upstream's addScript reads this back and binds
-// it as var[0], which is the load-bearing line in the whole "scripts
-// can find handlers" chain (see vcpu.cpp line 452-457).
+// each addScript().  addScript reads this back and binds it as
+// var[0], which is the load-bearing line in the whole "scripts can
+// find handlers" chain.
 namespace {
     std::unordered_map<int, SystemObject *> g_perScriptSystem;
     std::unordered_map<int, const wchar_t *> g_perScriptParam;
     int g_currentScript = -1;
 }
 
-namespace WasabiQt::Maki {
+namespace qtWasabi::Maki {
 void registerSystemObject(int scriptId, SystemObject *o) {
     if (!o) g_perScriptSystem.erase(scriptId);
     else    g_perScriptSystem[scriptId] = o;
@@ -227,13 +341,13 @@ void ScriptObjectManager::mid(wchar_t *dest, const wchar_t *str, int s, int l) {
 }
 
 // ── Script ───────────────────────────────────────────────────────
-namespace WasabiQt::Maki { void getVmState(int *vsd, int *vip, int *vsp); }
+namespace qtWasabi::Maki { void getVmState(int *vsd, int *vip, int *vsp); }
 
 void Script::guruMeditation(SystemObject *, int code, const wchar_t *pub, int) {
     int vsd = -1, vip = -1, vsp = -1;
-    WasabiQt::Maki::getVmState(&vsd, &vip, &vsp);
+    qtWasabi::Maki::getVmState(&vsd, &vip, &vsp);
     std::fprintf(stderr,
-                 "[wasabiqt] Maki guru meditation: code=%d sid=%d ip=%d vsp=%d",
+                 "[qtwasabi] Maki guru meditation: code=%d sid=%d ip=%d vsp=%d",
                  code, vsd, vip, vsp);
     if (pub) {
         char pb[256];
@@ -260,26 +374,26 @@ int   ScriptObject::vcpu_getMember(const wchar_t *, int, int) { return -1; }
 
 // ── ObjectTable — minimum needed so CALLM doesn't break the stack ──
 //
-// The opensourced vcpu.cpp's CALLM handler (vcpu.cpp:1644) checks
-// `if (e->ptr != NULL)` before dispatching — so a NULL ptr is safe
-// IF `e->nparams` is set correctly (otherwise args don't get popped
-// from the operand stack and the next opcode reads misaligned bytes).
+// The Maki VM's CALLM handler checks `if (e->ptr != NULL)` before
+// dispatching — so a NULL ptr is safe IF `e->nparams` is set
+// correctly (otherwise args don't get popped from the operand stack
+// and the next opcode reads misaligned bytes).
 //
 // `addrefDLF` here does the bare minimum: look up a method's nparams
 // in a static table of known Wasabi method signatures.  e->ptr stays
 // NULL (so the call is a no-op returning 0/void), but the stack
 // stays aligned — scripts run cleanly past CALLM, just with no real
-// effect on widget state.  M13c/d will plug actual function pointers
-// in for the named methods we care about.
+// effect on widget state.  Real function pointers get plugged in for
+// the named methods we care about via the Maki method table.
 
 namespace {
 struct MethodSig { const wchar_t *name; int nparams; };
 
 // Conservative table: every method titlebar.maki/std.mi/configtabs.maki
-// can call.  nparams matches what the upstream `getExportedFunctions`
+// can call.  nparams matches what the Wasabi API's getExportedFunctions
 // declares for each.  Add here as new bindings are needed.
 static const MethodSig kKnownMethods[] = {
-    // SystemObject (https://opensourced source: api/script/objects/systemobj.cpp)
+    // SystemObject
     {L"onScriptLoaded",          0},
     {L"onScriptUnloading",       0},
     {L"getRuntimeVersion",       0},
@@ -290,8 +404,8 @@ static const MethodSig kKnownMethods[] = {
     {L"messageBox",              4},
     {L"getPrivateInt",           3},
     {L"setPrivateInt",           3},
-    {L"getPublicInt",            3},
-    {L"setPublicInt",            3},
+    {L"getPublicInt",            2},
+    {L"setPublicInt",            2},
     {L"getDate",                 0},
     {L"getTimeOfDay",            0},
     {L"isTransparencyAvailable", 0},
@@ -338,7 +452,7 @@ static const MethodSig kKnownMethods[] = {
     {L"onTextChanged",           1},
     {L"onResize",                4},
 
-    // Common system events (params per upstream Wasabi)
+    // Common system events (params per the Wasabi API)
     {L"onSetXuiParam",           2},
     {L"onNotify",                4},
     {L"onPlay",                  0},
@@ -347,9 +461,8 @@ static const MethodSig kKnownMethods[] = {
     {L"onTitleChange",           1},
     {L"onTitle2Change",          1},
 
-    // sentinel
-
-    // M14k: signatures merged from upstream ScriptObject getExportedFunctions tables.
+    // Full method-signature set, as declared by the ScriptObject
+    // getExportedFunctions tables in the Wasabi API.
     {L"CancelShutdown",                  0},
     {L"Chr",                             1},
     {L"GetApplicationName",              0},
@@ -1188,7 +1301,7 @@ int lookupNparams(const wchar_t *name) {
 
 // Implemented in maki-bindings.cpp — full method registry with
 // real function bodies for the load-bearing Wasabi methods.
-namespace WasabiQt::Maki {
+namespace qtWasabi::Maki {
 struct MakiMethod { const wchar_t *name; int nparams; void *ptr; };
 const MakiMethod *makiMethodTable(int *count);
 void *createWidgetScriptObject(void *opaqueWidget);
@@ -1196,7 +1309,7 @@ void *createWidgetScriptObject(void *opaqueWidget);
 
 int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
     if (!dlf) return 0;
-    // Upstream: when a method's physical pointer is already
+    // Wasabi's model: when a method's physical pointer is already
     // registered, reuse its DLFid; else assign `id` (highestDLFId)
     // and signal the caller to bump the counter.  We assign a fresh
     // id every time — `getDLFFromPointer` would let multiple scripts
@@ -1205,7 +1318,7 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
     dlf->DLFid = id;
     if (dlf->functionName) {
         int n = 0;
-        const auto *t = WasabiQt::Maki::makiMethodTable(&n);
+        const auto *t = qtWasabi::Maki::makiMethodTable(&n);
         for (int i = 0; i < n; ++i) {
             if (wq_wcsicmp(t[i].name, dlf->functionName) == 0) {
                 dlf->nparams = t[i].nparams;
@@ -1242,7 +1355,7 @@ int  ObjectTable::getClassFromName(const wchar_t *)         { return -1; }
 int  ObjectTable::getClassFromGuid(GUID)                    { return -1; }
 const wchar_t *ObjectTable::getClassName(int)               { return L""; }
 int  ObjectTable::getClassEntryIdx(int)                     { return -1; }
-// Real Wasabi only allows `new Foo` for specific classes (Timer,
+// The Wasabi API only allows `new Foo` for specific classes (Timer,
 // Region, Map, etc.); ours can't tell what class the int id maps to
 // because getClassFromGuid stubs to -1.  Return 1 unconditionally so
 // `new Foo` doesn't get rejected as not-instantiable; instantiate()
@@ -1257,7 +1370,7 @@ int  ObjectTable::isClassReferenceable(int)                 { return 0; }
 // receiver without a backing widget and return safe defaults.
 ScriptObject *ObjectTable::instantiate(int) {
     return static_cast<ScriptObject *>(
-        WasabiQt::Maki::createWidgetScriptObject(nullptr));
+        qtWasabi::Maki::createWidgetScriptObject(nullptr));
 }
 void ObjectTable::destroy(ScriptObject *)                   {}
 class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
@@ -1266,8 +1379,8 @@ class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
 // VCPUassign uses this to gate object-typed assignment: when it
 // returns 0 the assigned pointer gets nullified before the slot
 // receives it, which kills every `local = Config.newItem(...)` and
-// similar chains.  Upstream's real implementation walks the live
-// ScriptObject registry; we don't track that here yet — but every
+// similar chains.  Wasabi's real implementation walks the live
+// ScriptObject registry; we don't track that separately — but every
 // ScriptObject we hand to the VM is genuinely live (we never free
 // them until SkinRuntime::destroyAll, and assignment can only happen
 // during script dispatch, which can't outlive that).  Treat all
@@ -1282,7 +1395,7 @@ void SystemObject::addInstantiatedObject(ScriptObject *)    {}
 void SystemObject::removeInstantiatedObject(ScriptObject *) {}
 void SystemObject::onUnload()                                {}
 
-// ── Misc helpers vcpu.cpp uses ───────────────────────────────────
+// ── Misc helpers the Maki VM uses ────────────────────────────────
 wchar_t *WCSDUP(const wchar_t *s) {
     if (!s) return nullptr;
     size_t n = std::wcslen(s) + 1;
@@ -1292,4 +1405,4 @@ wchar_t *WCSDUP(const wchar_t *s) {
 }
 
 // _DebugString / _DebugStringW / StringPrintf bodies are already
-// linked from upstream's bfc/string/{string,StringW}.cpp.
+// linked from BFC's string implementation.

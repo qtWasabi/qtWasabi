@@ -28,9 +28,13 @@
 #  undef max
 #endif
 
+#include <cstdio>
+#include <cstdlib>
+#include <map>
+#include <string>
 #include <unordered_map>
 
-namespace WasabiQt::Maki {
+namespace qtWasabi::Maki {
 
 class WidgetScriptObject : public ScriptObject {
 public:
@@ -39,6 +43,7 @@ public:
 
     void  setOpaque(void *w) { m_widget = w; }
     void *opaque() const     { return m_widget; }
+    void  setAttributeTag(const wchar_t *n) { m_isAttribute = true; m_attrName = n ? n : L""; }
 
     int   scriptId() const   { return m_scriptId; }
     const std::unordered_map<int, int> &assignedVariables() const { return m_assigned; }
@@ -46,10 +51,21 @@ public:
     // ── opensourced-VM virtual hooks ──────────────────────────────────
     void  vcpu_setScriptId(int i) override            { m_scriptId = i; }
     void  vcpu_addAssignedVariable(int v, int s) override
-                                                       { m_assigned[v] = s; }
+                                                       {
+        m_assigned[v] = s;
+        if (std::getenv("WASABIQT_TRACE_ATTRIB"))
+            std::fprintf(stderr, "[attrib] addAssignedVar this=%p var=%d sid=%d\n",
+                         (void *)this, v, s);
+    }
     void  vcpu_removeAssignedVariable(int v, int) override
                                                        { m_assigned.erase(v); }
-    void  vcpu_delMembers(int) override                {}
+    void  vcpu_delMembers(int scriptid) override {
+        // Drop this script's member-var orphans (the orphan global
+        // ids themselves are reclaimed by the VM reset()).
+        for (auto it = m_members.begin(); it != m_members.end(); )
+            it = (it->first.first == scriptid) ? m_members.erase(it)
+                                               : std::next(it);
+    }
 
     int   vcpu_getAssignedVariable(int start, int scriptid, int functionId,
                                    int *next, int *globalevententry,
@@ -78,8 +94,16 @@ public:
                 continue;
             if (next) *next = i + 1;
             if (globalevententry) *globalevententry = i;
+            if (m_isAttribute && std::getenv("WASABIQT_TRACE_ATTRIB"))
+                std::fprintf(stderr,
+                    "[attrib] getAssignedVar HIT this=%p name='%ls' start=%d qsid=%d fid=%d -> var=%d evsid=%d\n",
+                    (void *)this, m_attrName.c_str(), start, scriptid, functionId, ev->varId, ev->scriptId);
             return ev->varId;
         }
+        if (m_isAttribute && std::getenv("WASABIQT_TRACE_ATTRIB"))
+            std::fprintf(stderr,
+                "[attrib] getAssignedVar MISS this=%p name='%ls' start=%d qsid=%d fid=%d (m_assigned has %zu)\n",
+                (void *)this, m_attrName.c_str(), start, scriptid, functionId, m_assigned.size());
         return -1;
     }
 
@@ -88,15 +112,34 @@ public:
         return this;
     }
 
-    int   vcpu_getMember(const wchar_t * /*id*/, int /*scriptid*/,
-                         int /*rettype*/) override { return -1; }
+    // Resolve a script-declared `Member` variable (e.g. eq.maki's
+    // `Member int EqButton.setTo;`) to a real orphan lvalue, mirroring
+    // upstream ScriptObjectI::vcpu_getMember.  The old hard `return -1`
+    // made OPCODE_SET see an unassignable target and raise
+    // GURU_SETNONINTERNAL (the recurring sid=29 fault).  We lazily
+    // create one VCPU orphan per (scriptid, member-name) and cache its
+    // global id so repeated reads return the same lvalue.
+    int   vcpu_getMember(const wchar_t *id, int scriptid,
+                         int rettype) override {
+        if (!id) return -1;
+        const auto key = std::make_pair(scriptid, std::wstring(id));
+        auto it = m_members.find(key);
+        if (it != m_members.end()) return it->second;
+        const int gid = VCPU::createOrphan(rettype);
+        m_members.emplace(key, gid);
+        return gid;
+    }
 
     ScriptObject *getScriptObject() override { return this; }
 
 private:
     void *m_widget = nullptr;       // opaque ResolvedWidget*
+    bool  m_isAttribute = false;    // tagged by wq_newAttribute (trace only)
+    std::wstring m_attrName;
     int   m_scriptId = -1;
     std::unordered_map<int, int> m_assigned;     // varId → scriptId
+    // (scriptId, member-name) → orphan global id, for vcpu_getMember.
+    std::map<std::pair<int, std::wstring>, int> m_members;
 };
 
 // ── public bridge surface ────────────────────────────────────────
@@ -105,6 +148,11 @@ void *createWidgetScriptObject(void *opaqueWidget) {
     auto *obj = new WidgetScriptObject();
     obj->setOpaque(opaqueWidget);
     return obj;
+}
+
+void tagScriptObjectAsAttribute(void *handle, const wchar_t *name) {
+    if (handle)
+        static_cast<WidgetScriptObject *>(handle)->setAttributeTag(name);
 }
 
 void destroyWidgetScriptObject(void *handle) {
@@ -119,4 +167,4 @@ int scriptIdOf(void *handle) {
     return static_cast<WidgetScriptObject *>(handle)->scriptId();
 }
 
-}  // namespace WasabiQt::Maki
+}  // namespace qtWasabi::Maki

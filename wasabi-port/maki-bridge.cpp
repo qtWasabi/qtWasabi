@@ -14,13 +14,13 @@
 #include <cstdlib>
 #include <cstring>
 
-namespace WasabiQt::Maki {
+namespace qtWasabi::Maki {
 
 int assignNewScriptId() {
     return VCPU::assignNewScriptId();
 }
 
-// M14d: snapshot the VM's current dispatch state. Read by the assert
+// Snapshot the VM's current dispatch state. Read by the assert
 // handler in wasabi-port-stubs.cpp so the assertion message points at
 // the actual ip/vsp/script that fired the assert, not just the file
 // and line of the default switch case in the dispatch loop.
@@ -30,7 +30,7 @@ void getVmState(int *vsd, int *vip, int *vsp) {
     if (vsp) *vsp = VCPU::VSP;
 }
 
-// M14i: walk the script's entries in variablesTable and replace any
+// Walk the script's entries in variablesTable and replace any
 // null SCRIPT_OBJECT receiver with the given fallback object. _predecl
 // classes from the Wasabi standard library (Config, etc.) reserve a
 // variable slot but the runtime is expected to bind a singleton there.
@@ -95,7 +95,7 @@ int scriptCount() {
 
 // The link-stubs file owns the scriptId → SystemObject map.
 // Forward-declare the public shim here (we're already inside the
-// WasabiQt::Maki namespace block).
+// qtWasabi::Maki namespace block).
 void registerSystemObject(int scriptId, SystemObject *o);
 
 void registerScriptSystemObject(int scriptId, void *systemObjectHandle) {
@@ -207,6 +207,74 @@ int fireOnActionEvent(void *recv, const wchar_t *action,
     return fired;
 }
 
+int fireOnTextChangedOnObject(void *recv, const wchar_t *newText) {
+    // Fire <widget>.onTextChanged(newText) on `recv` — only if that
+    // receiver actually bound a handler (Bento's infoline.maki binds
+    // label.onTextChanged to reposition the value field next to the
+    // label).  Mirrors fireOnActionEvent's receiver-gated dispatch.
+    if (!recv) return 0;
+    int fired = 0;
+    const int n = VCPU::DLFentryTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || !e->functionName) continue;
+        if (wcscmp(e->functionName, L"onTextChanged") != 0) continue;
+        auto *wso = static_cast<ScriptObject *>(recv);
+        int next = 0, evIdx = 0, inh = 0;
+        int varId = wso->vcpu_getAssignedVariable(
+            0, e->scriptId, e->DLFid, &next, &evIdx, &inh);
+        if (varId < 0) continue;
+        scriptVar vt{}; vt.type = SCRIPT_STRING;
+        vt.data.sdata = newText ? newText : L"";
+        VCPU::push(vt);
+        scriptVar recvVar{};
+        recvVar.type = SCRIPT_OBJECT;
+        recvVar.data.odata = wso;
+        setCurrentScriptId(e->scriptId);
+        VCPU::executeEvent(recvVar, e->DLFid, e->nparams, e->scriptId);
+        ++fired;
+    }
+    return fired;
+}
+
+// Per-object 4-int event (onResize): fire <eventName>(a,b,c,d) on `recv`
+// ONLY where `recv` actually bound a handler — across all scripts, like
+// fireOnTextChangedOnObject.  Real Wasabi dispatches onResize per-GuiObject
+// against its OWN object + client rect; firing once on the layout root (the
+// old dispatchInitialResize) meant non-root handlers (pledit g_playlist.
+// onResize toolbar show/hide, footer reflow) never ran.  General; receiver-
+// gated so only widgets with the handler pay.
+int fireFourIntEventOnObject(void *recv, const wchar_t *eventName,
+                             int a, int b, int c, int d) {
+    if (!recv || !eventName) return 0;
+    const bool reverseDecl =
+        ::getenv("WASABIQT_PUSH_ORDER") &&
+        std::strcmp(::getenv("WASABIQT_PUSH_ORDER"), "revdecl") == 0;
+    int fired = 0;
+    const int n = VCPU::DLFentryTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || !e->functionName) continue;
+        if (wcscmp(e->functionName, eventName) != 0) continue;
+        auto *wso = static_cast<ScriptObject *>(recv);
+        int next = 0, evIdx = 0, inh = 0;
+        const int varId = wso->vcpu_getAssignedVariable(
+            0, e->scriptId, e->DLFid, &next, &evIdx, &inh);
+        if (varId < 0) continue;   // this object didn't bind the handler
+        scriptVar va{}; va.type = SCRIPT_INT; va.data.idata = a;
+        scriptVar vb{}; vb.type = SCRIPT_INT; vb.data.idata = b;
+        scriptVar vc{}; vc.type = SCRIPT_INT; vc.data.idata = c;
+        scriptVar vd{}; vd.type = SCRIPT_INT; vd.data.idata = d;
+        if (reverseDecl) { VCPU::push(vd); VCPU::push(vc); VCPU::push(vb); VCPU::push(va); }
+        else             { VCPU::push(va); VCPU::push(vb); VCPU::push(vc); VCPU::push(vd); }
+        scriptVar recvVar{}; recvVar.type = SCRIPT_OBJECT; recvVar.data.odata = wso;
+        setCurrentScriptId(e->scriptId);
+        VCPU::executeEvent(recvVar, e->DLFid, e->nparams, e->scriptId);
+        ++fired;
+    }
+    return fired;
+}
+
 bool fireFourIntEvent(int scriptId, void *recv,
                       const wchar_t *eventName,
                       int a, int b, int c, int d) {
@@ -267,6 +335,67 @@ bool fireFourIntEvent(int scriptId, void *recv,
     return true;
 }
 
+bool fireOnTitleChange(int scriptId, const wchar_t *newTitle) {
+    // Find the System.onTitleChange(String) DLF entry on this script —
+    // fileinfo.maki hooks it to (re)load + show the track-info lines.
+    int dlfid = -1; int nparams = 1;
+    const int base = VCPU::dlfBase(scriptId);
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (e->functionName &&
+            wcscmp(e->functionName, L"onTitleChange") == 0) {
+            dlfid   = e->DLFid;
+            nparams = e->nparams;
+            break;
+        }
+    }
+    if (dlfid < 0) return false;
+
+    SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
+    if (!so) return false;
+
+    scriptVar t{}; t.type = SCRIPT_STRING;
+    t.data.sdata = newTitle ? newTitle : L"";
+    VCPU::push(t);
+
+    scriptVar v{};
+    v.type = SCRIPT_OBJECT;
+    v.data.odata = so->getScriptObject();
+    setCurrentScriptId(scriptId);
+    VCPU::executeEvent(v, dlfid, /*np*/ nparams, scriptId);
+    return true;
+}
+
+bool fireSystemZeroArgEvent(int scriptId, const wchar_t *eventName) {
+    // Find a zero-arg System.<eventName>() DLF entry on this script.
+    // playerMain-style scripts hook System.onPlay/onResume/onPause/
+    // onStop to swap their play/pause button chrome.
+    if (!eventName) return false;
+    int dlfid = -1;
+    const int base = VCPU::dlfBase(scriptId);
+    for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || e->scriptId != scriptId) continue;
+        if (e->functionName &&
+            wcscmp(e->functionName, eventName) == 0) {
+            dlfid = e->DLFid;
+            break;
+        }
+    }
+    if (dlfid < 0) return false;
+
+    SystemObject *so = SOM::getSystemObjectByScriptId(scriptId);
+    if (!so) return false;
+
+    scriptVar v{};
+    v.type = SCRIPT_OBJECT;
+    v.data.odata = so->getScriptObject();
+    setCurrentScriptId(scriptId);
+    VCPU::executeEvent(v, dlfid, /*np*/ 0, scriptId);
+    return true;
+}
+
 bool fireOnSetXuiParam(int scriptId,
                        const wchar_t *name, const wchar_t *value) {
     if (!name || !value) return false;
@@ -290,8 +419,13 @@ bool fireOnSetXuiParam(int scriptId,
 
     scriptVar nm{}; nm.type = SCRIPT_STRING; nm.data.sdata = name;
     scriptVar vl{}; vl.type = SCRIPT_STRING; vl.data.sdata = value;
-    VCPU::push(vl);
+    // Push in DECL order (first arg first), matching fireFourIntEvent: the
+    // handler is onSetXuiParam(param, value), so push `name` (param) then
+    // `value`.  The old order pushed value-then-name, swapping them — the
+    // script saw param="25", value="padtitleright", so `if (param ==
+    // "padtitleright")` never matched and padtitleright/left silently no-op'd.
     VCPU::push(nm);
+    VCPU::push(vl);
 
     scriptVar v{};
     v.type = SCRIPT_OBJECT;
@@ -301,7 +435,7 @@ bool fireOnSetXuiParam(int scriptId,
     return true;
 }
 
-// M14a diagnostic: walk every codeTable entry and print its (scriptId,
+// Diagnostic: walk every codeTable entry and print its (scriptId,
 // size, base) so we can tell whether there is more than one buffer per
 // script (e.g., a separate code segment alongside a strings/data segment).
 int dumpAllCodeBlocks(char *out, int outCap) {
@@ -325,7 +459,7 @@ int dumpAllCodeBlocks(char *out, int outCap) {
     return count;
 }
 
-// M14a diagnostic: dump bytes from a script's codeblock so we can sanity
+// Diagnostic: dump bytes from a script's codeblock so we can sanity
 // check whether the codeblock pointer is sane and what bytes live around
 // the offset claimed by the eventsTable.pointer field.
 int dumpCodeblock(int scriptId, int offset, int nBytes, char *out, int outCap) {
@@ -412,4 +546,4 @@ int dumpDlfNames(int scriptId, char *out, int outCap) {
     return count;
 }
 
-}  // namespace WasabiQt::Maki
+}  // namespace qtWasabi::Maki

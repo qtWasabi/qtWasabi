@@ -1,9 +1,6 @@
-// Stub for upstream <tataki/canvas/Canvas.h>.  Upstream's
-// `Src/tataki/canvas/canvas.h` is lowercase and only includes win/
-// or mac/ canvas headers — there is no Linux variant.  vcpu.cpp /
-// scriptmgr.cpp transitively include this through api/wnd/api_window.h
-// but never actually call any Canvas method, so a forward declaration
-// is enough to satisfy the parser.
+// Stub for <tataki/canvas/Canvas.h>.  The Wasabi Canvas surface is
+// only included transitively here and no Canvas method is ever called,
+// so a forward declaration is enough to satisfy the parser.
 #pragma once
 
 class Canvas;

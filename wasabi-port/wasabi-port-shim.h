@@ -6,7 +6,7 @@
 // wasabi-port-shim.h — force-included into every BFC translation
 // unit via -include.  Provides the typedefs/macros that BFC's
 // transitively-included std_file.h, std_keyboard.h, std_wnd.h etc.
-// reference but the opensourced source never defined for non-Win32/macOS.
+// reference but were never defined for non-Win32/macOS targets.
 //
 // These are declarations only.  The Maki VM and script registry —
 // the only parts of Wasabi we actually compile — never CALL the file
@@ -16,16 +16,16 @@
 //
 // Routing the actual file/keyboard/window operations to Qt
 // (QFile, QKeyEvent, QtWindowAdapter, QLibrary) happens at the
-// WasabiQT layer, above BFC.
+// qtWasabi layer, above BFC.
 //
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 
-// ── replicant/foundation/types.h Linux dispatch ──────────────────
+// ── BFC types.h Linux dispatch ───────────────────────────────────
 //
-// The opensourced replicant/foundation/types.h has Linux + x86_64 only.
+// BFC's foundation types.h dispatch only covers Linux + x86_64.
 // We're targeting aarch64 too (Apple Silicon, Asahi).  Forcing
-// __x86_64 makes the dispatch select linux-amd64/types.h whose
+// __x86_64 makes the dispatch select the linux-amd64 variant whose
 // contents (uint32_t / uint64_t / wchar_t) are arch-portable.
 
 #  if defined(__linux__) && !defined(__x86_64) && !defined(__x86_64__)
@@ -40,11 +40,9 @@
 // references.  The Maki VM and script registry never CALL these
 // functions, so missing implementations never reach the linker.
 //
-// Wasabi's own std_file.h opening line (verified):
-//     #ifndef _STD_FILE_H
-//     #define _STD_FILE_H
-//     ...   <_WIN32-only impl, #error port me elsewhere>
-// Setting _STD_FILE_H here makes the rest of the file evaporate.
+// std_file.h's body is a _WIN32-only impl with a "#error port me"
+// for other platforms.  Pre-setting its guard (_STD_FILE_H) here
+// makes the rest of the file evaporate.
 
 #  define _STD_FILE_H 1
 #  define NULLSOFT_WASABI_STD_KEYBOARD_H 1
@@ -65,17 +63,17 @@ typedef int  OSKEYTYPE;
 
 // ── GUID equality conflict workaround ────────────────────────────
 //
-// Two upstream files both declare operator== / operator!= for GUID:
-//   replicant/foundation/linux-amd64/types.h → returns bool
-//   replicant/foundation/guid.h              → returns int (Win32-style)
+// Two BFC headers both declare operator== / operator!= for GUID:
+//   the linux-amd64 types.h → returns bool
+//   guid.h                  → returns int (Win32-style)
 //
 // guid.h's guard reads `!defined(GUID_EQUALS_DEFINED) || !defined(_SYS_GUID_OPERATOR_EQ_)`,
 // so it re-declares unless BOTH are pre-set.  We pre-set _SYS_GUID_OPERATOR_EQ_
 // here so the bool-returning declarations from types.h win exclusively.
 #  define _SYS_GUID_OPERATOR_EQ_ 1
 
-// nsguid.cpp uses these symbols which Wasabi's Win32 build picks up
-// from <objbase.h> / <wchar.h>.  Provide them inline.
+// The GUID helpers use symbols Wasabi's Win32 build picks up from
+// <objbase.h> / <wchar.h>.  Provide them inline.
 #  include <stdarg.h>
 #  include <string.h>          // memcmp — needed by guid.h's operator<
 #  include <memory.h>
@@ -106,7 +104,7 @@ inline void DebugStringW(const wchar_t *s) {
     if (s) ::fputws(s, stderr);
 }
 
-// M14e: narrow a wchar_t string into an ASCII buffer, replacing any
+// Narrow a wchar_t string into an ASCII buffer, replacing any
 // non-ASCII codepoints with '?'. Used for trace and assert output
 // where %ls / fputws hit glibc locale issues, and we only need a
 // printable-enough form (Wasabi method/attribute names are all ASCII
@@ -125,45 +123,46 @@ inline int wq_wide_to_ascii(const wchar_t *src, char *dst, int cap) {
 
 // ── Skip precomp + the windowing-related headers we don't use ────
 //
-// precomp_wasabi_bfc.h pulls wasabi_std_wnd.h which uses HDC and
-// is heavily entangled with the X11/Win32 GDI canvas — irrelevant
-// for the Maki VM compile.  Set its guard so the umbrella include
-// becomes a no-op; supply the actually-needed headers (memblock,
-// ptrlist, stack, tlist, std_string, wasabi_std) directly from the
-// .cpp files that need them.
+// BFC's precomp umbrella pulls the windowing std header which uses
+// HDC and is heavily entangled with the X11/Win32 GDI canvas —
+// irrelevant for the Maki VM compile.  Set its guard so the umbrella
+// include becomes a no-op; supply the actually-needed headers
+// (memblock, ptrlist, stack, tlist, std_string, wasabi_std) directly
+// from the .cpp files that need them.
 
 #  define NULLSOFT_BFC_PRECOMP_H 1
-#  define _STD_WIN_H 1                      // wasabi_std_wnd.h guard
+#  define _STD_WIN_H 1                      // windowing std header guard
 
-// ── Pre-empt upstream guard symbols so the include-stubs/ versions
-//    win even when vcpu.h does `#include "script.h"` (quote-include
-//    that resolves locally to the upstream file).
-#  define __SCRIPT_H 1                       // api/script/script.h
-#  define _SCRIPTOBJI_H 1                    // api/script/scriptobji.h
-#  define _SCRIPT_H 1                        // api/script/scriptmgr.h's guard
+// ── Pre-empt the Wasabi-API guard symbols so the include-stubs/
+//    versions win even when vcpu.h does `#include "script.h"`
+//    (quote-include that resolves locally).
+#  define __SCRIPT_H 1                       // script.h
+#  define _SCRIPTOBJI_H 1                    // scriptobji.h
+#  define _SCRIPT_H 1                        // scriptmgr.h's guard
 
 // ── wasabicfg.h override ─────────────────────────────────────────
 //
-// Wasabi's wasabicfg.h enables WASABI_COMPILE_WND which then makes
-// bfc/platform/linux.h pull X11/Xpm + GTK headers we don't have or
-// want.  Pre-set the include guard with a stripped feature set: keep
-// SCRIPT (we're vendoring vcpu.cpp/scriptmgr.cpp) and CONFIG, drop
-// the windowing stack — our Qt widget layer takes that over.
+// Wasabi's config header enables WASABI_COMPILE_WND which then makes
+// BFC's Linux platform header pull X11/Xpm + GTK headers we don't
+// have or want.  Pre-set the include guard with a stripped feature
+// set: keep SCRIPT (we vendor the Maki VM core) and CONFIG, drop the
+// windowing stack — our Qt widget layer takes that over.
 #  define NULLSOFT_WASABICFG_H 1
 #  define WASABI_COMPILE_SCRIPT
 #  define WASABI_COMPILE_CONFIG
 #  define WASABINOMAINAPI
 
-// ── min/max macro pollution from bfc/platform/linux.h ───────────
-// linux.h:91-92 unconditionally `#define min(a,b)` / `#define max(a,b)`,
-// which collides with std::min / std::max as soon as <algorithm> or
+// ── min/max macro pollution from BFC's Linux platform header ────
+// It unconditionally `#define min(a,b)` / `#define max(a,b)`, which
+// collides with std::min / std::max as soon as <algorithm> or
 // <ranges> appears.  Wasabi's own headers don't actually use the
-// macros — pre-emptively reserve the identifiers so linux.h's
+// macros — pre-emptively reserve the identifiers so those
 // definitions become no-ops.
 #  define WASABI_NO_MINMAX_MACROS 1
-// linux.h does not honour any guard like that, so fall back to
-// undef'ing after the fact.  Done in any TU that includes <algorithm>;
-// the opensourced vcpu.cpp doesn't, but consumers of the shim might.
+// The platform header does not honour any guard like that, so fall
+// back to undef'ing after the fact.  Done in any TU that includes
+// <algorithm>; the Maki VM core doesn't, but consumers of the shim
+// might.
 
 // ── locale + wide-char ───────────────────────────────────────────
 // wasabi_std.h uses Win32's _locale_t and locale-aware wide-char
@@ -205,19 +204,18 @@ static inline int vsprintf_s(char *buf, size_t cap, const char *fmt, va_list ap)
 // ── OS handles ───────────────────────────────────────────────────
 //
 // Wasabi uses HWND/HMODULE/HFONT/HRGN/HCURSOR/HICON across its
-// API.  Real X11 platform layer (bfc/platform/linux.h) maps these
-// to X11 Window etc. — but we're routing windowing through Qt, so
-// we just declare them as opaque pointers and let the script-bridge
-// layer translate.
+// API.  The X11 platform layer maps these to X11 Window etc. — but
+// we're routing windowing through Qt, so we just declare them as
+// opaque pointers and let the script-bridge layer translate.
 
-struct WasabiQtOpaque_HMODULE; using HMODULE_QT = WasabiQtOpaque_HMODULE*;
-struct WasabiQtOpaque_HINSTANCE; using HINSTANCE_QT = WasabiQtOpaque_HINSTANCE*;
-struct WasabiQtOpaque_HWND;     using HWND_QT     = WasabiQtOpaque_HWND*;
-struct WasabiQtOpaque_HMENU;    using HMENU_QT    = WasabiQtOpaque_HMENU*;
-struct WasabiQtOpaque_HFONT;    using HFONT_QT    = WasabiQtOpaque_HFONT*;
-struct WasabiQtOpaque_HRGN;     using HRGN_QT     = WasabiQtOpaque_HRGN*;
-struct WasabiQtOpaque_HCURSOR;  using HCURSOR_QT  = WasabiQtOpaque_HCURSOR*;
-struct WasabiQtOpaque_HICON;    using HICON_QT    = WasabiQtOpaque_HICON*;
+struct qtWasabiOpaque_HMODULE; using HMODULE_QT = qtWasabiOpaque_HMODULE*;
+struct qtWasabiOpaque_HINSTANCE; using HINSTANCE_QT = qtWasabiOpaque_HINSTANCE*;
+struct qtWasabiOpaque_HWND;     using HWND_QT     = qtWasabiOpaque_HWND*;
+struct qtWasabiOpaque_HMENU;    using HMENU_QT    = qtWasabiOpaque_HMENU*;
+struct qtWasabiOpaque_HFONT;    using HFONT_QT    = qtWasabiOpaque_HFONT*;
+struct qtWasabiOpaque_HRGN;     using HRGN_QT     = qtWasabiOpaque_HRGN*;
+struct qtWasabiOpaque_HCURSOR;  using HCURSOR_QT  = qtWasabiOpaque_HCURSOR*;
+struct qtWasabiOpaque_HICON;    using HICON_QT    = qtWasabiOpaque_HICON*;
 
 #define OSMODULEHANDLE          HMODULE_QT
 #define INVALIDOSMODULEHANDLE   ((OSMODULEHANDLE)0)
@@ -234,12 +232,12 @@ struct WasabiQtOpaque_HICON;    using HICON_QT    = WasabiQtOpaque_HICON*;
 typedef HMENU_QT  OSMENUHANDLE;
 typedef HFONT_QT  OSFONTHANDLE;
 
-// RECT / POINT / SIZE — bfc/platform/linux.h already typedef's
-// these (with `int` members) when LINUX is defined.  Don't
-// redeclare here.
+// RECT / POINT / SIZE — BFC's Linux platform header already
+// typedef's these (with `int` members) when LINUX is defined.
+// Don't redeclare here.
 
 // ── min/max macro cleanup ────────────────────────────────────────
-// bfc/platform/linux.h:91-92 unconditionally:
+// BFC's Linux platform header unconditionally:
 //     #define min(a,b) (((a)<(b))?(a):(b))
 //     #define max(a,b) (((a)>(b))?(a):(b))
 // which collides with std::min / std::max as soon as <algorithm> /

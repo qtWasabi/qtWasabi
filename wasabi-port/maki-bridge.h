@@ -16,7 +16,55 @@
 
 #include <stdint.h>
 
-namespace WasabiQt::Maki {
+// This header is included by TUs that have already pulled in
+// bfc/platform/linux.h, which #defines `min`/`max` as 2-arg macros.
+// <functional>/<string> transitively include <bits/ranges_base.h>
+// (uses `std::min`/`max` as unqualified ids) — the macros break it.
+// Suspend the macros across just these std includes, then restore.
+#pragma push_macro("min")
+#pragma push_macro("max")
+#undef min
+#undef max
+#include <functional>
+#include <string>
+#pragma pop_macro("max")
+#pragma pop_macro("min")
+
+namespace qtWasabi::Maki {
+
+// Register the embedder's play-item metadata resolver.  The Maki
+// System.getPlayItem*/getPlayItemMetaDataString bindings call it to
+// fetch real track metadata from the host's player.  Keys are
+// lower-case: "playitem:string" (filename), "playitem:displaytitle",
+// "decoder", "meta:<field>" (title/artist/album/year/genre/...).
+// Return "" for unknown/no-track (keeps idle file-info lines hidden).
+void setPlayItemMetaResolver(
+        std::function<std::wstring(const std::wstring &)> resolver);
+
+// Fire System.onTitleChange(newTitle) on `scriptId`'s SystemObject —
+// the event fileinfo.maki hooks to (re)load + show the track-info
+// lines.  Pass the current display title (or filename).  Returns true
+// if a handler was found.
+bool fireOnTitleChange(int scriptId, const wchar_t *newTitle);
+
+// Fire a zero-argument System.<eventName>() callback on `scriptId`'s
+// SystemObject, only if the script hooks it.  Backs the playback-state
+// notifications (System.onPlay/onResume/onPause/onStop) the Maki VM
+// expects, so a skin can swap its play/pause chrome on transport
+// changes.  Returns true if a handler was found and run.
+bool fireSystemZeroArgEvent(int scriptId, const wchar_t *eventName);
+
+// Fire <widget>.onTextChanged(newText) on the receiver script object —
+// only if it bound a handler.  Lets a Text.setText() drive dependent
+// layout (Bento's infoline.maki repositions the value next to the
+// label on its label.onTextChanged).  Returns the number fired.
+int fireOnTextChangedOnObject(void *recv, const wchar_t *newText);
+
+// Per-object 4-int event (onResize): fires <eventName>(a,b,c,d) on `recv`
+// wherever it bound the handler.  Backs the faithful per-GuiObject onResize
+// cascade (vs the old fire-once-on-layout-root).  Returns the number fired.
+int fireFourIntEventOnObject(void *recv, const wchar_t *eventName,
+                             int a, int b, int c, int d);
 
 // Reserve a new script id from the VM. Increments VCPU::numScripts.
 // Call this before addScript so each script gets its own VM identity.
@@ -140,4 +188,4 @@ void  destroyWidgetScriptObject(void *handle);
 void *opaqueOf(void *handle);
 int   scriptIdOf(void *handle);
 
-}  // namespace WasabiQt::Maki
+}  // namespace qtWasabi::Maki
