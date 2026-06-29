@@ -18,9 +18,9 @@
 // missing, the first run writes it (and the test passes); subsequent
 // runs compare bit-for-bit.  Set WASABIQT_REGEN_GOLDENS=1 to refresh.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/LayerPainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/LayerPainter.h>
 
 #include <QDir>
 #include <QFile>
@@ -29,8 +29,8 @@
 #include <QPainter>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
-using namespace WasabiQt::SkinXml;
+using namespace qtWasabi;
+using namespace qtWasabi::SkinXml;
 
 namespace {
 
@@ -78,7 +78,7 @@ QImage renderActiveStreak(BitmapRegistry &reg, int totalW) {
 QString goldenPath() {
     // Source-tree resolution via QT_TESTCASE_BUILDDIR — points at the
     // test binary's build dir; we walk back up to the source tree.
-    return QStringLiteral(WASABIQT_SOURCE_DIR) +
+    return QStringLiteral(QTWASABI_SOURCE_DIR) +
            QStringLiteral("/tests/golden/titlebar_active_streak.png");
 }
 

@@ -1,14 +1,14 @@
-// M8 — SkinView QWidget smoke test.  Loads Modern's main/normal,
+// SkinView QWidget smoke test.  Loads Modern's main/normal,
 // captures the widget's render via QWidget::grab(), and verifies
 // the result matches the same layout painted offscreen via
 // TreePainter (same paint code path, different entry point).
 
-#include <WasabiQt/SkinView.h>
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/TreePainter.h>
+#include <qtWasabi/SkinView.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/TreePainter.h>
 
 #include <QApplication>
 #include <QFile>
@@ -18,7 +18,7 @@
 #include <QPixmap>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
+using namespace qtWasabi;
 
 class SkinViewTest : public QObject {
     Q_OBJECT

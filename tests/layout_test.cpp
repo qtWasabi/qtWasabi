@@ -1,14 +1,14 @@
-// M6 — layout expansion: groupdef instantiation + sendparams.
+// Layout expansion: groupdef instantiation + sendparams.
 
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/SkinXml.h>
 
 #include <QFile>
 #include <QObject>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
-using namespace WasabiQt::Layout;
+using namespace qtWasabi;
+using namespace qtWasabi::Layout;
 
 namespace {
 

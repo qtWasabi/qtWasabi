@@ -1,4 +1,4 @@
-// M10 — TextPainter renders bitmap-font text widgets.
+// TextPainter renders bitmap-font text widgets.
 //
 // Loads Winamp Modern, expands main/normal, renders the layout with
 // a stub display resolver returning known time/bitrate/frequency
@@ -6,11 +6,11 @@
 // and verifies non-background pixels show up where the digits should
 // be.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/TreePainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/TreePainter.h>
 
 #include <QFile>
 #include <QImage>
@@ -18,7 +18,7 @@
 #include <QPainter>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
+using namespace qtWasabi;
 
 class TextPaintTest : public QObject {
     Q_OBJECT

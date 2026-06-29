@@ -1,17 +1,17 @@
-// M3 — skin XML parser tests.
+// Skin XML parser tests.
 //
 // Parse a few real Modern-family skins end-to-end and verify we walk
 // the entire <include> tree.  We don't validate every individual
 // element here — just that the parser doesn't drop pieces and
 // extracts the metadata accessible from the top.
 
-#include <WasabiQt/SkinXml.h>
+#include <qtWasabi/SkinXml.h>
 
 #include <QDir>
 #include <QObject>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt::SkinXml;
+using namespace qtWasabi::SkinXml;
 
 namespace {
 int countTagsRecursive(const Element &e, const QString &tag) {
@@ -89,17 +89,17 @@ private slots:
     void detectsIncludeCycle() {
         // Synthesise a minimal cycle in /tmp and check it's caught
         // (parse succeeds with a warning, since we don't fail-fast).
-        const QString a = QDir::temp().filePath("wasabiqt_cycle_a.xml");
-        const QString b = QDir::temp().filePath("wasabiqt_cycle_b.xml");
+        const QString a = QDir::temp().filePath("qtwasabi_cycle_a.xml");
+        const QString b = QDir::temp().filePath("qtwasabi_cycle_b.xml");
         QFile fa(a), fb(b);
         QVERIFY(fa.open(QIODevice::WriteOnly | QIODevice::Truncate));
         fa.write("<?xml version=\"1.0\"?><WasabiXML>"
-                 "<include file=\"wasabiqt_cycle_b.xml\"/>"
+                 "<include file=\"qtwasabi_cycle_b.xml\"/>"
                  "</WasabiXML>");
         fa.close();
         QVERIFY(fb.open(QIODevice::WriteOnly | QIODevice::Truncate));
         fb.write("<?xml version=\"1.0\"?><WasabiXML>"
-                 "<include file=\"wasabiqt_cycle_a.xml\"/>"
+                 "<include file=\"qtwasabi_cycle_a.xml\"/>"
                  "</WasabiXML>");
         fb.close();
 

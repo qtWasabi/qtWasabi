@@ -1,9 +1,9 @@
-// M2 — sanity test for the opensourced Maki VM compiled into libwasabiqt.
+// Sanity test for the opensourced Maki VM compiled into libqtwasabi.
 //
 // We don't run scripts here; we just verify the VM links and accepts
 // a real .maki blob via VCPU::addScript() (forwarded through the
-// WasabiQt::Maki bridge) without crashing.  Real script dispatch
-// needs the script bindings (M3+).
+// qtWasabi::Maki bridge) without crashing.  Real script dispatch
+// needs the script bindings.
 
 #include "../wasabi-port/maki-bridge.h"
 
@@ -11,9 +11,9 @@
 #include <QObject>
 #include <QtTest/QtTest>
 
-using WasabiQt::Maki::addScript;
-using WasabiQt::Maki::removeScript;
-using WasabiQt::Maki::scriptCount;
+using qtWasabi::Maki::addScript;
+using qtWasabi::Maki::removeScript;
+using qtWasabi::Maki::scriptCount;
 
 namespace {
 QByteArray readBlob(const QString &path) {

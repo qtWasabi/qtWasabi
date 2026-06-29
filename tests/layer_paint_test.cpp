@@ -1,12 +1,12 @@
-// M4 — first widget paints through Qt.
+// First widget paints through Qt.
 //
 // Load Winamp Modern's skin XML, build the BitmapRegistry, fetch a
 // known sub-rect bitmap, paint it as a <layer> onto a QImage, and
 // verify the result is the right dimensions and visibly non-empty.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/LayerPainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/LayerPainter.h>
 
 #include <QDir>
 #include <QImage>
@@ -14,8 +14,8 @@
 #include <QPainter>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
-using namespace WasabiQt::SkinXml;
+using namespace qtWasabi;
+using namespace qtWasabi::SkinXml;
 
 namespace {
 QImage paintSingleLayer(BitmapRegistry &reg,
@@ -115,7 +115,7 @@ private slots:
 
         // Save the artefact for human inspection.
         const QString outPath = QDir::temp().filePath(
-            QStringLiteral("wasabiqt-m4-layer.png"));
+            QStringLiteral("qtwasabi-m4-layer.png"));
         QVERIFY(out.save(outPath));
         qInfo().noquote() << QStringLiteral("Wrote %1").arg(outPath);
     }

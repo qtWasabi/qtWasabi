@@ -1,8 +1,8 @@
-// M13a — SkinRuntime loads Maki scripts + builds widget object table.
+// SkinRuntime loads Maki scripts + builds widget object table.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/SkinRuntime.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/SkinRuntime.h>
 
 #include "../wasabi-port/maki-bridge.h"
 
@@ -10,7 +10,7 @@
 #include <QObject>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
+using namespace qtWasabi;
 
 class SkinRuntimeTest : public QObject {
     Q_OBJECT
@@ -42,7 +42,7 @@ private slots:
 
         // Dump the DLF names of the first script for diagnostics.
         char buf[8192];
-        const int count = WasabiQt::Maki::dumpDlfNames(0, buf, sizeof(buf));
+        const int count = qtWasabi::Maki::dumpDlfNames(0, buf, sizeof(buf));
         QVERIFY2(count > 0, "script 0 has no DLFs");
         const QString names = QString::fromUtf8(buf);
         // Every Modern script that uses System.* has an onScriptLoaded
@@ -54,18 +54,17 @@ private slots:
                                 .arg(names)));
 
         // Optional diagnostic dumps, set WASABIQT_DUMP_CODEBLOCKS=1 to
-        // see the per-script codeTable layout used during M14a debug.
+        // see the per-script codeTable layout used during debugging.
         if (qEnvironmentVariableIntValue("WASABIQT_DUMP_CODEBLOCKS") == 1) {
             char cbbuf[8192];
-            WasabiQt::Maki::dumpAllCodeBlocks(cbbuf, sizeof(cbbuf));
+            qtWasabi::Maki::dumpAllCodeBlocks(cbbuf, sizeof(cbbuf));
             qInfo().noquote() << QString::fromUtf8(cbbuf);
         }
 
         // Dispatch every script's onScriptLoaded handler when asked.
-        // Real opcode dispatch runs now (M14a fixed the codeblock
-        // lifetime bug) but downstream binding gaps still cause
-        // segfaults in some scripts, so the dispatch is gated to keep
-        // CI green while M14b through M14f are being worked.
+        // Real opcode dispatch runs, but downstream binding gaps still
+        // cause segfaults in some scripts, so the dispatch is gated
+        // behind an env flag to keep the test green.
         if (qEnvironmentVariableIntValue("WASABIQT_DISPATCH_ONLOAD") == 1)
             runtime.dispatchOnScriptLoaded();
     }

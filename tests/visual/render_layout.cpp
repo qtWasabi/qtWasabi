@@ -17,12 +17,12 @@
 // be diff'd against committed `tests/visual/expected/*.png` golden
 // images in CI — no display server required.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
-#include <WasabiQt/TreePainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/TreePainter.h>
 
 #include <QGuiApplication>
 #include <QHash>
@@ -32,7 +32,7 @@
 #include <QStringList>
 #include <cstdio>
 
-using namespace WasabiQt;
+using namespace qtWasabi;
 
 static void usage() {
     std::fprintf(stderr,
@@ -85,7 +85,7 @@ int main(int argc, char **argv) {
         std::fprintf(stderr, "expand: %s\n", qPrintable(err));
         return 1;
     }
-    // M14b: expandLayout no longer auto-runs the static well-known
+    // expandLayout no longer auto-runs the static well-known
     // scripts; the visual harness still wants the titlebar resize
     // math applied, so request it explicitly.
     Layout::runKnownScripts(tree, width);

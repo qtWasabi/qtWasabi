@@ -1,15 +1,15 @@
-// M7 — paint a resolved widget tree onto a QImage.
+// Paint a resolved widget tree onto a QImage.
 //
 // Loads Modern's main/normal layout, expands it, paints it at the
 // layout's declared minimum size onto a transparent canvas, and
 // verifies a sizeable fraction of the canvas got drawn on.  Saves
 // the artefact to /tmp for visual inspection.
 
-#include <WasabiQt/SkinXml.h>
-#include <WasabiQt/Layout.h>
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/FontRegistry.h>
-#include <WasabiQt/TreePainter.h>
+#include <qtWasabi/SkinXml.h>
+#include <qtWasabi/Layout.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/FontRegistry.h>
+#include <qtWasabi/TreePainter.h>
 
 #include <QDir>
 #include <QFile>
@@ -18,7 +18,7 @@
 #include <QPainter>
 #include <QtTest/QtTest>
 
-using namespace WasabiQt;
+using namespace qtWasabi;
 
 namespace {
 int countOpaquePixels(const QImage &img) {
@@ -83,7 +83,7 @@ private slots:
                  qPrintable(QStringLiteral("only %1% painted").arg(pct)));
 
         const QString outPath = QDir::temp().filePath(
-            QStringLiteral("wasabiqt-m7-modern-main.png"));
+            QStringLiteral("qtwasabi-m7-modern-main.png"));
         QVERIFY(out.save(outPath));
         qInfo().noquote() << QStringLiteral("Wrote %1").arg(outPath);
     }
