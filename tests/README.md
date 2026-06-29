@@ -1,4 +1,4 @@
-# WasabiQT tests
+# qtWasabi tests
 
 Two test types live here:
 
@@ -37,7 +37,7 @@ visual/actual/            — gitignored; written by the harness
 ```
 
 The `render_layout` binary is the workhorse — it loads a parsed skin,
-runs the full WasabiQT pipeline (parse → expand → paint), and writes
+runs the full qtWasabi pipeline (parse → expand → paint), and writes
 a deterministic PNG using `QT_QPA_PLATFORM=offscreen`.  No window
 required; runs anywhere with libQt6Gui (incl. headless CI).
 

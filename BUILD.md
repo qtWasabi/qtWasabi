@@ -1,24 +1,24 @@
-# Building WasabiQT
+# Building qtWasabi
 
 This document covers everything needed to build, install, and package
-WasabiQT from source.  TL;DR for the impatient:
+qtWasabi from source.  TL;DR for the impatient:
 
 ```bash
-curl -fsSL https://wasabiqt.snek.at | sh
+curl -fsSL https://qtwasabi.snek.at | sh
 ```
 
 That installs from scratch on Fedora, RHEL, Debian, Ubuntu, Arch,
 openSUSE, and macOS (Apple Silicon native + Intel).  Everything below
 is what's happening under the hood, in case you want to do it
-manually or you're packaging WasabiQT for a distro.
+manually or you're packaging qtWasabi for a distro.
 
 ---
 
 ## What you'll get
 
-- `libwasabiqt.so` (or `.dylib`, `.dll`) — the embeddable skin engine
-- `WasabiQt::Host` / `WasabiQt::Skin` headers under `include/WasabiQt/`
-- `wasabiqt_minimal_player` — example app, hosts a `.wal` skin in a
+- `libqtwasabi.so` (or `.dylib`, `.dll`) — the embeddable skin engine
+- `qtWasabi::Host` / `qtWasabi::Skin` headers under `include/qtWasabi/`
+- `qtwasabi_minimal_player` — example app, hosts a `.wal` skin in a
   QMainWindow
 
 ## What you'll need
@@ -30,19 +30,19 @@ manually or you're packaging WasabiQT for a distro.
 - **git**
 - ~500 MB free disk for the Wasabi source extract + ~200 MB for the build
 
-## Why WasabiQT needs you to fetch the Wasabi source separately
+## Why qtWasabi needs you to fetch the Wasabi source separately
 
 The Wasabi source — the original Maki VM, widget classes, and BFC
-foundation framework that WasabiQT links against — is licensed under
+foundation framework that qtWasabi links against — is licensed under
 the **Winamp Collaborative License v1.0**, which forbids redistribution
-by anyone but Llama Group themselves.  WasabiQT therefore ships
+by anyone but Llama Group themselves.  qtWasabi therefore ships
 **none** of it.
 
 The source is publicly mirrored on the Internet Archive.  Anyone can
 download it themselves; under WCL §3 they then have the right to "make,
-run, and propagate Covered works that they do not Convey."  WasabiQT's
+run, and propagate Covered works that they do not Convey."  qtWasabi's
 build expects you to do that download once, points at your local copy,
-and links against it.  No conveyance happens via WasabiQT; it happens
+and links against it.  No conveyance happens via qtWasabi; it happens
 between archive.org and you.
 
 This is the same pattern console emulators use for proprietary BIOSes:
@@ -83,11 +83,11 @@ sudo zypper install -y cmake gcc-c++ git curl p7zip \
 brew install cmake git curl p7zip qt ninja create-dmg
 ```
 
-### 2. Clone WasabiQT
+### 2. Clone qtWasabi
 
 ```bash
-git clone https://github.com/kleberbaum/WasabiQT.git
-cd WasabiQT
+git clone https://github.com/kleberbaum/qtWasabi.git
+cd qtWasabi
 ```
 
 ### 3. Fetch the Wasabi source from archive.org
@@ -131,10 +131,10 @@ cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
 CMake will print the located Wasabi source path and Qt version:
 
 ```
--- Located Wasabi source at: /home/you/WasabiQT/wasabi-src/Src
--- WasabiQT 0.0.1 configured
+-- Located Wasabi source at: /home/you/qtWasabi/wasabi-src/Src
+-- qtWasabi 0.0.1 configured
 --   Qt6:           6.7.2
---   WASABI_SRC_DIR: /home/you/WasabiQT/wasabi-src/Src
+--   WASABI_SRC_DIR: /home/you/qtWasabi/wasabi-src/Src
 --   C++ standard:  20
 ```
 
@@ -144,7 +144,7 @@ CMake will print the located Wasabi source path and Qt version:
 cmake --build build -j
 ```
 
-Results: `build/src/libwasabiqt.so`, `build/examples/minimal_player/wasabiqt_minimal_player`.
+Results: `build/src/libqtwasabi.so`, `build/examples/minimal_player/qtwasabi_minimal_player`.
 
 ### 6. (Optional) Install system-wide
 
@@ -167,15 +167,15 @@ at configure time.
 
 Output lands in `./packaging/rpm/RPMS/<arch>/`:
 
-- `wasabiqt-<ver>.<arch>.rpm` — the runtime shared library + example
-- `wasabiqt-devel-<ver>.<arch>.rpm` — headers + CMake config
+- `qtwasabi-<ver>.<arch>.rpm` — the runtime shared library + example
+- `qtwasabi-devel-<ver>.<arch>.rpm` — headers + CMake config
 
 Install:
 ```bash
-sudo dnf install ./packaging/rpm/RPMS/$(uname -m)/wasabiqt-*.rpm
+sudo dnf install ./packaging/rpm/RPMS/$(uname -m)/qtwasabi-*.rpm
 ```
 
-The RPM spec at `packaging/rpm/wasabiqt.spec` runs
+The RPM spec at `packaging/rpm/qtwasabi.spec` runs
 `scripts/fetch-wasabi.sh` from `%prep` so the build host downloads
 the Wasabi source fresh on every RPM build.  Nothing Wasabi-licensed
 ever lands in the RPM.
@@ -186,7 +186,7 @@ ever lands in the RPM.
 ./packaging/macos/build-dmg.sh
 ```
 
-Output: `./packaging/macos/WasabiQT-<ver>-<arch>.dmg`.
+Output: `./packaging/macos/qtWasabi-<ver>-<arch>.dmg`.
 
 Native build for the host architecture by default.  Universal binary
 (arm64+x86_64) via:
@@ -201,7 +201,7 @@ Apple Silicon Macs).
 
 ### One-line installer
 
-The `packaging/installer.sh` script is what `curl https://wasabiqt.snek.at | sh`
+The `packaging/installer.sh` script is what `curl https://qtwasabi.snek.at | sh`
 runs.  It detects the platform, installs deps, clones, fetches Wasabi
 source, builds, and installs system-wide.
 
@@ -218,57 +218,57 @@ Override knobs:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `WASABIQT_REPO`     | `https://github.com/kleberbaum/WasabiQT.git` | git remote |
+| `WASABIQT_REPO`     | `https://github.com/kleberbaum/qtWasabi.git` | git remote |
 | `WASABIQT_REF`      | `main`                | branch / tag / sha |
 | `WASABIQT_PREFIX`   | `/usr/local`          | install prefix |
-| `WASABIQT_WORK_DIR` | `~/.cache/wasabiqt-build` | where to clone & build |
+| `WASABIQT_WORK_DIR` | `~/.cache/qtwasabi-build` | where to clone & build |
 | `WASABIQT_DRY_RUN`  | `0`                   | print, don't execute |
 
 ---
 
 ## Embedding in your Qt media player or plugin
 
-WasabiQT ships **two link variants** so each embedder picks whichever
+qtWasabi ships **two link variants** so each embedder picks whichever
 fits their distribution model:
 
 | Variant | Target | Output | When to use |
 |---|---|---|---|
-| Shared | `WasabiQT::WasabiQT` | runtime dep on `libwasabiqt.so` | system-wide install via RPM/dpkg/brew |
-| Static | `WasabiQT::Static`  | bundled into your binary | plugins, Flatpak/Snap/AppImage, single-file builds |
+| Shared | `qtWasabi::qtWasabi` | runtime dep on `libqtwasabi.so` | system-wide install via RPM/dpkg/brew |
+| Static | `qtWasabi::Static`  | bundled into your binary | plugins, Flatpak/Snap/AppImage, single-file builds |
 
 ### Path 1 — system-installed shared library (winamp-linux, distro Audacious plugins)
 
 Best when your app is itself distributed via the system package
-manager.  WasabiQT installs `libwasabiqt.so`, headers, the CMake
+manager.  qtWasabi installs `libqtwasabi.so`, headers, the CMake
 config, and pkg-config; consumers find it the standard way:
 
 ```cmake
-find_package(WasabiQT 0.0.1 REQUIRED)
-target_link_libraries(my_player PRIVATE WasabiQT::WasabiQT)
+find_package(qtWasabi 0.0.1 REQUIRED)
+target_link_libraries(my_player PRIVATE qtWasabi::qtWasabi)
 ```
 
 Or via pkg-config (autotools / non-CMake builds):
 
 ```bash
-gcc $(pkg-config --cflags wasabiqt) -o my_app my_app.cpp \
-    $(pkg-config --libs wasabiqt)
+gcc $(pkg-config --cflags qtwasabi) -o my_app my_app.cpp \
+    $(pkg-config --libs qtwasabi)
 ```
 
 In your RPM spec / dpkg control file:
 
 ```
 # Fedora / RHEL
-Requires:       wasabiqt
-BuildRequires:  wasabiqt-devel
+Requires:       qtwasabi
+BuildRequires:  qtwasabi-devel
 ```
 
 ```
 # Debian / Ubuntu (when packaged that way)
-Depends:        libwasabiqt0
-Build-Depends:  libwasabiqt-dev
+Depends:        libqtwasabi0
+Build-Depends:  libqtwasabi-dev
 ```
 
-`dnf install winamp-linux` then automatically pulls libwasabiqt.so as a
+`dnf install winamp-linux` then automatically pulls libqtwasabi.so as a
 dependency.  This is what your existing Cloudflare-R2 + Fedora repo
 should do for winamp-linux.
 
@@ -279,31 +279,31 @@ Audacious plugins distributed independently, Flatpak/Snap bundles,
 AppImage builds, single-file Qt media players.
 
 ```cmake
-find_package(WasabiQT 0.0.1 REQUIRED)
-target_link_libraries(my_audacious_plugin PRIVATE WasabiQT::Static)
+find_package(qtWasabi 0.0.1 REQUIRED)
+target_link_libraries(my_audacious_plugin PRIVATE qtWasabi::Static)
 ```
 
-Your plugin .so or app binary then contains all of WasabiQT inline
-with no runtime dependency on libwasabiqt.so being present on the
+Your plugin .so or app binary then contains all of qtWasabi inline
+with no runtime dependency on libqtwasabi.so being present on the
 end-user's system.  The user installs Audacious normally, drops your
 plugin file into `/usr/lib/audacious/Visualization/` (or wherever),
-and it works without any WasabiQT package.
+and it works without any qtWasabi package.
 
 For Audacious plugins specifically:
 
 ```cmake
-# CMakeLists.txt for an Audacious skin plugin using WasabiQT
+# CMakeLists.txt for an Audacious skin plugin using qtWasabi
 cmake_minimum_required(VERSION 3.21)
 project(audacious_wasabi_plugin LANGUAGES CXX)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
-find_package(WasabiQT REQUIRED)
+find_package(qtWasabi REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(AUDACIOUS REQUIRED audacious)
 
 add_library(audacious_wasabi MODULE plugin.cpp)
 target_link_libraries(audacious_wasabi PRIVATE
-    WasabiQT::Static                  # bundled, no runtime dep
+    qtWasabi::Static                  # bundled, no runtime dep
     Qt6::Core Qt6::Gui Qt6::Widgets
     ${AUDACIOUS_LIBRARIES})
 
@@ -316,51 +316,51 @@ install(TARGETS audacious_wasabi
 ```
 
 The plugin's `wasabi.so` is fully self-contained.  You don't depend
-on the user having `wasabiqt-devel` or even WasabiQT installed.
+on the user having `qtwasabi-devel` or even qtWasabi installed.
 
 ### Embedder code (same for both link variants)
 
 ```cpp
-#include <WasabiQt/Host.h>
-#include <WasabiQt/Skin.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/Skin.h>
 
-class MyPlayerHost : public WasabiQt::Host {
+class MyPlayerHost : public qtWasabi::Host {
     // …implement ~40 virtual methods routing to your playback engine…
 };
 
 MyPlayerHost host;
-WasabiQt::Skin skin(&host);
+qtWasabi::Skin skin(&host);
 skin.load("/path/to/winamp_modern.wal");
 mainWindow->setCentralWidget(skin.widget());
 ```
 
 ### Reference embedder
 
-The canonical example of a real player using WasabiQT is
+The canonical example of a real player using qtWasabi is
 **[github.com/kleberbaum/winamp-linux](https://github.com/kleberbaum/winamp-linux)** —
 a Qt6 Winamp clone targeting Linux/macOS/Windows.  Its
 `src/winampwasabihost.{h,cpp}` is a fully-implemented
-`WasabiQt::Host`, and its CMake build does
-`find_package(WasabiQT REQUIRED)` + links `WasabiQT::WasabiQT`.
+`qtWasabi::Host`, and its CMake build does
+`find_package(qtWasabi REQUIRED)` + links `qtWasabi::qtWasabi`.
 
-That's the integration test for WasabiQT itself: if winamp-linux
-loads a Winamp Modern skin correctly, WasabiQT works.  No
+That's the integration test for qtWasabi itself: if winamp-linux
+loads a Winamp Modern skin correctly, qtWasabi works.  No
 maintained in-tree stub player — adding one would diverge from
 the only real consumer.
 
 ### Which path for your specific use cases
 
 - **winamp-linux** (Fedora RPM via Cloudflare R2):
-  shared library + `Requires: wasabiqt` in your spec.  Standard.
+  shared library + `Requires: qtwasabi` in your spec.  Standard.
 - **Audacious plugin in Fedora repos**:
-  shared library + `Requires: wasabiqt`.  Distro-packaged plugins
+  shared library + `Requires: qtwasabi`.  Distro-packaged plugins
   expect distro-packaged deps.
 - **Audacious plugin distributed independently** (your own download
   site, sideloaded into stock Audacious): static.  No assumptions
   about what's on the user's system.
 - **Flatpak / Snap / AppImage** of your player or a plugin:
   static.  These bundles are sandboxed; reaching the system's
-  libwasabiqt.so isn't permitted.
+  libqtwasabi.so isn't permitted.
 - **macOS .app bundle**: typically static, or shared with
   `macdeployqt`-bundled Frameworks.  Either works; static is
   simpler.
@@ -379,7 +379,7 @@ rm -rf wasabi-src/
 
 ### Qt version too old
 
-WasabiQT requires Qt 6.6+.  On older distros, install Qt from the Qt
+qtWasabi requires Qt 6.6+.  On older distros, install Qt from the Qt
 Online Installer or use a vendored Qt.  Then:
 
 ```bash
@@ -395,13 +395,13 @@ Limit parallelism:
 cmake --build build -j2
 ```
 
-### macOS: "WasabiQT.app is damaged"
+### macOS: "qtWasabi.app is damaged"
 
 This means the app isn't signed (we don't sign by default).  On
 Apple Silicon:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/WasabiQT.app
+xattr -dr com.apple.quarantine /Applications/qtWasabi.app
 ```
 
 Or build it yourself (the build above), where Gatekeeper trusts the
@@ -411,7 +411,7 @@ locally-built binary.
 
 ## License
 
-WasabiQT itself: MIT (see `LICENSE`).
+qtWasabi itself: MIT (see `LICENSE`).
 
 The Wasabi source you supply: Winamp Collaborative License v1.0, see
 the source archive's own `LICENSE.md`.  Your responsibility to honour.

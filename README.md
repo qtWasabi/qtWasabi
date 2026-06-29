@@ -6,10 +6,20 @@
 
 <p align="center">Pronounced "cute Wasabi". The "qt" is Qt the framework, which spells itself "cute".</p>
 
-A Qt-native skin engine **inspired by** Winamp's Wasabi 1 and Wasabi 2,
-built fresh for the latest Qt with the goal of running Modern Winamp
-skins on **any themeable Winamp clone**, Audacious, WACUP, future
-projects, across Linux, macOS, and Windows. Apple Silicon native.
+qtWasabi is an open-source, Qt-native **rendering engine** for Winamp's
+Wasabi skins — the continuation, in the open, of the **Wasabi 2**
+decoupling that Nullsoft started and never finished. It runs the
+open-sourced Maki bytecode VM unmodified and renders Modern `.wal` skins
+on **any themeable player** — Audacious, WACUP, a brand-new one — across
+Linux, macOS, and Windows. Apple Silicon native.
+
+Wasabi was a genuinely good UI engine that nobody else could use because
+it shipped welded into one player. Wasabi 2 / Replicant was the in-house
+attempt to pry it loose into a standalone, service-oriented, portable
+core — it stalled. qtWasabi picks up that thought: take the parts worth
+keeping (the Maki VM, the skin format, the widget model), render them
+through modern Qt, and ship the small embeddable engine the decoupling
+was always meant to produce.
 
 ### Approach: hybrid
 
@@ -27,9 +37,9 @@ qtWasabi splits the difference:
 |---|---|---|
 | **Maki bytecode VM** | opensourced `/Src/Wasabi/api/script/`, **unmodified** | bit-perfect compatibility with every shipped Modern skin — no risk of re-implementation drift breaking obscure scripts |
 | **Minimal BFC subset** | opensourced `/Src/Wasabi/bfc/{memblock,critsec,foreach,ptrlist,nsguid,thread}` | POSIX-clean parts of Wasabi's foundation library that the VM depends on. The unported Linux platform pieces (`std_file`, `std_keyboard`, `std_wnd`, …) we do **not** use |
-| **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **WasabiQT's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
-| **Skin XML parser, sendparams, gammaset, font loading** | **WasabiQT's own** | Qt-native, no platform port needed |
-| **Window/canvas/event integration** | **WasabiQT's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
+| **Wasabi widget classes** (`Group`, `Layer`, `Button`, `Slider`, `Text`, `Animation`, `Timer`, `Container`, …) | **qtWasabi's own Qt6 implementation** | matches Wasabi's documented behaviour and observed-from-source quirks (the libwasabiq prototype proved which quirks matter) but is fresh code rendering through `QPainter` |
+| **Skin XML parser, sendparams, gammaset, font loading** | **qtWasabi's own** | Qt-native, no platform port needed |
+| **Window/canvas/event integration** | **qtWasabi's `qt6/`** | `QWidget`/`QPainter`-native, replaces `Src/Wasabi/qt6/`'s 2015-era stub |
 
 **What this gives us:**
 
@@ -62,7 +72,7 @@ from the libwasabiq prototype carry forward as regression harness.
 ### Repo layout
 
 ```
-public/WasabiQt/      — embedder-facing C++ API (Host, Skin, Version)
+public/qtWasabi/      — embedder-facing C++ API (Host, Skin, Version)
 src/                  — engine: skin loader, host adapter, widget
                         tree, sendparams, gammaset, fontloader
 qt6/                  — modern Qt6 rendering and event adapter
@@ -188,7 +198,7 @@ can call its bindings against our widget. ~10 LOC per binding.
 
 ### What we pull from the official Winamp release
 
-Only this irreducible subset compiles into the WasabiQT library:
+Only this irreducible subset compiles into the qtWasabi library:
 
 - `bfc/memblock.cpp`, `critsec.cpp`, `foreach.cpp`, `freelist.cpp`,
   `nsguid.cpp`, `ptrlist.cpp`, `stack.cpp`, `node.cpp`, `thread.cpp`
@@ -220,8 +230,8 @@ The bigger goal is that this becomes embeddable in any themeable
 Winamp clone. Wasabi was a great UI framework that nobody else
 could use because it shipped welded to one player's runtime.
 qtWasabi is the small, embeddable piece you actually wanted —
-implement a `WasabiQt::Host` (~40 virtual methods), drop a
-`WasabiQt::Skin` into your `QMainWindow`, and your media player has
+implement a `qtWasabi::Host` (~40 virtual methods), drop a
+`qtWasabi::Skin` into your `QMainWindow`, and your media player has
 classic `.wal` skin support.
 
 ### Inspirations
@@ -257,53 +267,38 @@ what Qt itself does.
 
 ### Status
 
-Bootstrapping. Concrete next milestones, in dependency order:
+Working engine. The bootstrap is done — qtWasabi loads, parses, and
+renders real Modern skins through the unmodified Maki VM.
 
-1. **`bfc/` minimal subset compiles** — `memblock`, `critsec`,
-   `foreach`, `freelist`, `nsguid`, `ptrlist`, `stack`, `node`,
-   `thread`, `wasabi_std` against gcc/clang on Linux/macOS, with a
-   shim header that pre-defines the file-I/O symbols BFC's
-   transitively-included `std_file.h` looks for. ~half a day's work
-   once the shim is right.
+**Renders today**, end to end: **Bento**, **Big Bento**, and **Winamp
+Modern**. Skin XML → groupdef / sendparams expansion → the widget tree →
+Maki `onScriptLoaded` / `onResize` dispatch → `QPainter`. The player
+chrome, the equalizer, the visualisation, the in-player playlist
+(Pledit), and the media-library window all paint — and the layout is
+driven by the skins' *own* Maki scripts. The engine re-runs the real
+onResize cascade to a fixpoint, the way the scripts expect, rather than
+hard-coding any single skin's layout.
 
-2. **Maki VM compiles + runs a `.maki` blob** — `vcpu`, `scriptmgr`,
-   `objecttable`, `scriptobj` linked against (1). Smoke test:
-   load a compiled `std.mi`-using script, dispatch `onScriptLoaded`
-   against a stub `SystemObject`, no opcodes left unhandled.
+- **Maki VM, unmodified** — every script quirk a skin relies on just
+  works; there is no re-implemented VM to drift out of spec.
+- **Qt-native rendering** — HiDPI, Wayland, and Apple Silicon all work,
+  with no platform-port layer.
+- **Live** — window resize re-flows the chrome through the Maki onResize
+  path; skins hot-reload.
 
-3. **qtWasabi widget tree + skin XML parser** — port the
-   well-tested libwasabiq XML parser + Widget tree into qtWasabi's
-   `src/`. Parses WinampModernPP's `skin.xml`, dumps the
-   `Container`/`Layout`/`groupdef` tree.
+**Honest gaps, in progress:**
 
-4. **First widget paints through Qt** — implement `Layer::paint`,
-   `Group::paint`, etc. in qtWasabi's widget classes routing to
-   `QtCanvasAdapter`. Player frame chrome (top corners + horizontal
-   frame) renders inside a `QtWindowAdapter`.
+- The Maki deferred-show machine (a skin's `suicore` / `videoavs`
+  Timer-driven tab and drawer switching) doesn't yet drive itself
+  end to end, so a few engine-level helpers still stand in for it.
+  Closing that is what retires the last static fallbacks.
+- Full media-library theming, and the broader Wasabi 2 service-layer
+  decoupling, are still ahead.
 
-5. **Script bindings bridge** — `script-bridge/` shims our
-   Qt-native widgets to the VM's `ScriptObject` interface so Maki
-   scripts can call `setVisible`, `setXmlParam`, `getAutoWidth`,
-   etc. against them. The pixel-counted libwasabiq fixes (text +2
-   inset, `getAutoWidth + 11`, per-instance enclosing-group lookup,
-   onSetXuiParam args order, …) carry forward as canonical
-   bridging behaviour.
-
-6. **WACUP titlebar pixel-regression test passes** — `tests/`
-   compares our render against the canonical 354×164 reference.
-   When this passes, winamp-linux's
-   `WasabiQt::Skin::load("/path/to/WinampModernPP")` shows the
-   correct thing in the player.
-
-Each milestone is mechanical work (add sources to CMake, fix the
-next compile error, run the next test) — but they're genuinely a
-few sessions' work, not a single evening.
-
-The reference embedder is
-[**winamp-linux**](https://github.com/kleberbaum/winamp-linux) —
-already wired up to link against the qtWasabi library; will swap
-in `WasabiQt::Skin::load` for its current modern-skin code path
-once milestone 6 lands.
+The reference embedder is **qtamp**, the player in this repo: it
+implements `qtWasabi::Host` and drops the engine into a Qt window. Any
+player can do the same — implement the Host interface, hand the engine a
+skin folder, and you have classic `.wal` skin support.
 
 ### License
 
