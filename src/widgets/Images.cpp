@@ -3,14 +3,14 @@
 
 #include "Images.h"
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QImage>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void ImagesWidget::paint(QPainter *p, PaintCtx &ctx,
                           const QSize &canvas) {
@@ -35,9 +35,10 @@ void ImagesWidget::paint(QPainter *p, PaintCtx &ctx,
             if (pos >= 0.0) v = qBound(0.0, pos, 1.0);
         } else if (src_ == QStringLiteral("balance") ||
                    src_ == QStringLiteral("pan")) {
+            // Balance shares the engine-wide 0..1 host axis (0.5 = centre),
+            // same as VOLUME and the slider thumb — consume it directly.
             double pos = ctx.host->sliderPosition(QStringLiteral("PAN"));
-            // Balance: -1..+1 → 0..1
-            if (pos >= -1.0) v = qBound(0.0, (pos + 1.0) * 0.5, 1.0);
+            if (pos >= 0.0) v = qBound(0.0, pos, 1.0);
         }
     }
     int frame = qBound(0, int(v * (frames - 1) + 0.5), frames - 1);
@@ -45,4 +46,4 @@ void ImagesWidget::paint(QPainter *p, PaintCtx &ctx,
     p->drawImage(r, src, srcRect);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

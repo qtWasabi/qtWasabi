@@ -3,15 +3,15 @@
 
 #include "Status.h"
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/LayerPainter.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/LayerPainter.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QImage>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 namespace {
 int firstVisibleCol(BitmapRegistry &bmp, const QString &id) {
@@ -67,12 +67,16 @@ void StatusWidget::paint(QPainter *p, PaintCtx &ctx,
     QHash<QString, QString> a = attrs;
     a.insert(QStringLiteral("image"), img);
     if (xShift != 0) {
+        // Parse via toDouble()->truncate (Wasabi XML coords may be
+        // fractional, e.g. y="26.9"); plain toInt() rejects decimals and
+        // would snap x to 0.  Matches Widget::resolveRectFromAttrs and the
+        // painters' coord parser — engine-wide, no skin-specific handling.
         bool ok = false;
-        int x = a.value(QStringLiteral("x")).toInt(&ok);
+        int x = static_cast<int>(a.value(QStringLiteral("x")).toDouble(&ok));
         if (!ok) x = 0;
         a.insert(QStringLiteral("x"), QString::number(x + xShift));
     }
-    LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+    LayerPainter::paintLayer(p, *ctx.bmp, a, canvas, ctx.windowActive);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

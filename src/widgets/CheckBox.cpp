@@ -3,14 +3,14 @@
 
 #include "CheckBox.h"
 
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
 #include <QFont>
 #include <QPainter>
 #include <QPen>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void CheckBoxWidget::paint(QPainter *p, PaintCtx &, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -59,4 +59,4 @@ void CheckBoxWidget::onLeftButtonDown(QPoint, PaintCtx &) {
     m_checked = !m_checked;
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

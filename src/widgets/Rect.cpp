@@ -3,13 +3,13 @@
 
 #include "Rect.h"
 
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void RectWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -34,4 +34,4 @@ void RectWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     }
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

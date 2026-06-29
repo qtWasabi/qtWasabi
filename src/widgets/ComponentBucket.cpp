@@ -3,7 +3,7 @@
 
 #include "ComponentBucket.h"
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 QPoint ComponentBucketWidget::containerScrollOffset() const {
     if (m_scroll <= 0 || m_entryStep <= 0) return QPoint(0, 0);
@@ -31,4 +31,4 @@ QPoint ComponentBucketWidget::childOriginAdjustment() const {
     return QPoint(-paintScroll.x(), -paintScroll.y());
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

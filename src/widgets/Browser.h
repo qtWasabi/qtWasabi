@@ -6,13 +6,13 @@
 // "Web" label so the host's intended bounds are visible.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class BrowserWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

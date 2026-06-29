@@ -7,13 +7,13 @@
 // <AlbumArt> as a sibling, which still paints normally.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class AlbumArtWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

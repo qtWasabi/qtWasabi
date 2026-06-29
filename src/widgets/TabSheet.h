@@ -8,13 +8,13 @@
 // visible anchor even before tab-switching is wired.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class TabSheetWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

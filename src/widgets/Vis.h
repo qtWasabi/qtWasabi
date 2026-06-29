@@ -2,8 +2,8 @@
 //
 // <vis> — Wasabi visualisation widget.  Renders spectrum bars,
 // oscilloscope, or VU meter based on `PaintCtx::visMode` (driven by
-// the embedder's right-click submenu).  Real FFT-driven spectrum is
-// M11+ work; today bar heights are pseudo-random per band but scaled
+// the embedder's right-click submenu).  A true FFT-driven spectrum is
+// not implemented; bar heights are pseudo-random per band but scaled
 // by Host::audioLevel() so the visualisation bounces with the audio.
 // No host = 0-amplitude (chrome stays visible but doesn't move).
 //
@@ -14,13 +14,13 @@
 // `-4096,0,-4096` zeroes R and B but preserves G.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class VisWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

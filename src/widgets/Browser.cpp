@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Florian Kleber
 
 #include "Browser.h"
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 #include <QPainter>
 #include <QFont>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void BrowserWidget::paint(QPainter *p, PaintCtx &, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -27,4 +27,4 @@ void BrowserWidget::paint(QPainter *p, PaintCtx &, const QSize &canvas) {
     p->restore();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

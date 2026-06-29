@@ -10,13 +10,13 @@
 // `filled="0"` draws a 1-px outline; otherwise the rect is filled.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class RectWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

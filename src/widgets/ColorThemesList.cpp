@@ -3,15 +3,15 @@
 
 #include "ColorThemesList.h"
 
-#include <WasabiQt/GammasetRegistry.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QFont>
 #include <QPainter>
 
 #include <algorithm>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void ColorThemesListWidget::paint(QPainter *p, PaintCtx &ctx,
                                     const QSize &canvas) {
@@ -82,4 +82,4 @@ void ColorThemesListWidget::paint(QPainter *p, PaintCtx &ctx,
     p->restore();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -9,9 +9,9 @@
 // The skin's `orientation=` attr can switch to horizontal.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class SplitterWidget : public Widget {
 public:
@@ -19,4 +19,4 @@ public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

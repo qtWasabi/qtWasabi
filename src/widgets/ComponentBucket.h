@@ -12,7 +12,7 @@
 
 #include "Container.h"
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class ComponentBucketWidget : public ContainerWidget {
 public:
@@ -37,4 +37,4 @@ private:
     int m_entryStep = 0;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

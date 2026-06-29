@@ -3,13 +3,13 @@
 
 #include "AnimatedLayer.h"
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/LayerPainter.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/LayerPainter.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void AnimatedLayerWidget::paint(QPainter *p, PaintCtx &ctx,
                                   const QSize &canvas) {
@@ -19,12 +19,12 @@ void AnimatedLayerWidget::paint(QPainter *p, PaintCtx &ctx,
     const QString image = attrs.value(QStringLiteral("image"));
     if (!image.isEmpty() && (r.width() > 0 || r.height() > 0)) {
         // `frameheight=` / `framewidth=` carve the bitmap into a
-        // vertical / horizontal sprite strip.  Until Phase 6 wires a
-        // frame-pump timer, paint the `start=` frame (default 0).
-        // Without this, VU AnimatedLayers (frameheight=1) paint the
-        // ENTIRE source bitmap as a single image — overflowing past
-        // the strip's per-frame slice and leaking the rest of the
-        // VU peak ramp across the display panel.
+        // vertical / horizontal sprite strip.  Paint the single
+        // `start=` frame (default 0) sliced out of the strip.
+        // Without this slicing, VU AnimatedLayers (frameheight=1)
+        // paint the ENTIRE source bitmap as a single image —
+        // overflowing past the strip's per-frame slice and leaking
+        // the rest of the VU peak ramp across the display panel.
         bool ok = false;
         const int fh = attrs.value(
             QStringLiteral("frameheight")).toInt(&ok);
@@ -45,11 +45,11 @@ void AnimatedLayerWidget::paint(QPainter *p, PaintCtx &ctx,
                 p->drawImage(r.x(), r.y(), frame);
             }
         } else {
-            LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas);
+            LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas, ctx.windowActive);
         }
     }
     for (const auto &child : children)
         if (child) child->paint(p, ctx, canvas);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

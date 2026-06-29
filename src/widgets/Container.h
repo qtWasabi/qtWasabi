@@ -22,14 +22,23 @@
 // headers for those subclasses.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
 #include <QPoint>
+#include <QString>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class ContainerWidget : public Widget {
 public:
+    ~ContainerWidget() override;
+    // Reads `_tab_key` / `_tab_value` planted by `Layout::wireTabs`
+    // (containers that are tab content pages — `wdh.X` in Bento)
+    // and installs a CfgAttribStore subscription whose callback
+    // flips `attrs["visible"]` to "1" iff store.get(key) ==
+    // m_tabValue.  No-op when the attrs aren't present.
+    void onAttrsInitialized() override;
+
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 
     // Containers translate their children into a local coord space
@@ -48,6 +57,11 @@ protected:
     // inside the container's clip rect.  Default = no scroll.
     // ComponentBucket overrides this to apply `_scroll * _entry_step`.
     virtual QPoint containerScrollOffset() const { return QPoint(0, 0); }
+
+    // Tab subscription state, populated when `_tab_key` was planted.
+    QString m_tabKey;
+    int     m_tabValue     = -1;
+    int     m_tabSubHandle = 0;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

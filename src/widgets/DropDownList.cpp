@@ -2,11 +2,11 @@
 // Copyright (c) 2026 Florian Kleber
 
 #include "DropDownList.h"
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 #include <QPainter>
 #include <QPolygon>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void DropDownListWidget::paint(QPainter *p, PaintCtx &, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -31,4 +31,4 @@ void DropDownListWidget::paint(QPainter *p, PaintCtx &, const QSize &canvas) {
     p->restore();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -9,21 +9,20 @@
 //   down.visible   =  isSpawned
 //   hover.visible  = !isSpawned && inArea
 //
-// Mirrors `XuiMenu::updateObjects()` in real Wasabi's
-// Src/Wasabi/api/skin/widgets/xuimenu.cpp.  Menu paints nothing
-// itself — its visual state IS the visibility of the three sibling
-// widgets, which are typically composed of layers + bitmaps.
+// Implements Wasabi's menu object-visibility update.  Menu paints
+// nothing itself — its visual state IS the visibility of the three
+// sibling widgets, which are typically composed of layers + bitmaps.
 //
 // The widget claims clicks via `isInteractive()` so an unmapped
 // `<Menu>` with no `id` attr still dispatches.  Spawning the actual
-// popup menu (QMenu integration) is future work; the click-state
-// visibility swap is enough to make menu buttons visibly respond
-// to mouse interaction.
+// popup menu (QMenu integration) is not yet implemented; the
+// click-state visibility swap is enough to make menu buttons visibly
+// respond to mouse interaction.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class MenuWidget : public Widget {
 public:
@@ -35,6 +34,12 @@ public:
     void onLeftButtonUp  (QPoint p, PaintCtx &ctx) override;
     void onMouseMove     (QPoint p, PaintCtx &ctx) override;
     void onMouseLeave    (PaintCtx &ctx) override;
+
+    // Drive the open/closed (down-bitmap) state explicitly.  The
+    // embedder calls this around the real popup it spawns: setSpawned(true)
+    // before showing the popup, setSpawned(false) once it closes.
+    void setSpawned(bool on);
+    bool isSpawned() const { return m_isSpawned; }
 
 private:
     // Re-evaluate normal/hover/down sibling visibility from the
@@ -48,4 +53,4 @@ private:
     bool m_inArea = false;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

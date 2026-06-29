@@ -12,8 +12,8 @@
 
 #include "Container.h"
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class GroupXFadeWidget : public ContainerWidget {};
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

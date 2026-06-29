@@ -3,12 +3,12 @@
 
 #include "TabSheet.h"
 
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void TabSheetWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -33,4 +33,4 @@ void TabSheetWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
         if (child) child->paint(p, ctx, childCanvas);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -2,10 +2,10 @@
 // Copyright (c) 2026 Florian Kleber
 
 #include "Popup.h"
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void PopupWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -21,4 +21,4 @@ void PopupWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
         if (child) child->paint(p, ctx, QSize(r.width(), r.height()));
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

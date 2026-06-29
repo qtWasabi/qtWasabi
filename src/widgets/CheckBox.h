@@ -11,9 +11,9 @@
 // state lives on the widget instance.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class CheckBoxWidget : public Widget {
 public:
@@ -25,4 +25,4 @@ private:
     bool m_checked = false;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -10,9 +10,9 @@
 // passes through to whatever is below.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class HideObjectWidget : public Widget {
 public:
@@ -21,4 +21,4 @@ public:
                      HitCtx &, QRect *) override { return nullptr; }
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

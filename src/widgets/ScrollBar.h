@@ -10,9 +10,9 @@
 // Drag tracking + page-up/page-down clicks are follow-ups.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class ScrollBarWidget : public Widget {
 public:
@@ -20,4 +20,4 @@ public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

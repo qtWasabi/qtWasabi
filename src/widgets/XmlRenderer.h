@@ -1,18 +1,17 @@
 #pragma once
 //
-// <xmlrenderer> — sub-XML injection point.  Real Wasabi inlines a referenced XML fragment at expansion time; today we register so the factory recognises the tag.  Paint is a no-op (children recurse).
-//
-// Phase 5 placeholder: registers the tag with the factory but
-// inherits Widget's default paint (visibility-and-recurse).  No
-// per-tag paint logic yet — that's part of Phase 6's per-instance-
-// state work and the host-integration milestones that follow.
+// <xmlrenderer> — sub-XML injection point.  In the Wasabi convention
+// this tag inlines a referenced XML fragment at expansion time; we
+// register the tag so the factory recognises it.  The widget itself
+// has no paint of its own — it inherits Widget's default
+// visibility-and-recurse paint so its expanded children draw normally.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class XmlRendererWidget : public Widget {
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

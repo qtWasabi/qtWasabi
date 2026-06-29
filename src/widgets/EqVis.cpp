@@ -3,14 +3,14 @@
 
 #include "EqVis.h"
 
-#include <WasabiQt/ColorRegistry.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void EqVisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -52,4 +52,4 @@ void EqVisWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     p->restore();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -3,18 +3,18 @@
 
 #include "Layer.h"
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/GammasetRegistry.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/LayerPainter.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/LayerPainter.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QPainter>
 
 #include <cstdio>
 #include <cstdlib>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void LayerWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -42,7 +42,7 @@ void LayerWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
                           : 0.0;
         const int newY = trackTop + int(frac * travel);
         a.insert(QStringLiteral("y"), QString::number(newY));
-        LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+        LayerPainter::paintLayer(p, *ctx.bmp, a, canvas, ctx.windowActive);
         return;
     }
 
@@ -61,7 +61,7 @@ void LayerWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
             if (ctx.bmp->find(lit)) {
                 QHash<QString, QString> a = attrs;
                 a.insert(QStringLiteral("image"), lit);
-                LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+                LayerPainter::paintLayer(p, *ctx.bmp, a, canvas, ctx.windowActive);
                 return;
             }
         }
@@ -98,12 +98,23 @@ void LayerWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
                     p->transform().dx(), p->transform().dy());
                 std::fflush(stderr);
             }
-            LayerPainter::paintLayer(p, *ctx.bmp, a, canvas);
+            LayerPainter::paintLayer(p, *ctx.bmp, a, canvas, ctx.windowActive);
             return;
         }
     }
 
-    LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas);
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_MENULAYER") == 1 &&
+        (id.startsWith(QStringLiteral("menu.layer.")) ||
+         id.startsWith(QStringLiteral("menu.text.")))) {
+        fprintf(stderr, "[menu.layer] id=%s x=%s y=%s w=%s h=%s vis=%s\n",
+                id.toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("x")).toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("y")).toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("w")).toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("h")).toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("visible")).toLocal8Bit().constData());
+    }
+    LayerPainter::paintLayer(p, *ctx.bmp, attrs, canvas, ctx.windowActive);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

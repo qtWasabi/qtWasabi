@@ -6,13 +6,13 @@
 // skin author wants a context-menu spawn site.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class PopupMenuWidget : public Widget {
 public:
     void paint(QPainter *, PaintCtx &, const QSize &) override {}
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -3,15 +3,64 @@
 
 #include "Container.h"
 
-#include <WasabiQt/HitCtx.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/CfgAttribStore.h>
+#include <qtWasabi/HitCtx.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
+
+ContainerWidget::~ContainerWidget() {
+    if (m_tabSubHandle)
+        CfgAttribStore::instance().unsubscribe(m_tabSubHandle);
+}
+
+void ContainerWidget::onAttrsInitialized() {
+    const QString tabKey = attrs.value(QStringLiteral("_tab_key"));
+    if (tabKey.isEmpty()) return;
+    bool ok = false;
+    const int tabVal = attrs.value(
+        QStringLiteral("_tab_value")).toInt(&ok);
+    if (!ok) return;
+    m_tabKey   = tabKey;
+    m_tabValue = tabVal;
+    if (m_tabSubHandle) {
+        CfgAttribStore::instance().unsubscribe(m_tabSubHandle);
+        m_tabSubHandle = 0;
+    }
+    auto applyVisibility = [this](int v) {
+        const QString want = (v == m_tabValue) ? QStringLiteral("1")
+                                                : QStringLiteral("0");
+        if (attrs.value(QStringLiteral("visible")) != want) {
+            attrs.insert(QStringLiteral("visible"), want);
+            requestRepaint();
+        }
+    };
+    auto &store = CfgAttribStore::instance();
+    m_tabSubHandle = store.subscribe(m_tabKey, applyVisibility);
+    applyVisibility(store.get(m_tabKey));
+}
 
 void ContainerWidget::paint(QPainter *p, PaintCtx &ctx,
                              const QSize &canvas) {
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_CONTAINER") == 1 &&
+        (id.startsWith(QLatin1String("switch.")) ||
+         id == QStringLiteral("sui.content") ||
+         id == QStringLiteral("player.mainframe") ||
+         id == QStringLiteral("player.dualwnd.pl.info") ||
+         id == QStringLiteral("player.dualwnd") ||
+         id == QStringLiteral("player.component.playlist.frame") ||
+         id == QStringLiteral("playlist.dualwnd") ||
+         id == QStringLiteral("player.component.playlist") ||
+         id == QStringLiteral("playlistpro"))) {
+        fprintf(stderr, "[container id=%s] canvas=%dx%d r=%dx%d h=%s relath=%s\n",
+                id.toLocal8Bit().constData(),
+                canvas.width(), canvas.height(),
+                resolveRect(canvas).width(), resolveRect(canvas).height(),
+                attrs.value(QStringLiteral("h")).toLocal8Bit().constData(),
+                attrs.value(QStringLiteral("relath")).toLocal8Bit().constData());
+    }
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
     const QRect r = resolveRect(canvas);
@@ -98,4 +147,4 @@ Widget *ContainerWidget::hitTest(QPoint point, QPoint origin,
     return Widget::hitTest(point, origin, canvas, ctx, outBbox);
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

@@ -11,15 +11,36 @@
 // / `speed=` / Modern PP's `pixelsperframe`; default 12 px/s.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class TextWidget : public Widget {
 public:
+    ~TextWidget() override;
+    void onAttrsInitialized() override;
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
+
+protected:
+    // Auto-binding for the canonical Wasabi "Display" pattern:
+    // when our id ends in `Display` (case-insensitive) AND
+    // Layout::wireSteppers has tagged us with a `_stepper_key`
+    // (cfgattrib whose value we should mirror), subscribe to the
+    // CfgAttribStore and rewrite the displayed text on each value
+    // change.  Skin-agnostic; the same pattern works for any skin
+    // that ships a `*Display` text near a cfgattrib slider.
+    QString m_stepperKey;
+    int     m_stepperSubHandle = 0;
+
+    // Tab state subscription — mirrors GridWidget's pattern.  Set
+    // by `Layout::wireTabs` on text widgets nested inside a
+    // `switch.X` group's `*.normal`/`*.active`/`*.footer` subtree.
+    QString m_tabStateKey;
+    int     m_tabStateValue     = -1;
+    QString m_tabShowWhen;
+    int     m_tabStateSubHandle = 0;
 };
 
 class SongTickerWidget : public TextWidget {};
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

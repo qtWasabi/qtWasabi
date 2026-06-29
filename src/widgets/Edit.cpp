@@ -3,13 +3,13 @@
 
 #include "Edit.h"
 
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
 #include <QFont>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void EditWidget::paint(QPainter *p, PaintCtx &,
                         const QSize &canvas) {
@@ -33,4 +33,4 @@ void EditWidget::paint(QPainter *p, PaintCtx &,
     p->restore();
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

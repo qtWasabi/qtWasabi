@@ -3,14 +3,14 @@
 
 #include "ProgressGrid.h"
 
-#include <WasabiQt/BitmapRegistry.h>
-#include <WasabiQt/Host.h>
-#include <WasabiQt/PaintCtx.h>
+#include <qtWasabi/BitmapRegistry.h>
+#include <qtWasabi/Host.h>
+#include <qtWasabi/PaintCtx.h>
 
 #include <QImage>
 #include <QPainter>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 void ProgressGridWidget::paint(QPainter *p, PaintCtx &ctx,
                                 const QSize &canvas) {
@@ -42,4 +42,4 @@ void ProgressGridWidget::paint(QPainter *p, PaintCtx &ctx,
     }
 }
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi

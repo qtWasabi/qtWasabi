@@ -1,22 +1,23 @@
 #pragma once
 //
-// <animatedlayer> — Wasabi's sprite-strip animated layer.  Until we
-// wire a frame-pump timer (Phase 6), render the static `image=`
-// (first frame) the same way a plain <layer> would.  Most chrome
-// usages of AnimatedLayer in Modern PP use it as a static layer with
-// a few-frame "breathing" effect that's invisible when missing.
+// <animatedlayer> — Wasabi's sprite-strip animated layer.  Renders a
+// single static frame (the `start=` frame of the sprite strip, or the
+// whole `image=` when no strip dimensions are given) the same way a
+// plain <layer> would.  Most chrome usages of AnimatedLayer in Modern
+// PP use it as a static layer with a few-frame "breathing" effect
+// that's invisible when missing.
 //
-// Recurses into children so AnimatedLayer that wrap a group still
-// expose their content.
+// Recurses into children so an AnimatedLayer that wraps a group still
+// paints the group's content.
 //
 
-#include <WasabiQt/Widget.h>
+#include <qtWasabi/Widget.h>
 
-namespace WasabiQt {
+namespace qtWasabi {
 
 class AnimatedLayerWidget : public Widget {
 public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 };
 
-}  // namespace WasabiQt
+}  // namespace qtWasabi
