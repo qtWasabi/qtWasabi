@@ -542,12 +542,14 @@ public:
             const int ih = ic.isNull() ? 11 : ic.height();
             const int bw = iw + 14;
             const QRect btn(vmX, vmTop, bw, vmH);
-            drawWadlgButton(p, btn, false);
+            drawWadlgButton(p, btn, i == m_viewMode);
             if (!ic.isNull()) {
                 const int ix = btn.x() + (bw - iw) / 2;
-                const int iy = btn.y() + (vmH - ih) / 2;
+                const int iy = btn.y() + (vmH - ih) / 2 + (i == m_viewMode ? 1 : 0);
                 p->drawImage(ix, iy, ic);
             }
+            m_viewBtnCanvas[i] =
+                QRect(p->transform().map(btn.topLeft()), btn.size());
             vmX += bw + 3;
         }
 
@@ -574,6 +576,10 @@ public:
         p->setPen(btnFg);
         p->drawText(clearBtn, Qt::AlignCenter,
                     QStringLiteral("Clear Search"));
+        m_clearBtnCanvas =
+            QRect(p->transform().map(clearBtn.topLeft()), clearBtn.size());
+        m_searchBoxCanvas =
+            QRect(p->transform().map(searchBox.topLeft()), searchBox.size());
 
         // ── Bottom row with Library + Play ▼ side by side ──────
         p->fillRect(bottomRow, bg);
@@ -586,6 +592,8 @@ public:
         p->setPen(btnFg);
         p->drawText(libBtn, Qt::AlignCenter,
                     QStringLiteral("Library"));
+        m_libBtnCanvas =
+            QRect(p->transform().map(libBtn.topLeft()), libBtn.size());
 
         const QRect playBtn(libBtn.right() + 8, bottomRow.y() + 3,
                              60, bottomRow.height() - 6);
@@ -675,6 +683,17 @@ public:
     }
 
     void onLeftButtonDown(QPoint pos, PaintCtx &ctx) override {
+        // View-mode buttons (album-art / list / details) — select the mode.
+        for (int i = 0; i < 3; ++i)
+            if (m_viewBtnCanvas[i].contains(pos)) { m_viewMode = i; return; }
+        // Clear Search / Library both reset the view to the whole library.
+        if (ctx.host && (m_clearBtnCanvas.contains(pos) ||
+                         m_libBtnCanvas.contains(pos))) {
+            m_searchText.clear();
+            m_activePane = 0;
+            reloadAll(ctx.host);
+            return;
+        }
         // Play ▼ button → play the current track view from the selected
         // row (or the top when nothing is selected).
         if (ctx.host && m_playBtnCanvas.contains(pos)) {
@@ -682,9 +701,13 @@ public:
                         qMax(0, m_tracks.selection()), false);
             return;
         }
-        // Route into whichever child widget's rect contains pos.
+        // Route into whichever child widget's rect contains pos.  Clicking
+        // a nav-tree node selects it and resets the panes to the whole
+        // library (the built-in "Local Library" sections all map to "all"
+        // for now).
         if (m_tree.lastCanvasRect.contains(pos)) {
             m_tree.onLeftButtonDown(pos, ctx);
+            if (ctx.host) { m_activePane = 0; reloadAll(ctx.host); }
             return;
         }
         m_artistsCol.onLeftButtonDown(pos, ctx);
@@ -819,6 +842,12 @@ private:
     int                         m_activePane    = 0;   // 0 artist,1 album,2 track
     QString                     m_statusText = QStringLiteral("0 items");
     QRect                       m_playBtnCanvas;       // Play ▼ hit rect
+    QRect                       m_viewBtnCanvas[3];    // view-mode buttons
+    QRect                       m_clearBtnCanvas;      // Clear Search
+    QRect                       m_libBtnCanvas;        // Library
+    QRect                       m_searchBoxCanvas;     // search edit box
+    int                         m_viewMode   = 1;      // 0 art,1 list,2 details
+    QString                     m_searchText;          // live search filter
     int                         m_lastTrackClickRow = -1;
     qint64                      m_lastTrackClickMs  = 0;
 };
