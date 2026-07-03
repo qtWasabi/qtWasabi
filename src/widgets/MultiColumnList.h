@@ -50,6 +50,12 @@ public:
     int  selection() const { return m_selection; }
     void setSelection(int row);
 
+    // Whether this pane owns focus.  The focused pane draws its selected
+    // row with the skin's active selection-bar colours; unfocused panes
+    // dim it (WADLG_INACT_SELBAR), matching real ml_local multi-pane
+    // focus behaviour.
+    void setActive(bool a) { m_active = a; }
+
     bool isInteractive() const override { return true; }
 
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
@@ -59,6 +65,7 @@ private:
     QList<MclColumn>    m_columns;
     QList<QStringList>  m_rows;
     int                 m_selection = -1;
+    bool                m_active    = true;
 
     // Cached geometry for click routing.
     QRect               m_lastRect;

@@ -99,6 +99,13 @@ void MultiColumnListWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canva
     const QColor selFg     = firstThemed(ctx,
         {"wasabi.list.text.selected", "color.selected.active"},
         QColor(255, 255, 255));
+    // Alternating-row stripe (WADLG_ITEMBG2): a subtle shade off `bg`.
+    const QColor bg2       = firstThemed(ctx,
+        {"wasabi.list.background.alt"},
+        bg.lightnessF() < 0.5 ? bg.lighter(160) : bg.darker(108));
+    // Unfocused selection (WADLG_INACT_SELBAR): dimmed selection bar.
+    const QColor inactSelBg = firstThemed(ctx,
+        {"wasabi.list.text.selected.background.inactive"}, selBg.darker(155));
 
     p->save();
     p->fillRect(r, bg);
@@ -110,7 +117,11 @@ void MultiColumnListWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canva
     const int headerH = rowH + 2;
     m_lastHeaderH     = headerH;
     m_lastRowH        = rowH;
-    m_lastFirstRowY   = r.y() + headerH + 1;
+    // Hit-test geometry is compared against canvas-space click coords, so
+    // anchor it to the transform-mapped rect top (m_lastRect), NOT the
+    // local r.y() — the holder paints the panes through a translated
+    // painter, so r.y() is offset from the canvas y the clicks arrive in.
+    m_lastFirstRowY   = m_lastRect.y() + headerH + 1;
 
     // Header strip.  One band across the top of the rect, column
     // labels separated by a 1-px vertical divider, optional sort
@@ -174,9 +185,12 @@ void MultiColumnListWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canva
         const QStringList &cells = m_rows[row];
         const QRect rowR(r.x(), y, r.width(), rowH);
         const bool selected = (row == m_selection);
-        if (selected) p->fillRect(rowR, selBg);
+        if (selected)
+            p->fillRect(rowR, m_active ? selBg : inactSelBg);
+        else if (row & 1)
+            p->fillRect(rowR, bg2);            // alternating stripe
         int xcell = rowR.x() + 6;
-        p->setPen(selected ? selFg : text);
+        p->setPen(selected ? (m_active ? selFg : text) : text);
         for (int c = 0; c < m_columns.size(); ++c) {
             const int cw = qMax(20, m_columns[c].width);
             const QString s = c < cells.size() ? cells[c] : QString();
