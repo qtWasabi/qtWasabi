@@ -27,7 +27,10 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy
             ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
             ${QTWASABI_VCPU_PATCHED}
-    COMMAND patch -p1 -d ${CMAKE_CURRENT_BINARY_DIR}
+    # --ignore-whitespace: the archive.org Wasabi source ships original
+    # Windows CRLF line endings; the patch context is LF.  Relaxing the
+    # whitespace match lets the hunks apply either way.
+    COMMAND patch -p1 --ignore-whitespace -d ${CMAKE_CURRENT_BINARY_DIR}
             -i ${QTWASABI_VCPU_PATCH}
     DEPENDS ${WASABI_SRC_DIR}/Wasabi/api/script/vcpu.cpp
             ${QTWASABI_VCPU_PATCH}
