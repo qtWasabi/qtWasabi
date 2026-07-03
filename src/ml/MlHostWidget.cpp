@@ -11,6 +11,7 @@
 #include <qtWasabi/BitmapRegistry.h>
 #include <qtWasabi/ColorRegistry.h>
 #include <qtWasabi/GammasetRegistry.h>
+#include <qtWasabi/Host.h>
 #include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
@@ -375,26 +376,23 @@ public:
         // box behind each glyph.
         m_tree.setBitmapResolver(&loadMlIcon);
 
-        m_artistsCol.appendColumn(QStringLiteral("Artist"),  150);
-        m_artistsCol.appendColumn(QStringLiteral("Albums"),   60, 2);
-        m_artistsCol.appendColumn(QStringLiteral("Tracks"),   60, 2);
-        m_artistsCol.appendRow({QStringLiteral("All (0 artists)"),
-                                 QStringLiteral("0"),
-                                 QStringLiteral("0")});
-        m_artistsCol.setSelection(0);
+        // The filter panes are 2-column: the name plus the next filter's
+        // per-row count, right-aligned (real ml_local SimpleFilter shape).
+        // Rows are filled from the Host's tag-indexed library on first
+        // paint (reloadAll) and refiltered on selection; see below.
+        m_artistsCol.appendColumn(QStringLiteral("Artist"),  155);
+        m_artistsCol.appendColumn(QStringLiteral("Albums"),   48, 2);
 
-        m_albumsCol.appendColumn(QStringLiteral("Album"),    150);
-        m_albumsCol.appendColumn(QStringLiteral("Year"),      60, 2);
-        m_albumsCol.appendColumn(QStringLiteral("Tracks"),    60, 2);
-        m_albumsCol.appendRow({QStringLiteral("All (0 albums)"),
-                                QStringLiteral(""),
-                                QStringLiteral("0")});
+        m_albumsCol.appendColumn(QStringLiteral("Album"),    155);
+        m_albumsCol.appendColumn(QStringLiteral("Tracks"),    48, 2);
 
-        m_tracks.appendColumn(QStringLiteral("Artist"),   120);
-        m_tracks.appendColumn(QStringLiteral("Album"),    140);
-        m_tracks.appendColumn(QStringLiteral("Track #"),   60, 2);
-        m_tracks.appendColumn(QStringLiteral("Title"),    180);
-        m_tracks.appendColumn(QStringLiteral("Length"),    60, 2);
+        m_tracks.appendColumn(QStringLiteral("Artist"),   110);
+        m_tracks.appendColumn(QStringLiteral("Album"),    130);
+        m_tracks.appendColumn(QStringLiteral("#"),         32, 2);
+        m_tracks.appendColumn(QStringLiteral("Title"),    170);
+        m_tracks.appendColumn(QStringLiteral("Length"),    54, 2);
+        m_tracks.appendColumn(QStringLiteral("Genre"),     70);
+        m_tracks.appendColumn(QStringLiteral("Year"),      46, 2);
     }
 
     bool isInteractive() const override { return true; }
@@ -402,6 +400,13 @@ public:
     void paint(QPainter *p, PaintCtx &ctx, const QRect &r) override {
         if (r.width() <= 0 || r.height() <= 0) return;
         m_lastRect = r;
+
+        // Populate the artist/album/track panes from the Host's
+        // tag-indexed library on the first paint that has a Host.
+        if (ctx.host && !m_dataLoaded) {
+            m_dataLoaded = true;
+            reloadAll(ctx.host);
+        }
 
         // Prime wa_dlg with the live skin's palette once, so any
         // WADlg_* draw calls resolve to the active skin's colours.
@@ -592,7 +597,7 @@ public:
         p->drawText(QRect(playBtn.right() + 12, bottomRow.y(),
                            bottomRow.width() - 200, bottomRow.height()),
                     Qt::AlignVCenter | Qt::AlignLeft,
-                    QStringLiteral("0 items in 0.001 sec."));
+                    m_statusText);
 
         // ── Left sidebar (tree) — full height from the top ─────
         // Sunken bevel frame around the sidebar pane.
@@ -645,6 +650,9 @@ public:
                               QString::number(inner.height()));
             mcl.paint(p, ctx, QSize(r.right() + 1, r.bottom() + 1));
         };
+        m_artistsCol.setActive(m_activePane == 0);
+        m_albumsCol.setActive(m_activePane == 1);
+        m_tracks.setActive(m_activePane == 2);
         paintBorderedPane(m_artistsCol, artistPane);
         paintBorderedPane(m_albumsCol,  albumPane);
         paintBorderedPane(m_tracks,     tracksPane);
@@ -670,9 +678,93 @@ public:
         m_artistsCol.onLeftButtonDown(pos, ctx);
         m_albumsCol.onLeftButtonDown(pos, ctx);
         m_tracks.onLeftButtonDown(pos, ctx);
+        if (!ctx.host) return;
+        // Selecting an artist refilters the albums + tracks; selecting an
+        // album refilters the tracks.  Row 0 of each pane is the "All"
+        // summary → an empty filter.
+        if (m_artistsCol.selection() != m_lastArtistSel) {
+            m_lastArtistSel = m_artistsCol.selection();
+            m_activePane = 0;
+            const int i = m_lastArtistSel;
+            m_selArtist = (i > 0 && i - 1 < m_artists.size())
+                              ? m_artists[i - 1].name : QString();
+            refreshAlbums(ctx.host);
+            refreshTracks(ctx.host);
+        } else if (m_albumsCol.selection() != m_lastAlbumSel) {
+            m_lastAlbumSel = m_albumsCol.selection();
+            m_activePane = 1;
+            const int j = m_lastAlbumSel;
+            m_selAlbum = (j > 0 && j - 1 < m_albums.size())
+                             ? m_albums[j - 1].name : QString();
+            refreshTracks(ctx.host);
+        } else {
+            m_activePane = 2;   // clicked in the track grid
+        }
     }
 
 private:
+    // ── Media Library data plumbing ─────────────────────────────────
+    // Pull the whole artist → album → track view from the Host on the
+    // first paint, then refilter incrementally on selection.
+    void reloadAll(Host *host) {
+        m_selArtist.clear();
+        m_selAlbum.clear();
+        refreshArtists(host);
+        refreshAlbums(host);
+        refreshTracks(host);
+    }
+    void refreshArtists(Host *host) {
+        m_artists = host->mlArtists();
+        const int totalAlbums = host->mlAlbums(QString()).size();
+        m_artistsCol.clearRows();
+        m_artistsCol.appendRow({allSummary(m_artists.size(), "artist"),
+                                 QString::number(totalAlbums)});
+        for (const auto &a : m_artists)
+            m_artistsCol.appendRow({a.name, QString::number(a.albumCount)});
+        m_artistsCol.setSelection(0);
+        m_lastArtistSel = 0;
+    }
+    void refreshAlbums(Host *host) {
+        m_albums = host->mlAlbums(m_selArtist);
+        m_selAlbum.clear();
+        int totalTracks = 0;
+        for (const auto &a : m_albums) totalTracks += a.trackCount;
+        m_albumsCol.clearRows();
+        m_albumsCol.appendRow({allSummary(m_albums.size(), "album"),
+                                QString::number(totalTracks)});
+        for (const auto &a : m_albums)
+            m_albumsCol.appendRow({a.name, QString::number(a.trackCount)});
+        m_albumsCol.setSelection(0);
+        m_lastAlbumSel = 0;
+    }
+    void refreshTracks(Host *host) {
+        const auto trks = host->mlTracks(m_selArtist, m_selAlbum);
+        m_tracks.clearRows();
+        qint64 totalMs = 0;
+        for (const auto &t : trks) {
+            totalMs += t.lengthMs;
+            m_tracks.appendRow({
+                t.artist, t.album,
+                t.track > 0 ? QString::number(t.track) : QString(),
+                t.title, formatLen(t.lengthMs), t.genre,
+                t.year > 0 ? QString::number(t.year) : QString()});
+        }
+        m_statusText = trks.isEmpty()
+            ? QStringLiteral("0 items")
+            : QStringLiteral("%1 items  [%2]").arg(trks.size())
+                  .arg(formatLen(totalMs));
+    }
+    static QString allSummary(int n, const char *noun) {
+        return QStringLiteral("All (%1 %2%3)")
+            .arg(n).arg(QString::fromLatin1(noun)).arg(n == 1 ? "" : "s");
+    }
+    static QString formatLen(qint64 ms) {
+        if (ms <= 0) return QString();
+        const qint64 s = ms / 1000;
+        return QStringLiteral("%1:%2").arg(s / 60)
+            .arg(s % 60, 2, 10, QLatin1Char('0'));
+    }
+
     TreeListWidget        m_tree;
     MultiColumnListWidget m_artistsCol;
     MultiColumnListWidget m_albumsCol;
@@ -682,6 +774,17 @@ private:
     // once to seed the nav tree; a tree-mutation signal could later
     // drive incremental repaints on plugin-driven inserts.
     HWND                  m_libraryHwnd = nullptr;
+
+    // Live Media Library state, sourced from the Host on first paint.
+    bool                        m_dataLoaded = false;
+    QList<Host::MlArtistRow>    m_artists;
+    QList<Host::MlAlbumRow>     m_albums;
+    QString                     m_selArtist;    // "" = all artists
+    QString                     m_selAlbum;     // "" = all albums
+    int                         m_lastArtistSel = -1;
+    int                         m_lastAlbumSel  = -1;
+    int                         m_activePane    = 0;   // 0 artist,1 album,2 track
+    QString                     m_statusText = QStringLiteral("0 items");
 };
 
 }  // anonymous

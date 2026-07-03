@@ -30,6 +30,7 @@
 
 #include <QtCore/qglobal.h>
 #include <QImage>
+#include <QList>
 #include <QString>
 #include <QUrl>
 #include <functional>
@@ -187,6 +188,24 @@ public:
     virtual QString libraryRowLabel(const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
     virtual QString libraryRowPath (const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
     virtual bool    libraryRowHasChildren(const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return false; }
+
+    // ── Media Library (artist → album → track) accessors used by the
+    //    gen_ml Media Library renderer's three content panes.  Rows are
+    //    plain value structs the embedder fills from its tag-indexed
+    //    library (qtamp backs this with a DuckDB + Parquet index).  An
+    //    empty `artist`/`album` means "all".  Default: empty library.
+    struct MlArtistRow { QString name; int albumCount = 0; int trackCount = 0; };
+    struct MlAlbumRow  { QString name; int year = 0; int trackCount = 0; };
+    struct MlTrackRow  {
+        QString artist, album, title, genre;
+        int     track = 0, year = 0;
+        qint64  lengthMs = 0;
+        QString path;
+    };
+    virtual QList<MlArtistRow> mlArtists() const { return {}; }
+    virtual QList<MlAlbumRow>  mlAlbums(const QString &artist) const { Q_UNUSED(artist); return {}; }
+    virtual QList<MlTrackRow>  mlTracks(const QString &artist, const QString &album) const { Q_UNUSED(artist); Q_UNUSED(album); return {}; }
+    virtual int                mlTotalTracks() const { return 0; }
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;
