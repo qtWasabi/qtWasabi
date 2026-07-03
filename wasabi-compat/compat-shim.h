@@ -60,6 +60,18 @@
 #  if defined(__linux__) && !defined(__x86_64) && !defined(__x86_64__)
 #    define __x86_64
 #  endif
+// The ml_*/pledit targets fake _MSC_VER so upstream Win32 source
+// compiles.  On the macOS SDK, clang's own <stddef.h> then follows
+// MSVC's wchar_t codepath and re-typedefs the wchar_t keyword,
+// colliding with it ("cannot combine with previous 'int'").  In C++
+// wchar_t is native, so set the MSVC "wchar_t is native" marker to
+// suppress that typedef.  A no-op on glibc, required on macOS.
+#  if defined(_MSC_VER) && !defined(_NATIVE_WCHAR_T_DEFINED)
+#    define _NATIVE_WCHAR_T_DEFINED 1
+#  endif
+// BFC's wasabi_std.h declares a pthread_t member; glibc pulls <pthread.h>
+// in transitively, the macOS SDK does not — include it explicitly.
+#  include <pthread.h>
 #  define _STD_FILE_H 1
 #  define NULLSOFT_WASABI_STD_KEYBOARD_H 1
 #  define __TIMER_API_H 1

@@ -6,7 +6,13 @@
 // wasabi-port-shim.h — force-included into every BFC translation
 // unit via -include.  Provides the typedefs/macros that BFC's
 // transitively-included std_file.h, std_keyboard.h, std_wnd.h etc.
-// reference but were never defined for non-Win32/macOS targets.
+// reference but were never defined for non-Win32 targets.
+//
+// The shim body targets any non-Win32 POSIX platform.  Linux and
+// macOS share it: everything here is portable C (locale_t, wcstol,
+// swprintf, setlocale, opaque Qt handles) and the Maki VM compile
+// avoids the platform-specific window/GDI layer entirely, so no
+// Carbon or X11 is pulled in on either.
 //
 // These are declarations only.  The Maki VM and script registry —
 // the only parts of Wasabi we actually compile — never CALL the file
@@ -19,7 +25,7 @@
 // qtWasabi layer, above BFC.
 //
 
-#if !defined(_WIN32) && !defined(__APPLE__)
+#if !defined(_WIN32)
 
 // ── BFC types.h Linux dispatch ───────────────────────────────────
 //
@@ -174,6 +180,9 @@ inline int wq_wide_to_ascii(const wchar_t *src, char *dst, int cap) {
 #  include <wchar.h>
 #  include <stdlib.h>
 #  include <locale.h>
+// BFC's wasabi_std.h declares a pthread_t member; glibc pulls <pthread.h>
+// in transitively, the macOS SDK does not — include it explicitly.
+#  include <pthread.h>
 typedef locale_t _locale_t;
 
 static inline _locale_t _create_locale(int /*category*/, const char * /*name*/) {
@@ -245,7 +254,7 @@ typedef HFONT_QT  OSFONTHANDLE;
 // header that consumers include AFTER any Wasabi header.  Most TUs
 // don't need this, but the public Maki test does.
 
-#endif  // !_WIN32 && !__APPLE__
+#endif  // !_WIN32
 
 // Defined regardless of platform — convenience macro for downstream
 // to include after a Wasabi header to clean up its macro pollution.

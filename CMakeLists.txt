@@ -13,6 +13,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # without re-jiggering individual targets.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# macOS: several ported targets fake _MSC_VER so upstream Win32 source
+# compiles.  clang's own <stddef.h> then follows MSVC's wchar_t codepath
+# and re-typedefs the wchar_t keyword ("cannot combine with previous
+# 'int'").  Declaring wchar_t native (which it is in C++) suppresses that
+# typedef.  A no-op for TUs that don't fake _MSC_VER, so define it globally.
+if(APPLE)
+    add_compile_definitions(_NATIVE_WCHAR_T_DEFINED=1)
+endif()
+
 # Qt6 (Core, Gui, Widgets, Multimedia for vis hooks).
 # qtWasabi targets the LATEST Qt6 — no fallback to 6.0/6.1 era.
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Widgets Quick Qml)
@@ -26,6 +35,20 @@ set(CMAKE_AUTORCC ON)
 # or the WASABI_SRC_DIR environment variable.  scripts/fetch-wasabi.sh
 # automates the download into ./wasabi-src/Src for local builds.
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindWasabiSrc.cmake)
+
+# Overlay the port's own headers that public Wasabi source mirrors don't
+# ship — the macOS platform types (macOS was never an upstream build target)
+# and a forward-decl stub for a Windows-only header Winamp's Main.h pulls in.
+# These are `../`-relative or platform-dispatch includes, so they must sit
+# physically inside the source tree.  Only copy when actually absent, so a
+# pre-populated, read-only, or shared WASABI_SRC_DIR isn't mutated on every
+# configure (and an existing hand-placed stub isn't clobbered).
+if(NOT EXISTS "${WASABI_SRC_DIR}/Elevator/IFileTypeRegistrar_32.h"
+   OR (APPLE AND NOT EXISTS
+       "${WASABI_SRC_DIR}/replicant/foundation/osx-amd64/types.h"))
+    file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port/platform-overlay/Src/
+         DESTINATION ${WASABI_SRC_DIR})
+endif()
 
 # ── Targets ─────────────────────────────────────────────────────────
 
