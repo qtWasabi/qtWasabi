@@ -206,6 +206,16 @@ public:
     virtual QList<MlAlbumRow>  mlAlbums(const QString &artist) const { Q_UNUSED(artist); return {}; }
     virtual QList<MlTrackRow>  mlTracks(const QString &artist, const QString &album) const { Q_UNUSED(artist); Q_UNUSED(album); return {}; }
     virtual int                mlTotalTracks() const { return 0; }
+
+    // Send Media Library tracks to the player.  `paths` is the current
+    // view (e.g. the visible track grid); the embedder appends them to
+    // its playlist and, unless `enqueueOnly`, starts playback from
+    // `startRow`.  Wired from the ML renderer's double-click and Play
+    // button.  Default: no-op.
+    virtual void mlPlayTracks(const QList<QString> &paths, int startRow,
+                              bool enqueueOnly) {
+        Q_UNUSED(paths); Q_UNUSED(startRow); Q_UNUSED(enqueueOnly);
+    }
 };
 
 using DisplayResolver = std::function<QString(const QString &)>;

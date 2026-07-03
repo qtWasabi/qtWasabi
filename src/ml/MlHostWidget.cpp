@@ -15,6 +15,7 @@
 #include <qtWasabi/PaintCtx.h>
 
 #include <QColor>
+#include <QDateTime>
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
@@ -592,6 +593,10 @@ public:
         p->setPen(btnFg);
         p->drawText(playBtn, Qt::AlignCenter,
                     QStringLiteral("Play ▼"));
+        // Canvas-space rect for click routing (the holder paints us
+        // through a translated painter, so map to the click coord space).
+        m_playBtnCanvas = QRect(p->transform().map(playBtn.topLeft()),
+                                playBtn.size());
 
         p->setPen(text);
         p->drawText(QRect(playBtn.right() + 12, bottomRow.y(),
@@ -670,6 +675,13 @@ public:
     }
 
     void onLeftButtonDown(QPoint pos, PaintCtx &ctx) override {
+        // Play ▼ button → play the current track view from the selected
+        // row (or the top when nothing is selected).
+        if (ctx.host && m_playBtnCanvas.contains(pos)) {
+            playVisible(ctx.host,
+                        qMax(0, m_tracks.selection()), false);
+            return;
+        }
         // Route into whichever child widget's rect contains pos.
         if (m_tree.lastCanvasRect.contains(pos)) {
             m_tree.onLeftButtonDown(pos, ctx);
@@ -697,8 +709,20 @@ public:
             m_selAlbum = (j > 0 && j - 1 < m_albums.size())
                              ? m_albums[j - 1].name : QString();
             refreshTracks(ctx.host);
-        } else {
+        } else if (m_tracks.lastCanvasRect().contains(pos)) {
             m_activePane = 2;   // clicked in the track grid
+            // Double-click a track row → play the view from that track.
+            const int row = m_tracks.selection();
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (row >= 0 && row == m_lastTrackClickRow &&
+                now - m_lastTrackClickMs < 400) {
+                playVisible(ctx.host, row, false);
+                m_lastTrackClickMs = 0;
+                m_lastTrackClickRow = -1;
+            } else {
+                m_lastTrackClickMs = now;
+                m_lastTrackClickRow = row;
+            }
         }
     }
 
@@ -738,10 +762,10 @@ private:
         m_lastAlbumSel = 0;
     }
     void refreshTracks(Host *host) {
-        const auto trks = host->mlTracks(m_selArtist, m_selAlbum);
+        m_trackRows = host->mlTracks(m_selArtist, m_selAlbum);
         m_tracks.clearRows();
         qint64 totalMs = 0;
-        for (const auto &t : trks) {
+        for (const auto &t : m_trackRows) {
             totalMs += t.lengthMs;
             m_tracks.appendRow({
                 t.artist, t.album,
@@ -749,10 +773,18 @@ private:
                 t.title, formatLen(t.lengthMs), t.genre,
                 t.year > 0 ? QString::number(t.year) : QString()});
         }
-        m_statusText = trks.isEmpty()
+        m_statusText = m_trackRows.isEmpty()
             ? QStringLiteral("0 items")
-            : QStringLiteral("%1 items  [%2]").arg(trks.size())
+            : QStringLiteral("%1 items  [%2]").arg(m_trackRows.size())
                   .arg(formatLen(totalMs));
+    }
+    // Send the current track view to the player, playing from `startRow`.
+    void playVisible(Host *host, int startRow, bool enqueueOnly) {
+        if (!host || m_trackRows.isEmpty()) return;
+        QList<QString> paths;
+        paths.reserve(m_trackRows.size());
+        for (const auto &t : m_trackRows) paths.append(t.path);
+        host->mlPlayTracks(paths, startRow, enqueueOnly);
     }
     static QString allSummary(int n, const char *noun) {
         return QStringLiteral("All (%1 %2%3)")
@@ -779,12 +811,16 @@ private:
     bool                        m_dataLoaded = false;
     QList<Host::MlArtistRow>    m_artists;
     QList<Host::MlAlbumRow>     m_albums;
+    QList<Host::MlTrackRow>     m_trackRows;    // current track view (with paths)
     QString                     m_selArtist;    // "" = all artists
     QString                     m_selAlbum;     // "" = all albums
     int                         m_lastArtistSel = -1;
     int                         m_lastAlbumSel  = -1;
     int                         m_activePane    = 0;   // 0 artist,1 album,2 track
     QString                     m_statusText = QStringLiteral("0 items");
+    QRect                       m_playBtnCanvas;       // Play ▼ hit rect
+    int                         m_lastTrackClickRow = -1;
+    qint64                      m_lastTrackClickMs  = 0;
 };
 
 }  // anonymous

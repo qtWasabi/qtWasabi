@@ -50,6 +50,9 @@ public:
     int  selection() const { return m_selection; }
     void setSelection(int row);
 
+    // Canvas-space rect of the last paint (for the owner's hit routing).
+    QRect lastCanvasRect() const { return m_lastRect; }
+
     // Whether this pane owns focus.  The focused pane draws its selected
     // row with the skin's active selection-bar colours; unfocused panes
     // dim it (WADLG_INACT_SELBAR), matching real ml_local multi-pane
