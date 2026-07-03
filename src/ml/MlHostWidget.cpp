@@ -20,6 +20,7 @@
 #include <QSet>
 
 #include <cstdlib>
+#include <cstdio>
 #include <memory>
 
 namespace qtWasabi {
@@ -42,6 +43,20 @@ void *qtwasabi_make_genex(const unsigned *colors24);
 void  qtwasabi_set_genskin_bitmap(void *genex);
 void  WADlg_init(void *hwnd);
 int   WADlg_getColor(int idx);
+// Renders the real wa_dlg owner-draw silver button (9-sliced from the
+// genex) into a w*h ARGB32 buffer.
+void  qtwasabi_wadlg_button_argb(int w, int h, int pressed, unsigned *out);
+}
+
+// Draw the real wa_dlg silver button face at `r` (label text, if any, is
+// drawn by the caller — wa_dlg's GetDlgItemText is stubbed empty here).
+inline void drawWadlgButton(QPainter *p, const QRect &r, bool pressed) {
+    if (r.width() <= 0 || r.height() <= 0) return;
+    QImage img(r.size(), QImage::Format_ARGB32_Premultiplied);
+    img.fill(Qt::transparent);
+    qtwasabi_wadlg_button_argb(r.width(), r.height(), pressed ? 1 : 0,
+                               reinterpret_cast<unsigned *>(img.bits()));
+    p->drawImage(r.topLeft(), img);
 }
 
 // Resolve the 24 WADLG_* colours from the live skin, synthesise + install
@@ -191,75 +206,6 @@ QImage loadMlToolbarIcon(const QString &relPath, QColor tint) {
     }
     cache.insert(key, out);
     return out;
-}
-
-// Paint a media-library button using the SKIN'S OWN button art.
-// The ML buttons match the skin (dark grey for Bento, whatever each
-// other skin ships) by 9-slicing the skin's `wasabi.button.{corners,
-// edges,center}` group: 4-px fixed corners/edges with a stretched
-// centre, following the Wasabi button-draw convention.  imageFor()
-// applies the skin's `gammagroup` so the colour follows the active
-// colour theme.  Falls back to a flat themed fill only when a skin
-// defines no button art.  Generic: no hardcoded chrome colour, themes
-// correctly for any skin.
-void paintSkinButton(QPainter *p, PaintCtx &ctx, const QRect &r,
-                      bool pressed = false) {
-    if (r.width() <= 0 || r.height() <= 0) return;
-    static const char *kN[9] = {
-        "wasabi.button.top.left",    "wasabi.button.top",    "wasabi.button.top.right",
-        "wasabi.button.left",        "wasabi.button.center", "wasabi.button.right",
-        "wasabi.button.bottom.left", "wasabi.button.bottom", "wasabi.button.bottom.right",
-    };
-    QImage pc[9];
-    bool haveAll = (ctx.bmp != nullptr);
-    if (ctx.bmp)
-        for (int i = 0; i < 9 && haveAll; ++i) {
-            pc[i] = ctx.bmp->imageFor(QString::fromLatin1(kN[i]));
-            if (pc[i].isNull()) haveAll = false;
-        }
-
-    p->save();
-    if (haveAll) {
-        const int x0 = r.left(), y0 = r.top();
-        const int x1 = r.right() + 1, y1 = r.bottom() + 1;
-        const int cw = qMin(4, r.width()  / 2);
-        const int ch = qMin(4, r.height() / 2);
-        const int midW = r.width()  - 2 * cw;
-        const int midH = r.height() - 2 * ch;
-        // corners
-        p->drawImage(QRect(x0,        y0,        cw, ch), pc[0]);
-        p->drawImage(QRect(x1 - cw,   y0,        cw, ch), pc[2]);
-        p->drawImage(QRect(x0,        y1 - ch,   cw, ch), pc[6]);
-        p->drawImage(QRect(x1 - cw,   y1 - ch,   cw, ch), pc[8]);
-        // edges (stretched along their run)
-        if (midW > 0) {
-            p->drawImage(QRect(x0 + cw, y0,      midW, ch), pc[1]);
-            p->drawImage(QRect(x0 + cw, y1 - ch, midW, ch), pc[7]);
-        }
-        if (midH > 0) {
-            p->drawImage(QRect(x0,      y0 + ch, cw, midH), pc[3]);
-            p->drawImage(QRect(x1 - cw, y0 + ch, cw, midH), pc[5]);
-        }
-        // centre (stretched both axes)
-        if (midW > 0 && midH > 0)
-            p->drawImage(QRect(x0 + cw, y0 + ch, midW, midH), pc[4]);
-        // pressed cue: darken the whole face slightly.
-        if (pressed) p->fillRect(r, QColor(0, 0, 0, 56));
-    } else {
-        // No skin button art — flat themed fill + thin bevel.
-        QColor base(90, 92, 96);
-        if (ctx.colors)
-            base = ctx.colors->resolve(QStringLiteral("wasabi.window.background"),
-                                        ctx.gammasets, base).lighter(140);
-        if (pressed) base = base.darker(115);
-        p->fillRect(r.adjusted(1, 1, -1, -1), base);
-        p->setPen(base.darker(150));
-        p->drawRect(r.adjusted(0, 0, -1, -1));
-        p->setPen(base.lighter(130));
-        p->drawLine(r.left() + 1, r.top() + 1, r.right() - 1, r.top() + 1);
-        p->drawLine(r.left() + 1, r.top() + 1, r.left() + 1,  r.bottom() - 1);
-    }
-    p->restore();
 }
 
 // Classic Wasabi/wa_dlg DCW_SUNKENBORDER: a recessed 1-px 3-D edge —
@@ -540,6 +486,12 @@ public:
         const QColor btnText = firstThemed(
             {"wasabi.button.text", "wasabi.window.text", "color.window.txt"},
             windowTxt.lightnessF() > 0.5 ? windowTxt : QColor(214, 216, 220));
+        // The wa_dlg genex button is a fixed light-silver face, so its
+        // labels + view-mode glyphs need a dark foreground to read (the
+        // skin's button-fg is tuned for the skin's own button colour and
+        // resolves LIGHT on dark skins like Bento, which would vanish on
+        // silver).  Matches real Winamp's dark ML button labels.
+        const QColor btnFg(56, 56, 60);
 
         // ── Layout geometry ────────────────────────────────────────
         // Left column = the sidebar tree, full height from the top
@@ -579,12 +531,12 @@ public:
                 QStringLiteral("%1/%2")
                     .arg(mlIconsBaseDir(),
                           QString::fromLatin1(kViewModeIcons[i])),
-                btnText);
+                btnFg);
             const int iw = ic.isNull() ? 16 : ic.width();
             const int ih = ic.isNull() ? 11 : ic.height();
             const int bw = iw + 14;
             const QRect btn(vmX, vmTop, bw, vmH);
-            paintSkinButton(p, ctx, btn);
+            drawWadlgButton(p, btn, false);
             if (!ic.isNull()) {
                 const int ix = btn.x() + (bw - iw) / 2;
                 const int iy = btn.y() + (vmH - ih) / 2;
@@ -612,8 +564,8 @@ public:
 
         const QRect clearBtn(toolbar.right() - 92, toolbar.y() + 4,
                               88, toolbar.height() - 8);
-        paintSkinButton(p, ctx, clearBtn);
-        p->setPen(btnText);
+        drawWadlgButton(p, clearBtn, false);
+        p->setPen(btnFg);
         p->drawText(clearBtn, Qt::AlignCenter,
                     QStringLiteral("Clear Search"));
 
@@ -624,15 +576,15 @@ public:
 
         const QRect libBtn(bottomRow.x() + 4, bottomRow.y() + 3,
                              sidebarW - 8, bottomRow.height() - 6);
-        paintSkinButton(p, ctx, libBtn);
-        p->setPen(btnText);
+        drawWadlgButton(p, libBtn, false);
+        p->setPen(btnFg);
         p->drawText(libBtn, Qt::AlignCenter,
                     QStringLiteral("Library"));
 
         const QRect playBtn(libBtn.right() + 8, bottomRow.y() + 3,
                              60, bottomRow.height() - 6);
-        paintSkinButton(p, ctx, playBtn);
-        p->setPen(btnText);
+        drawWadlgButton(p, playBtn, false);
+        p->setPen(btnFg);
         p->drawText(playBtn, Qt::AlignCenter,
                     QStringLiteral("Play ▼"));
 
@@ -698,6 +650,15 @@ public:
         paintBorderedPane(m_tracks,     tracksPane);
 
         p->restore();
+
+        // Debug: dump the rendered ML region to a PNG for visual iteration
+        // (the holder itself is behind a hidden tab in Bento).
+        if (const char *dp = std::getenv("WASABIQT_DUMP_ML")) {
+            QPaintDevice *dev = p->device();
+            if (dev && dev->devType() == QInternal::Image)
+                static_cast<QImage *>(dev)->copy(r).save(
+                    QString::fromLocal8Bit(dp));
+        }
     }
 
     void onLeftButtonDown(QPoint pos, PaintCtx &ctx) override {
