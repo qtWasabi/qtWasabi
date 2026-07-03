@@ -55,6 +55,9 @@ set(QTWASABI_COMPAT_SOURCES
     # ML.1 — synthesise the genex theme bitmap (skin colours → genex →
     # wa_dlg GetPixel) + answer IPC_GET_GENSKINBITMAP.
     ${CMAKE_CURRENT_SOURCE_DIR}/win32/genex.cpp
+    # ML.3 — render the wa_dlg owner-draw silver button to an ARGB buffer
+    # for the engine's MlHostWidget to blit.
+    ${CMAKE_CURRENT_SOURCE_DIR}/win32/wadlg-render.cpp
     # Phase A.7 — end-to-end Phase-A verification.  Synthetic
     # minimum-viable Win32 plugin exercising the message dispatch +
     # ImageList + GDI + GWL_USERDATA round-trips gen_ml will hit
