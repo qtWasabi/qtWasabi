@@ -92,6 +92,21 @@ void TextWidget::onAttrsInitialized() {
         [this](int) { requestRepaint(); });
 }
 
+QRect TextWidget::keepTickerOffTime(QRect r, const QSize &canvas) {
+    if (!parentWidget) return r;
+    for (const auto &c : parentWidget->children) {
+        if (!c || c.get() == static_cast<Widget *>(this)) continue;
+        if (c->attrs.value(QStringLiteral("display"))
+                .compare(QStringLiteral("time"), Qt::CaseInsensitive) != 0)
+            continue;
+        const QRect tr = c->resolveRect(canvas);
+        if (tr.isValid() && tr.right() >= r.left() && tr.left() <= r.right() &&
+            tr.bottom() >= r.top() && tr.top() <= r.bottom())
+            r.setLeft(qMax(r.left(), tr.right() + 2));
+    }
+    return r;
+}
+
 void TextWidget::paint(QPainter *p, PaintCtx &ctx,
                         const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
@@ -180,7 +195,7 @@ void TextWidget::paint(QPainter *p, PaintCtx &ctx,
             tickText = a.value(QStringLiteral("default"));
         if (tickText.isEmpty())
             tickText = a.value(QStringLiteral("text"));
-        const QRect r = resolveRect(canvas);
+        QRect r = keepTickerOffTime(resolveRect(canvas), canvas);
 
         // Measure tickText width and choose a wrap gap.  Bitmap
         // fonts use FontDef.charWidth + hSpacing (Wasabi's per-glyph
@@ -289,8 +304,10 @@ void TextWidget::paint(QPainter *p, PaintCtx &ctx,
     // widget rect clip enforced so even slightly-too-wide titles
     // don't bleed into siblings.  Without this clip, a
     // single-character overflow was silently smearing into the
-    // adjacent timer/KBPS widgets in Bento's display group.
-    const QRect rClip = resolveRect(canvas);
+    // adjacent timer/KBPS widgets in Bento's display group.  Tickers
+    // additionally stay off a sibling time readout.
+    QRect rClip = resolveRect(canvas);
+    if (isTicker) rClip = keepTickerOffTime(rClip, canvas);
     p->save();
     p->setClipRect(rClip, Qt::IntersectClip);
     TextPainter::paintText(p, *ctx.font, *ctx.bmp, a, canvas,

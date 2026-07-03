@@ -22,6 +22,12 @@ public:
     void paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) override;
 
 protected:
+    // Shrink a ticker's clip so it never paints over a sibling
+    // `display="time"` widget it overlaps (keeps a scrolling song title
+    // off the elapsed-time readout).  Returns `r` unchanged when there is
+    // no overlapping time sibling.
+    QRect keepTickerOffTime(QRect r, const QSize &canvas);
+
     // Auto-binding for the canonical Wasabi "Display" pattern:
     // when our id ends in `Display` (case-insensitive) AND
     // Layout::wireSteppers has tagged us with a `_stepper_key`
