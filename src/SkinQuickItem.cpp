@@ -209,6 +209,10 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     if (w <= 0) w = attrInt(QStringLiteral("minimum_w"), 354);
     if (h <= 0) h = attrInt(QStringLiteral("minimum_h"), 280);
     m_nativeSize = QSize(w, h);
+    // The auto-shrink floor: never collapse below the skin's declared
+    // minimum height (a drawer close that momentarily hides docked
+    // content must not shrink the whole window to the bare chrome).
+    m_minShrinkH = attrInt(QStringLiteral("minimum_h"), 0);
     setSize(QSizeF(m_nativeSize));
     m_alphaCache.clear();
     rebuildWindowRegion();
@@ -384,7 +388,9 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
             }
         } else {
             const int bottom = paintedBottomEdge(buf);
-            const int target = qMin(bottom, m_nativeSize.height());
+            int target = qMin(bottom, m_nativeSize.height());
+            // Never shrink below the skin's declared minimum height.
+            if (m_minShrinkH > 0) target = qMax(target, m_minShrinkH);
             if (target > 0 && qAbs(curH - target) > 8) {
                 if (::getenv("WASABIQT_TRACE_MAKI"))
                     ::fprintf(stderr,

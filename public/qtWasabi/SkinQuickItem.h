@@ -276,6 +276,11 @@ private:
     QRegion m_windowRegion;
     // Auto-shrink to painted extent toggle (off by default).
     bool   m_autoShrink = false;
+    // Floor for the auto-shrink: the layout's declared minimum_h, so a
+    // transient paint (e.g. a drawer close that momentarily hides docked
+    // content) can never collapse the window below the skin's valid
+    // minimum height.  0 = no floor.
+    int    m_minShrinkH = 0;
     // Lazily-created resize-tween animation (parented to this).
     QVariantAnimation *m_resizeAnim = nullptr;
     // True while m_resizeAnim is running.  Suppresses the per-frame
