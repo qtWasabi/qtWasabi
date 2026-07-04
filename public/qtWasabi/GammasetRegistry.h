@@ -109,6 +109,11 @@ public:
     static void applyToImage(QImage &img, const GammaGroup &t,
                              int chromaMin = 0);
 
+    // Apply the transform to a single colour (alpha untouched).  Same
+    // per-channel math as applyToImage; shared by ColorRegistry token
+    // resolution and procedural painters (<gradient> stops).
+    static QColor applyToColor(QColor base, const GammaGroup &t);
+
 private:
     QHash<QString, Gammaset> m_sets;
     const Gammaset          *m_active = nullptr;

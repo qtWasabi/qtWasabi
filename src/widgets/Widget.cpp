@@ -34,6 +34,7 @@
 #include "PopupMenu.h"
 #include "ProgressGrid.h"
 #include "RadioGroup.h"
+#include "Gradient.h"
 #include "Rect.h"
 #include "ScrollBar.h"
 #include "SectionFrame.h"
@@ -374,6 +375,8 @@ std::unique_ptr<Widget> Widget::create(const QString &normalisedTag) {
         return std::make_unique<AlbumArtWidget>();
     if (t == QStringLiteral("rect"))
         return std::make_unique<RectWidget>();
+    if (t == QStringLiteral("gradient"))
+        return std::make_unique<GradientWidget>();
     // Text / ticker.
     if (t == QStringLiteral("text"))
         return std::make_unique<TextWidget>();

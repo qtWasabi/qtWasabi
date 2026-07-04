@@ -301,6 +301,35 @@ GammaGroup GammasetRegistry::transformFor(const QString &gammagroup) const {
     return it == m_active->groups.constEnd() ? GammaGroup{} : it.value();
 }
 
+QColor GammasetRegistry::applyToColor(QColor base, const GammaGroup &t) {
+    if (t.r == 0 && t.g == 0 && t.b == 0 && t.gray == 0 && t.boost == 0)
+        return base;
+    int R = base.red();
+    int G = base.green();
+    int B = base.blue();
+    if (t.gray == 1) {
+        const int m = qMax(R, qMax(G, B));
+        R = G = B = m;
+    } else if (t.gray == 2) {
+        const int m = (R + G + B) / 3;
+        R = G = B = m;
+    }
+    if (t.boost) {
+        // For a lone colour there is no bitmap alpha to feed through,
+        // approximate by shifting toward white by 50%.
+        R = qMin(255, (R >> 1) + 127);
+        G = qMin(255, (G >> 1) + 127);
+        B = qMin(255, (B >> 1) + 127);
+    }
+    const int rm = 65535 + (t.r << 4);
+    const int gm = 65535 + (t.g << 4);
+    const int bm = 65535 + (t.b << 4);
+    R = qBound(0, (R * rm) >> 16, 255);
+    G = qBound(0, (G * gm) >> 16, 255);
+    B = qBound(0, (B * bm) >> 16, 255);
+    return QColor(R, G, B, base.alpha());
+}
+
 void GammasetRegistry::applyToImage(QImage &img, const GammaGroup &t,
                                    int chromaMin) {
     if (img.isNull()) return;

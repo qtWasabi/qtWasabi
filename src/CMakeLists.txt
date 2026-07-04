@@ -46,6 +46,7 @@ set(QTWASABI_SOURCES
     widgets/ComponentBucket.cpp
     widgets/Container.cpp
     widgets/Edit.cpp
+    widgets/Gradient.cpp
     widgets/Grid.cpp
     widgets/Images.cpp
     widgets/Browser.cpp

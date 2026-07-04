@@ -29,37 +29,6 @@ void collectRaw(const SkinXml::Element &el,
     for (const auto &c : el.children) collectRaw(c, out);
 }
 
-// The same per-channel transform GammasetRegistry::applyToImage
-// uses — we don't have an alpha to feed through, just multiply
-// each channel by `rm/65535` where rm = 65535 + (t.X << 4).
-QColor applyGamma(QColor base, const GammaGroup &t) {
-    if (t.r == 0 && t.g == 0 && t.b == 0 && t.gray == 0 && t.boost == 0)
-        return base;
-    int R = base.red();
-    int G = base.green();
-    int B = base.blue();
-    if (t.gray == 1) {
-        const int m = qMax(R, qMax(G, B));
-        R = G = B = m;
-    } else if (t.gray == 2) {
-        const int m = (R + G + B) / 3;
-        R = G = B = m;
-    }
-    if (t.boost) {
-        // For a colour token we don't have the alpha multiplier,
-        // approximate by shifting toward white by 50%.
-        R = qMin(255, (R >> 1) + 127);
-        G = qMin(255, (G >> 1) + 127);
-        B = qMin(255, (B >> 1) + 127);
-    }
-    const int rm = 65535 + (t.r << 4);
-    const int gm = 65535 + (t.g << 4);
-    const int bm = 65535 + (t.b << 4);
-    R = qBound(0, (R * rm) >> 16, 255);
-    G = qBound(0, (G * gm) >> 16, 255);
-    B = qBound(0, (B * bm) >> 16, 255);
-    return QColor(R, G, B);
-}
 }  // namespace
 
 int ColorRegistry::loadFromDocument(const SkinXml::Document &doc) {
@@ -115,12 +84,13 @@ QColor ColorRegistry::resolve(const QString &value,
     QColor base = it->rgb;
     if (gammasets && !it->gammagroup.isEmpty()) {
         const GammaGroup t = gammasets->transformFor(it->gammagroup);
-        base = applyGamma(base, t);
+        base = GammasetRegistry::applyToColor(base, t);
     }
     // A global recolor theme tints every colour too, so chrome derived from
-    // the skin palette follows the recolour (applyGamma no-ops on identity).
+    // the skin palette follows the recolour (applyToColor no-ops on identity).
     if (gammasets)
-        base = applyGamma(base, gammasets->globalTransform());
+        base = GammasetRegistry::applyToColor(base,
+                                              gammasets->globalTransform());
     return base;
 }
 
