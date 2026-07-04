@@ -17,6 +17,11 @@ related:
 
 # Maki VM completeness
 
+> STATUS 2026-07-04: the transport slice of the event surface is
+> closed: the engine derives System.onPlay/onResume/onPause/onStop
+> from the same host status getStatus() reads (one source, no embedder
+> wiring). The rest of this audit stands.
+
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
 the typed GuiObject class hierarchy, per-class method dispatch, the event

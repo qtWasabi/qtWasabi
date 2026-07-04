@@ -43,8 +43,9 @@ only="${1:-}"
 fail=0
 printf "%-18s %-11s %-9s %-7s %s\n" "skin" "size" "mae" "limit" "result"
 
-while IFS=$'\t' read -r skin dir mae_limit ratio; do
+while IFS=$'\t' read -r skin dir mae_limit ratio track; do
     ratio="${ratio:-1}"
+    track="${track:-testtone}"
     [[ "$skin" =~ ^# ]] && continue
     [[ -n "$only" && "$skin" != "$only" ]] && continue
     ref="$REF_DIR/ref-$skin.png"
@@ -58,18 +59,31 @@ while IFS=$'\t' read -r skin dir mae_limit ratio; do
     fi
 
     shot="$TMPDIR/$skin.png"
-    # The author screenshots show the players DURING playback (lit
-    # analyzer, ticker, kbps/kHz boxes, play-state chrome), so render
-    # in the same state: the bundled test tone starts playing at boot.
+    # References show the players DURING playback (lit analyzer,
+    # ticker, play-state chrome), so render in the same state: either
+    # the bundled test tone or the album the reference had loaded.
+    if [[ "$track" == "testtone" ]]; then
+        media="$SCRIPT_DIR/testtone.wav"
+    else
+        media="$HOME/$track"
+        if [[ ! -e "$media" ]]; then
+            printf "%-18s %s\n" "$skin" "SKIP (reference media missing: ~/$track)"
+            continue
+        fi
+    fi
     # HOME points at the sandbox so the run is hermetic: the user's
-    # winamp.conf (vis mode, saved skin, volume...) must not leak into
-    # fidelity measurements.  SKIN_DIR was expanded above, so skins
-    # still come from the real location.
+    # winamp.conf (saved color theme, vis mode, volume...) must not
+    # leak into fidelity measurements — a stored synthetic theme once
+    # masqueraded as an engine color bug.  SKIN_DIR and media were
+    # expanded above, so both still come from their real locations.
+    # Resizable skins have no canonical size; match the reference
+    # capture's window size so geometry is compared like for like.
+    refsz=$(python3 -c "from PIL import Image; im=Image.open('$ref'); print(f'{im.width}x{im.height}')")
     HOME="$TMPDIR" WASABIQT_RENDER_RATIO="$ratio" \
-        WASABIQT_SHOT_ALPHA=1 \
+        WASABIQT_SHOT_ALPHA=1 WASABIQT_FORCE_RESIZE="$refsz" \
         QT_QPA_PLATFORM=offscreen "$QTAMP" \
         --modern-skin "$SKIN_DIR/$dir" \
-        "$SCRIPT_DIR/testtone.wav" \
+        "$media" \
         --screenshot "$shot" >"$TMPDIR/$skin.log" 2>&1 || true
 
     if [[ ! -f "$shot" ]]; then

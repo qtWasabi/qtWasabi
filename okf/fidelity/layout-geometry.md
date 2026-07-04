@@ -17,6 +17,15 @@ related:
 
 # Layout and geometry
 
+> STATUS 2026-07-04: AUTOWH landed (a layout without w/h sizes from its
+> background bitmap; auto-shrink floors at that height). background=
+> now fills every group AND the layout root; the menubar-only
+> restriction is gone and sliver panes skip the fill at paint time.
+> The display render-ratio model (basewnd::setRenderRatio) landed
+> engine-side with WASABIQT_RENDER_RATIO as the user-state instrument;
+> the Maki setScale binding and ratio-scaled window regions remain
+> open.
+
 Reference: `winamp-linux/Src/Wasabi/api/wnd/wndclass/framewnd.cpp` and
 `.../skin/widgets/xuiframe.cpp` for frames; `guiobj.cpp` for coordinate
 attributes.

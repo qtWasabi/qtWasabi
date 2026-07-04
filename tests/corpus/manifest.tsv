@@ -1,8 +1,14 @@
-# skin	skin-dir-name	mae-limit	render-ratio
-# mae-limit: fidelity budget vs the author's reference screenshot
-# (dynamic regions: ticker, time, analyzer, playback state).
-# render-ratio: the display scale the author's screenshot was taken
-# at (basewnd::setRenderRatio user state; 1 = native).
-DeClassified	QTAMP-DeClassified	25	1
-winamp1	QTAMP-winamp1	25	1
-Winamp2000SP4	QTAMP-Winamp2000SP4	25	0.5
+# skin	skin-dir-name	mae-limit	render-ratio	track
+# mae-limit: fidelity budget vs the reference screenshot (dynamic
+#   regions: ticker, time, analyzer, playback state).
+# render-ratio: display scale the reference was captured at.
+# track: "testtone" for the bundled tone, or a path relative to $HOME
+#   (album folder); entries whose track is missing on this machine SKIP.
+# The first three references are the skin AUTHORS' screenshots
+# (github.com/qtamp forks); Bento and WinampModern are captures of REAL
+# Winamp with the RAM album loaded (tests/refs in the qtamp repo).
+DeClassified	QTAMP-DeClassified	25	1	testtone
+winamp1	QTAMP-winamp1	25	1	testtone
+Winamp2000SP4	QTAMP-Winamp2000SP4	25	0.5	testtone
+Bento	Bento	25	1	Music/RAM
+WinampModern	Winamp Modern	25	1	Music/RAM
