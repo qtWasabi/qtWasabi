@@ -45,7 +45,9 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindWasabiSrc.cmake)
 # configure (and an existing hand-placed stub isn't clobbered).
 if(NOT EXISTS "${WASABI_SRC_DIR}/Elevator/IFileTypeRegistrar_32.h"
    OR (APPLE AND NOT EXISTS
-       "${WASABI_SRC_DIR}/replicant/foundation/osx-amd64/types.h"))
+       "${WASABI_SRC_DIR}/replicant/foundation/osx-amd64/types.h")
+   OR (EMSCRIPTEN AND NOT EXISTS
+       "${WASABI_SRC_DIR}/replicant/foundation/wasm32/types.h"))
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port/platform-overlay/Src/
          DESTINATION ${WASABI_SRC_DIR})
 endif()
