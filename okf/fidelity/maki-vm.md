@@ -69,6 +69,14 @@ related:
 > a leaked Equalizer=1 from an intermediate build masqueraded as a
 > Bento radio regression until bisected; persistence must anchor to
 > QDir::homePath() for the hermetic contract to hold.
+>
+> STATUS 2026-07-05, dispatch hardening LANDED: callDLF invokes at the
+> registered arity (stack pops per bytecode, indirect call
+> signature-exact — the WASM EMULATE_FUNCTION_POINTER_CASTS
+> precondition is met); known-class surfaces are authoritative (scoped
+> miss = honestly unbound, flat serves only unknown-class imports);
+> the 17 case-alias rows are deleted.  WASM next: drop the emulate
+> flag, enable ASYNCIFY, verify dialogs + shade in the browser.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
