@@ -170,17 +170,6 @@ inline int wq_wide_to_ascii(const wchar_t *src, char *dst, int cap) {
 // <algorithm>; the Maki VM core doesn't, but consumers of the shim
 // might.
 
-// ── MIN / MAX ────────────────────────────────────────────────────
-// bfc/wasabi_std_rect.cpp uses uppercase MIN/MAX.  On glibc they leak
-// in transitively via <sys/param.h>; musl (Emscripten) does not pull
-// that in, so provide the classic definitions when absent.
-#  ifndef MIN
-#    define MIN(a, b) (((a) < (b)) ? (a) : (b))
-#  endif
-#  ifndef MAX
-#    define MAX(a, b) (((a) > (b)) ? (a) : (b))
-#  endif
-
 // ── locale + wide-char ───────────────────────────────────────────
 // wasabi_std.h uses Win32's _locale_t and locale-aware wide-char
 // converters without including the right POSIX headers.  Wasabi
