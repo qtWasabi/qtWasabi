@@ -31,6 +31,13 @@ engine-wide color defect during ad-hoc renders. Every fidelity
 measurement must run through the harness, never from a developer
 profile.
 
+**Check reference provenance before chasing pixels:** a screenshot in a
+skin repo can predate the XML next to it. Winamp2000SP4's capture is
+three years older than its skin and shows chrome that no longer exists;
+hours can vanish explaining a delta the author created. Before scoring
+a new reference, compare the commit date of the screenshot against the
+skin's XML (`gh api repos/<org>/<skin>/commits?path=<file>`).
+
 ## Status (2026-07-04, after batches 1-3)
 
 | Skin | Reference | Status | Notes |
@@ -38,7 +45,7 @@ profile.
 | [WinampModernPP](https://github.com/qtamp/WinampModernPP) | author screenshot | **faithful** | Pixel-identical through all engine changes; the marketing/press skin. |
 | [winamp1](https://github.com/qtamp/winamp1) | author screenshot | **faithful (MAE 4.4)** | Was 354x106 garbage; fixed by AUTOWH layout sizing plus the layout-root background fill. |
 | [DeClassified](https://github.com/qtamp/DeClassified) | author screenshot | **passing (MAE 20.7)** | Classic analyzer lights up since the engine owns transport events; ticker uses the classic "N. title (M:SS)" format; balance strip folds around centre. Residual MAE is track-content difference plus known asset drift. |
-| [Winamp2000SP4](https://github.com/qtamp/Winamp2000SP4) | author screenshot | in progress | Render-ratio model landed (2x-authored art, reference captured at 50%); still 4px tall: the window-region mask is not yet scaled by the ratio. Then: truetypefont registry, Win9x gradient widget, SApplication caption bindings, getVisBand. |
+| [Winamp2000SP4](https://github.com/qtamp/Winamp2000SP4) | author screenshot | reference drift, not scoreable | The screenshot is v1.3 (2020-06-10) but the XML is v1.4-RC2 (2023-03-11): the lower-right chrome was redesigned (SHUFFLE/repeat bevel buttons became a Playlists button plus Win9x checkboxes) and the titlebar block did not exist at v1.3; no version declares the capture's 552x234 geometry (all say 550x242). Disabled in the manifest; pixel gate moved to the embedder's hermetic regression baseline. The capture still exposed real engine gaps: the gradient titlebar now renders (procedural `<gradient>` widget, landed); remaining are truetypefont registry, SApplication caption bindings, getVisBand. |
 | Bento | REAL Winamp (RAM album) | **passing (MAE 23.4)** | Playlist durations now come from the tag headers and match the reference; fileinfo lines render the reference's pale blue-gray. Remaining line items: the Play control is not the reference's split button+arrow, its menu popup does not open (gen_ml menu, the visible dropdown work item), Browser tab absent. |
 | WinampModern | REAL Winamp (RAM album) | not scoreable yet | The reference is a MULTI-WINDOW session capture (player, playlist editor and media library arranged separately); the harness renders one window. Disabled in the manifest until it can arrange subwindows or a player-only reference exists. The forced-width render also shows the config drawer undocked, an RB1 frame-constraint symptom to fix regardless. |
 
