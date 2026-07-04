@@ -21,6 +21,8 @@
 #include "../wasabi-port/maki-bridge.h"
 
 #include <QEasingCurve>
+#include <QDir>
+#include <QSettings>
 #include <QImage>
 #include <QPoint>
 #include <QRect>
@@ -1430,4 +1432,52 @@ extern "C" int wq_region_bbox(void *o, int which) {
 extern "C" void wq_typed_state_free(void *o) {
     g_makiMaps.remove(o);
     g_makiRegions.remove(o);
+}
+
+// ── Maki preference persistence ──────────────────────────────────
+// One store for everything Maki persists in real Winamp's studio.xnf:
+// getPrivateInt/String, getPublicInt/String, and the Config service's
+// attribute values.  INI-backed under the user config dir, so the
+// hermetic test harnesses (HOME sandbox) stay hermetic.
+
+namespace {
+QSettings &makiPrefs() {
+    // Anchor the file to $HOME explicitly.  The UserScope resolver
+    // prefers XDG_CONFIG_HOME, which a HOME-sandboxed test run does
+    // not override — preference writes then leak into (and reads leak
+    // out of) the developer's real config, breaking the hermetic
+    // test contract ("hermetic or it did not happen").
+    static QSettings s(QDir::homePath() +
+                           QStringLiteral("/.config/qtWasabi/maki-config.ini"),
+                       QSettings::IniFormat);
+    return s;
+}
+QString makiPrefKey(const wchar_t *scope, const wchar_t *name) {
+    auto esc = [](QString v) {
+        v.replace(QChar('/'), QChar(0x2044));   // QSettings group separator
+        return v;
+    };
+    return esc(QString::fromWCharArray(scope ? scope : L"")) +
+           QLatin1Char('/') +
+           esc(QString::fromWCharArray(name ? name : L""));
+}
+}  // namespace
+
+extern "C" int wq_pref_load(const wchar_t *scope, const wchar_t *name,
+                            wchar_t *out, int cap) {
+    if (!out || cap <= 0) return -1;
+    const QVariant v = makiPrefs().value(makiPrefKey(scope, name));
+    if (!v.isValid()) return -1;
+    const QString s = v.toString();
+    const int n = qMin(cap - 1, int(s.size()));
+    const int written = s.left(n).toWCharArray(out);
+    out[written] = 0;
+    return written;
+}
+
+extern "C" void wq_pref_save(const wchar_t *scope, const wchar_t *name,
+                             const wchar_t *value) {
+    makiPrefs().setValue(makiPrefKey(scope, name),
+                         QString::fromWCharArray(value ? value : L""));
+    makiPrefs().sync();
 }

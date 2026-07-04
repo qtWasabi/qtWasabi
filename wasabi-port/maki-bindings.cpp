@@ -540,10 +540,33 @@ extern "C" scriptVar wq_navigateUrlBrowser(maki_cmd *, int, ScriptObject *,
     return makeVoid();
 }
 
-// Tiny in-memory key-value store for (section, key) → int.  The Wasabi
-// API persists these to winamp.ini; we keep an in-process map so
-// getPrivateInt reads back what setPrivateInt wrote during the same
-// session.
+// ── Preference persistence ──────────────────────────────────────
+// The Wasabi API persists private/public ints+strings and the Config
+// attributes to studio.xnf; ours go through one bridge-backed INI
+// (SkinRuntimeBridge.cpp wq_pref_*).  A persisted value always wins
+// over the in-process seed/default; every write is stored.
+extern "C" {
+int  wq_pref_load(const wchar_t *scope, const wchar_t *name,
+                  wchar_t *out, int cap);
+void wq_pref_save(const wchar_t *scope, const wchar_t *name,
+                  const wchar_t *value);
+}
+static bool prefLoad(const wchar_t *scope, const std::wstring &name,
+                     std::wstring &out) {
+    wchar_t buf[2048];
+    const int n = wq_pref_load(scope, name.c_str(), buf, 2048);
+    if (n < 0) return false;
+    out.assign(buf, size_t(n));
+    return true;
+}
+static void prefSave(const wchar_t *scope, const std::wstring &name,
+                     const std::wstring &value) {
+    wq_pref_save(scope, name.c_str(), value.c_str());
+}
+
+// In-memory (section, key) → int cache over the persisted store.  The
+// seeded entries are qtamp's SHIPPED first-run defaults (drawer open,
+// EQ tab selected); a persisted user value overrides them.
 // configtabs.maki reads back DrawerOpen and ConfigTab in onScriptLoaded
 // to decide whether to call OpenDrawer; pre-seeding DrawerOpen=1 lets
 // the script open the drawer via real Maki dispatch (drawer y=-147,
@@ -569,6 +592,12 @@ extern "C" scriptVar wq_getPrivateInt(maki_cmd *, int, ScriptObject *,
     std::wstring k = std::wstring(sec.data.sdata) + L"|" +
                      std::wstring(key.data.sdata);
     auto &m = privateIntStore();
+    std::wstring stored;
+    if (prefLoad(L"private-int", k, stored)) {
+        const int v = int(std::wcstol(stored.c_str(), nullptr, 10));
+        m[k] = v;
+        return makeInt(v);
+    }
     auto it = m.find(k);
     if (it != m.end()) return makeInt(it->second);
     return def;
@@ -591,6 +620,7 @@ extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
         default: v = 0;
     }
     privateIntStore()[k] = v;
+    prefSave(L"private-int", k, std::to_wstring(v));
     return makeVoid();
 }
 
@@ -608,6 +638,11 @@ extern "C" scriptVar wq_getPrivateString(maki_cmd *, int, ScriptObject *,
     if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
         key.type != SCRIPT_STRING || !key.data.sdata) return def;
     const std::wstring k = std::wstring(sec.data.sdata) + L"|" + std::wstring(key.data.sdata);
+    std::wstring stored;
+    if (prefLoad(L"private-str", k, stored)) {
+        stringStore()[k] = stored;
+        return makeString(intern(stored));
+    }
     auto it = stringStore().find(k);
     return it != stringStore().end() ? makeString(intern(it->second)) : def;
 }
@@ -615,20 +650,30 @@ extern "C" scriptVar wq_setPrivateString(maki_cmd *, int, ScriptObject *,
                                           scriptVar sec, scriptVar key, scriptVar val) {
     if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
         key.type != SCRIPT_STRING || !key.data.sdata) return makeVoid();
-    stringStore()[std::wstring(sec.data.sdata) + L"|" + std::wstring(key.data.sdata)] = vargstr(val);
+    const std::wstring k = std::wstring(sec.data.sdata) + L"|" + std::wstring(key.data.sdata);
+    stringStore()[k] = vargstr(val);
+    prefSave(L"private-str", k, stringStore()[k]);
     return makeVoid();
 }
 // PublicString is keyed by a single item string (2 args).
 extern "C" scriptVar wq_getPublicString(maki_cmd *, int, ScriptObject *,
                                          scriptVar item, scriptVar def) {
     if (item.type != SCRIPT_STRING || !item.data.sdata) return def;
-    auto it = stringStore().find(std::wstring(L"pub|") + item.data.sdata);
+    const std::wstring k = std::wstring(L"pub|") + item.data.sdata;
+    std::wstring stored;
+    if (prefLoad(L"public-str", k, stored)) {
+        stringStore()[k] = stored;
+        return makeString(intern(stored));
+    }
+    auto it = stringStore().find(k);
     return it != stringStore().end() ? makeString(intern(it->second)) : def;
 }
 extern "C" scriptVar wq_setPublicString(maki_cmd *, int, ScriptObject *,
                                          scriptVar item, scriptVar val) {
     if (item.type != SCRIPT_STRING || !item.data.sdata) return makeVoid();
-    stringStore()[std::wstring(L"pub|") + item.data.sdata] = vargstr(val);
+    const std::wstring k = std::wstring(L"pub|") + item.data.sdata;
+    stringStore()[k] = vargstr(val);
+    prefSave(L"public-str", k, stringStore()[k]);
     return makeVoid();
 }
 
@@ -637,12 +682,26 @@ extern "C" scriptVar wq_setPublicString(maki_cmd *, int, ScriptObject *,
 // popped an extra operand-stack slot (VSP imbalance) and read a slot the
 // call never pushed.  Match the real arity.
 extern "C" scriptVar wq_getPublicInt(maki_cmd *, int, ScriptObject *,
-                                      scriptVar, scriptVar def) {
+                                      scriptVar item, scriptVar def) {
+    if (item.type != SCRIPT_STRING || !item.data.sdata) return def;
+    std::wstring stored;
+    if (prefLoad(L"public-int", item.data.sdata, stored))
+        return makeInt(int(std::wcstol(stored.c_str(), nullptr, 10)));
     return def;
 }
 
 extern "C" scriptVar wq_setPublicInt(maki_cmd *, int, ScriptObject *,
-                                      scriptVar, scriptVar) {
+                                      scriptVar item, scriptVar val) {
+    if (item.type != SCRIPT_STRING || !item.data.sdata) return makeVoid();
+    int v = 0;
+    switch (val.type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: v = val.data.idata; break;
+        case SCRIPT_FLOAT:   v = int(val.data.fdata); break;
+        case SCRIPT_DOUBLE:  v = int(val.data.ddata); break;
+        default: break;
+    }
+    prefSave(L"public-int", item.data.sdata, std::to_wstring(v));
     return makeVoid();
 }
 
@@ -1452,32 +1511,103 @@ extern "C" void *wq_config_dummy_get() {
     return static_cast<void *>(configDummy());
 }
 
+// ── Config service: real per-item instances ─────────────────────
+// Config.newItem(name, guid) hands back a ConfigItem-classed instance
+// per (guid|name); item.newAttribute(name, default) a ConfigAttribute
+// scoped to that item.  Values persist through the preference store
+// (scope "cfg:<itemKey>"), so preference-gated skin behaviour survives
+// restarts like real Winamp's studio.xnf.
+
+struct CfgItemState {
+    std::wstring key;          // canonical store key (guid or name)
+    std::wstring name;
+};
+static std::unordered_map<std::wstring, void *> &cfgItemsByKey() {
+    static std::unordered_map<std::wstring, void *> m;
+    return m;
+}
+static std::unordered_map<void *, CfgItemState> &cfgItemState() {
+    static std::unordered_map<void *, CfgItemState> m;
+    return m;
+}
+// GUIDs normalise hard (case + braces + spaces are notation); names
+// only case-fold — Wasabi item/attribute names legitimately contain
+// spaces, and stripping them collapsed distinct attributes into one
+// (the Bento songticker regression during bring-up).
+static std::wstring cfgGuidNorm(const std::wstring &in) {
+    std::wstring out;
+    out.reserve(in.size());
+    for (wchar_t c : in) {
+        if (c == L'{' || c == L'}' || c == L' ') continue;
+        if (c >= L'A' && c <= L'Z') c = wchar_t(c - L'A' + L'a');
+        out.push_back(c);
+    }
+    return out;
+}
+static std::wstring cfgNameNorm(const std::wstring &in) {
+    std::wstring out;
+    out.reserve(in.size());
+    for (wchar_t c : in) {
+        if (c >= L'A' && c <= L'Z') c = wchar_t(c - L'A' + L'a');
+        out.push_back(c);
+    }
+    return out;
+}
+static void *getOrCreateItem(const std::wstring &name,
+                             const std::wstring &guid) {
+    const std::wstring gk = guid.empty() ? std::wstring()
+                                         : L"g:" + cfgGuidNorm(guid);
+    const std::wstring nk = name.empty() ? std::wstring()
+                                         : L"n:" + cfgNameNorm(name);
+    auto &byKey = cfgItemsByKey();
+    if (!gk.empty()) {
+        auto it = byKey.find(gk);
+        if (it != byKey.end()) {
+            if (!nk.empty()) byKey[nk] = it->second;   // learn the name
+            return it->second;
+        }
+    }
+    if (!nk.empty()) {
+        auto it = byKey.find(nk);
+        if (it != byKey.end()) {
+            if (!gk.empty()) byKey[gk] = it->second;   // learn the guid
+            return it->second;
+        }
+    }
+    void *obj = qtWasabi::Maki::createWidgetScriptObject(nullptr);
+    qtWasabi::Maki::setScriptObjectClass(
+        obj, qtWasabi::Maki::makiClassIndexFromName(L"ConfigItem"));
+    CfgItemState st;
+    st.key  = !gk.empty() ? gk : nk;
+    st.name = name;
+    cfgItemState()[obj] = std::move(st);
+    if (!gk.empty()) byKey[gk] = obj;
+    if (!nk.empty()) byKey[nk] = obj;
+    return obj;
+}
+
 extern "C" scriptVar wq_newItem(maki_cmd *, int, ScriptObject *,
-                                 scriptVar, scriptVar) {
-    return makeObject(configDummy());
+                                 scriptVar name, scriptVar guid) {
+    return makeObject(static_cast<ScriptObject *>(
+        getOrCreateItem(vargstr(name), vargstr(guid))));
 }
-extern "C" scriptVar wq_getItem(maki_cmd *, int, ScriptObject *, scriptVar) {
-    return makeObject(configDummy());
+extern "C" scriptVar wq_getItem(maki_cmd *, int, ScriptObject *,
+                                scriptVar name) {
+    return makeObject(static_cast<ScriptObject *>(
+        getOrCreateItem(vargstr(name), std::wstring())));
 }
-// config.getItemByGuid(GUID) — was UNBOUND → int 0 (non-object receiver for
-// the chained .getAttribute().getData()).  Alias to the configDummy item so
-// the chain stays object-typed and getData() returns the attribute default
-// (via the by-name attribute resolution) instead of garbage.
-extern "C" scriptVar wq_getItemByGuid(maki_cmd *, int, ScriptObject *, scriptVar) {
-    return makeObject(configDummy());
+extern "C" scriptVar wq_getItemByGuid(maki_cmd *, int, ScriptObject *,
+                                      scriptVar guid) {
+    return makeObject(static_cast<ScriptObject *>(
+        getOrCreateItem(std::wstring(), vargstr(guid))));
 }
+
 // Per-attribute store keyed by the unique ScriptObject the
 // newAttribute call hands back.  Each entry holds the attribute's
-// declared name and current value, so getData/setData can be reflexive
-// (set then read returns the written value) and the constructor's
-// declared default ("0" / "1" / …) survives.
-//
-// Without this, every `<attrib>.getData()` returned the empty string
-// regardless of declared default — which silently disabled the
-// "Animate Config Drawer" / "Animate Video/Vis Drawer" branches in
-// WinampModernPP's configtabs.m / drawer.m so the drawer always
-// snap-set rather than tweened.
+// item scope, declared name and current value, so getData/setData are
+// reflexive per attribute and persist through the preference store.
 struct AttrState {
+    std::wstring scope;        // "cfg:<itemKey>"
     std::wstring name;
     std::wstring value;
 };
@@ -1486,101 +1616,92 @@ static std::unordered_map<void *, AttrState> &attrStore() {
     return m;
 }
 
-// Optional default override: when an attribute is registered under a
-// name in this list, force a "1" value regardless of the script's
-// declared default.  Lets qtamp ship with the modern-skin drawer
-// animations on by default (the original skin sets these to "0" and
-// expects the user to flip a UI option — which we don't expose yet).
-static bool attrNameMatchesForceOn(const std::wstring &n) {
-    static const wchar_t *kForceOn[] = {
-        L"Animate Config Drawer",
-        L"Animate Video/Vis Drawer (disabled if opacity < 100%)",
-    };
-    for (const wchar_t *k : kForceOn) if (n == k) return true;
-    return false;
+// (itemScope, attrName) → attribute object, plus a name-only fallback
+// index: some scripts declare an attribute on one item handle and look
+// it up through another (or through no item at all); resolving by bare
+// name keeps those chains connected to the declared default.
+static std::unordered_map<std::wstring, void *> &attrByScopedName() {
+    static std::unordered_map<std::wstring, void *> m;
+    return m;
 }
-
-// Reverse index: attribute display-name → the ScriptObject newAttribute
-// created for it.  By Wasabi convention `config_item.getAttribute(name)`
-// resolves back to the SAME attribute object `newAttribute(name, default)`
-// created (scoped to the config item), so the declared default is
-// reachable.  Our
-// newItem/getItem all collapse to one shared configDummy, so we key the
-// index by name alone — sufficient because Bento-family attribute names are
-// descriptive and unique.  Without this, getAttribute() returned a generic
-// dummy disconnected from the seeded default → every getData() read "".
-static std::unordered_map<std::wstring, void *> &attrByName() {
+static std::unordered_map<std::wstring, void *> &attrByAnyName() {
     static std::unordered_map<std::wstring, void *> m;
     return m;
 }
 
-// Get-or-create the single attribute object bound to `name`.  Both
-// newAttribute() and getAttribute() route through this so they always
-// resolve to the same object (and therefore the same stored value/default).
-static void *getOrCreateAttr(const std::wstring &name) {
-    auto it = attrByName().find(name);
-    if (it != attrByName().end()) return it->second;
+static std::wstring attrScopeFor(ScriptObject *item) {
+    auto it = cfgItemState().find((void *)item);
+    if (it != cfgItemState().end()) return L"cfg:" + it->second.key;
+    return L"cfg:global";
+}
+
+static void *getOrCreateAttr(const std::wstring &scope,
+                             const std::wstring &name) {
+    const std::wstring sk = scope + L"\x1f" + cfgNameNorm(name);
+    auto it = attrByScopedName().find(sk);
+    if (it != attrByScopedName().end()) return it->second;
+    // Name-only fallback: reconnect cross-item lookups to the
+    // declaring attribute instead of minting a value-less twin.
+    auto any = attrByAnyName().find(cfgNameNorm(name));
+    if (any != attrByAnyName().end()) {
+        attrByScopedName()[sk] = any->second;
+        return any->second;
+    }
     void *obj = qtWasabi::Maki::createWidgetScriptObject(nullptr);
+    qtWasabi::Maki::setScriptObjectClass(
+        obj, qtWasabi::Maki::makiClassIndexFromName(L"ConfigAttribute"));
     AttrState a;
-    a.name = name;
+    a.scope = scope;
+    a.name  = name;
     qtWasabi::Maki::tagScriptObjectAsAttribute(obj, name.c_str());
     attrStore()[obj] = std::move(a);
-    attrByName()[name] = obj;
+    attrByScopedName()[sk] = obj;
+    attrByAnyName()[cfgNameNorm(name)] = obj;
     return obj;
 }
 
-extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *,
+extern "C" scriptVar wq_newAttribute(maki_cmd *, int, ScriptObject *o,
                                       scriptVar name, scriptVar def) {
-    // Each attribute gets its own ScriptObject so setData/getData can
-    // distinguish between them.  Stored values survive script
-    // dispatch; the WidgetScriptObject pointer ownership matches the
-    // configDummy pattern (singleton-owned via Maki::createWidgetScript
-    // Object, never freed).
-    std::wstring nm = (name.type == SCRIPT_STRING && name.data.sdata)
-                          ? std::wstring(name.data.sdata) : std::wstring();
-    // Resolve-or-create by name so a later getAttribute(name) returns this
-    // very object (and its default), matching the Wasabi API contract.
-    void *obj = getOrCreateAttr(nm);
-    std::wstring val = (def.type == SCRIPT_STRING && def.data.sdata)
-                           ? std::wstring(def.data.sdata) : std::wstring();
-    if (attrNameMatchesForceOn(nm))
-        val = L"1";
-    attrStore()[obj].value = val;   // seed/refresh the declared default
+    const std::wstring nm = vargstr(name);
+    void *obj = getOrCreateAttr(attrScopeFor(o), nm);
+    AttrState &a = attrStore()[obj];
+    // A persisted user value wins over the script's declared default.
+    std::wstring stored;
+    if (prefLoad(a.scope.c_str(), a.name, stored))
+        a.value = stored;
+    else
+        a.value = vargstr(def);
     if (std::getenv("WASABIQT_TRACE_ATTRIB"))
-        std::fprintf(stderr, "[attrib] newAttribute this=%p name='%ls' def='%ls'\n",
-                     obj, nm.c_str(), val.c_str());
+        std::fprintf(stderr,
+                     "[attrib] newAttribute this=%p scope='%ls' name='%ls' val='%ls'\n",
+                     obj, a.scope.c_str(), nm.c_str(), a.value.c_str());
     return makeObject(static_cast<ScriptObject *>(obj));
 }
-// SkinObject.getAttribute(name) — Bento's std.mi defines XUI params
-// via newAttribute() at script load + retrieves them via
-// getAttribute() at use time.  Without this binding the script's
-// `someattrib.getData()` chain falls through with a null receiver
-// (15+ gurus per Bento init).  Returns configDummy so the chained
-// getData / setData reads route through our existing stubs.
-extern "C" scriptVar wq_getAttribute(maki_cmd *, int, ScriptObject *,
+extern "C" scriptVar wq_getAttribute(maki_cmd *, int, ScriptObject *o,
                                       scriptVar name) {
-    // Resolve back to the attribute object newAttribute(name,…) registered,
-    // so its declared default is reachable via getData().  This matches the
-    // Wasabi API (a config item owns its named attributes).  Falls back to a
-    // freshly-created (empty) attribute if the name was never declared, so
-    // the getData/setData chain still has a real backing object.
-    std::wstring nm = (name.type == SCRIPT_STRING && name.data.sdata)
-                          ? std::wstring(name.data.sdata) : std::wstring();
+    const std::wstring nm = vargstr(name);
     if (nm.empty()) return makeObject(configDummy());
-    return makeObject(static_cast<ScriptObject *>(getOrCreateAttr(nm)));
+    return makeObject(static_cast<ScriptObject *>(
+        getOrCreateAttr(attrScopeFor(o), nm)));
 }
 extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *o,
                                  scriptVar v) {
     auto it = attrStore().find((void *)o);
     if (it != attrStore().end()) {
-        if (v.type == SCRIPT_STRING && v.data.sdata)
+        if (v.type == SCRIPT_STRING && v.data.sdata) {
             it->second.value = v.data.sdata;
+            prefSave(it->second.scope.c_str(), it->second.name,
+                     it->second.value);
+        }
+        if (std::getenv("WASABIQT_TRACE_GETDATA"))
+            std::fprintf(stderr, "[setdata] '%ls' | '%ls' <- '%ls'\n",
+                it->second.scope.c_str(), it->second.name.c_str(),
+                it->second.value.c_str());
     }
     // By the Wasabi API, a config attribute's setData() fires the
     // onDataChanged event so bound script handlers re-apply the new
-    // value.  Scripts
-    // rely on this (pledit.m guards re-entrancy with `attrib_bypass`).
-    // A shallow depth guard protects pathological skins from a runaway
+    // value (pledit.m guards re-entrancy with `attrib_bypass`).  A
+    // shallow depth guard protects pathological skins from a runaway
     // setData→onDataChanged→setData chain.
     static int s_depth = 0;
     if (o && s_depth < 32) {
@@ -1592,6 +1713,14 @@ extern "C" scriptVar wq_setData(maki_cmd *, int, ScriptObject *o,
 }
 extern "C" scriptVar wq_getData(maki_cmd *, int, ScriptObject *o) {
     auto it = attrStore().find((void *)o);
+    if (std::getenv("WASABIQT_TRACE_GETDATA")) {
+        if (it == attrStore().end())
+            std::fprintf(stderr, "[getdata] obj=%p UNKNOWN -> ''\n", (void*)o);
+        else
+            std::fprintf(stderr, "[getdata] '%ls' | '%ls' -> '%ls'\n",
+                it->second.scope.c_str(), it->second.name.c_str(),
+                it->second.value.c_str());
+    }
     if (it == attrStore().end()) return makeString(L"");
     return makeString(intern(it->second.value));
 }
