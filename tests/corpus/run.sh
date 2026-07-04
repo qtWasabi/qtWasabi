@@ -43,7 +43,8 @@ only="${1:-}"
 fail=0
 printf "%-18s %-11s %-9s %-7s %s\n" "skin" "size" "mae" "limit" "result"
 
-while IFS=$'\t' read -r skin dir mae_limit; do
+while IFS=$'\t' read -r skin dir mae_limit ratio; do
+    ratio="${ratio:-1}"
     [[ "$skin" =~ ^# ]] && continue
     [[ -n "$only" && "$skin" != "$only" ]] && continue
     ref="$REF_DIR/ref-$skin.png"
@@ -64,7 +65,9 @@ while IFS=$'\t' read -r skin dir mae_limit; do
     # winamp.conf (vis mode, saved skin, volume...) must not leak into
     # fidelity measurements.  SKIN_DIR was expanded above, so skins
     # still come from the real location.
-    HOME="$TMPDIR" QT_QPA_PLATFORM=offscreen "$QTAMP" \
+    HOME="$TMPDIR" WASABIQT_RENDER_RATIO="$ratio" \
+        WASABIQT_SHOT_ALPHA=1 \
+        QT_QPA_PLATFORM=offscreen "$QTAMP" \
         --modern-skin "$SKIN_DIR/$dir" \
         "$SCRIPT_DIR/testtone.wav" \
         --screenshot "$shot" >"$TMPDIR/$skin.log" 2>&1 || true
@@ -78,9 +81,16 @@ while IFS=$'\t' read -r skin dir mae_limit; do
     result=$(python3 - "$ref" "$shot" "$mae_limit" <<'PY'
 import sys
 from PIL import Image
-ref = Image.open(sys.argv[1]).convert('RGB')
-cur = Image.open(sys.argv[2]).convert('RGB')
+ref_im = Image.open(sys.argv[1]).convert('RGBA')
+cur_im = Image.open(sys.argv[2]).convert('RGBA')
 limit = float(sys.argv[3])
+def trim(im):
+    # Cut fully-transparent margins: unpainted layout remainder that a
+    # real window region clips away (author screenshots are region-cut).
+    bbox = im.getchannel('A').getbbox()
+    return im.crop(bbox) if bbox else im
+ref = trim(ref_im).convert('RGB')
+cur = trim(cur_im).convert('RGB')
 # Author screenshots are sometimes 1px larger than the window (capture
 # fringe); tolerate that by cropping both to the common size when the
 # difference is at most 1px per axis.

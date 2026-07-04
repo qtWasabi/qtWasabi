@@ -164,6 +164,19 @@ void SkinQuickItem::resizeLayoutTo(const QSize &size) {
     update();
 }
 
+void SkinQuickItem::setRenderRatio(double r) {
+    r = qBound(0.25, r, 4.0);
+    if (qFuzzyCompare(r, m_renderRatio)) return;
+    m_renderRatio = r;
+    setSize(QSizeF(displaySize()));
+    if (!m_layoutAnimActive) {
+        if (auto *w = window()) w->resize(displaySize());
+    }
+    m_alphaCache.clear();
+    emit layoutNativeSizeChanged();
+    update();
+}
+
 bool SkinQuickItem::load(const SkinXml::Document &doc,
                           const QString &containerId,
                           const QString &layoutId,
@@ -232,7 +245,13 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     // yet-unpainted regions (an empty titlebar strip, say) cannot be
     // shrunk away.
     m_minShrinkH = qMax(attrInt(QStringLiteral("minimum_h"), 0), autowhH);
-    setSize(QSizeF(m_nativeSize));
+    if (const QByteArray rr = qgetenv("WASABIQT_RENDER_RATIO");
+        !rr.isEmpty()) {
+        bool ok = false;
+        const double r = rr.toDouble(&ok);
+        if (ok) m_renderRatio = qBound(0.25, r, 4.0);
+    }
+    setSize(QSizeF(displaySize()));
     m_alphaCache.clear();
     rebuildWindowRegion();
 
@@ -389,7 +408,8 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     // committed its first buffer) aborts the wayland commit and the
     // window stays invisible on screen.  isExposed() goes true the
     // moment the compositor signals the surface as visible.
-    if (m_autoShrink && !buf.isNull() && win && win->isExposed()) {
+    if (m_autoShrink && m_renderRatio == 1.0 && !buf.isNull() && win &&
+        win->isExposed()) {
         const int curH = win->height();
         const int curW = win->width();
         if (widgetAnimationsActive() > 0 || m_layoutAnimActive) {
@@ -427,12 +447,16 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     if (!node) {
         node = new QSGSimpleTextureNode();
         node->setOwnsTexture(true);
-        node->setFiltering(QSGTexture::Nearest);   // pixel-perfect bitmap chrome
     }
+    // Pixel-perfect at 1:1; smooth resample when a render ratio is
+    // active, matching how the reference engine scales its blit.
+    node->setFiltering(m_renderRatio == 1.0 ? QSGTexture::Nearest
+                                            : QSGTexture::Linear);
     QSGTexture *tex = win->createTextureFromImage(
         buf, QQuickWindow::TextureHasAlphaChannel);
     node->setTexture(tex);
-    node->setRect(QRectF(0, 0, sz.width(), sz.height()));
+    const QSize disp = displaySize();
+    node->setRect(QRectF(0, 0, disp.width(), disp.height()));
 
     // Stash the painted buffer's alpha channel for hit-testing.  We
     // store the full buffer (cheap — a few hundred kB) keyed on the
@@ -446,8 +470,13 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
 // ── Hit-test ────────────────────────────────────────────────────────
 
 bool SkinQuickItem::contains(const QPointF &point) const {
+    // Map the display-space point back to layout XML units when a
+    // render ratio is active; the alpha cache is painted natively.
+    const QPointF p = (m_renderRatio == 1.0)
+        ? point : QPointF(point.x() / m_renderRatio,
+                          point.y() / m_renderRatio);
     // Bounds check first.
-    if (!QRectF(QPointF(0, 0), QSizeF(m_nativeSize)).contains(point))
+    if (!QRectF(QPointF(0, 0), QSizeF(m_nativeSize)).contains(p))
         return false;
     // If we haven't painted yet, fall through to the inclusive default
     // so the first click reaches us.  We treat the painted-buffer alpha

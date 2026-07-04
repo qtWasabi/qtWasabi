@@ -68,6 +68,19 @@ public:
     // back to minimum_w x minimum_h, or default).
     QSize layoutNativeSize() const { return m_nativeSize; }
 
+    // Display render ratio, the reference basewnd::setRenderRatio model:
+    // the layout keeps its XML-unit coordinates, the painted output and
+    // the toplevel window scale by this factor.  Winamp exposes it as
+    // doublesize / the scale submenu; skins drive it via Maki setScale.
+    // Initialized from WASABIQT_RENDER_RATIO (a user-state instrument,
+    // e.g. the corpus harness reproducing an author's 50% screenshot).
+    double renderRatio() const { return m_renderRatio; }
+    void   setRenderRatio(double r);
+    QSize  displaySize() const {
+        return { int(m_nativeSize.width()  * m_renderRatio + 0.5),
+                 int(m_nativeSize.height() * m_renderRatio + 0.5) };
+    }
+
     // Access the parsed tree + asset registries.
     const Layout::ResolvedWidget &tree() const { return m_tree; }
     BitmapRegistry               &registry()   { return m_registry; }
@@ -276,6 +289,7 @@ private:
     QRegion m_windowRegion;
     // Auto-shrink to painted extent toggle (off by default).
     bool   m_autoShrink = false;
+    double m_renderRatio = 1.0;
     // Floor for the auto-shrink: the layout's declared minimum_h, so a
     // transient paint (e.g. a drawer close that momentarily hides docked
     // content) can never collapse the window below the skin's valid
