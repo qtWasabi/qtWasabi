@@ -13,4 +13,9 @@ DeClassified	QTAMP-DeClassified	25	1	testtone	fixed
 winamp1	QTAMP-winamp1	25	1	testtone	fixed
 Winamp2000SP4	QTAMP-Winamp2000SP4	25	0.5	testtone	fixed
 Bento	Bento	25	1	Music/RAM	ref
-WinampModern	Winamp Modern	25	1	Music/RAM	ref
+# WinampModern's reference is a MULTI-WINDOW session capture (player +
+# playlist editor + media library arranged separately); the harness
+# renders a single window, so scoring it against that capture compares
+# different things. Re-enable once the harness can arrange subwindows
+# (or once a player-only reference exists).
+#WinampModern	Winamp Modern	25	1	Music/RAM	ref

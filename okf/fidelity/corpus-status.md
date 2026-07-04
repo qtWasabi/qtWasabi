@@ -39,8 +39,8 @@ profile.
 | [winamp1](https://github.com/qtamp/winamp1) | author screenshot | **faithful (MAE 4.4)** | Was 354x106 garbage; fixed by AUTOWH layout sizing plus the layout-root background fill. |
 | [DeClassified](https://github.com/qtamp/DeClassified) | author screenshot | **passing (MAE 20.7)** | Classic analyzer lights up since the engine owns transport events; ticker uses the classic "N. title (M:SS)" format; balance strip folds around centre. Residual MAE is track-content difference plus known asset drift. |
 | [Winamp2000SP4](https://github.com/qtamp/Winamp2000SP4) | author screenshot | in progress | Render-ratio model landed (2x-authored art, reference captured at 50%); still 4px tall: the window-region mask is not yet scaled by the ratio. Then: truetypefont registry, Win9x gradient widget, SApplication caption bindings, getVisBand. |
-| Bento | REAL Winamp (RAM album) | failing | Hermetic render is structurally close. Confirmed deltas: playlist durations all 0:00 (host does not fill FLAC durations), fileinfo VALUES green where the reference is white, Play button is not the reference's split button+arrow, dropdown widgets are paint-only placeholders, Browser tab absent. |
-| WinampModern | REAL Winamp (RAM album) | failing | Same harness; shares the Bento findings where applicable. |
+| Bento | REAL Winamp (RAM album) | **passing (MAE 23.4)** | Playlist durations now come from the tag headers and match the reference; fileinfo lines render the reference's pale blue-gray. Remaining line items: the Play control is not the reference's split button+arrow, its menu popup does not open (gen_ml menu, the visible dropdown work item), Browser tab absent. |
+| WinampModern | REAL Winamp (RAM album) | not scoreable yet | The reference is a MULTI-WINDOW session capture (player, playlist editor and media library arranged separately); the harness renders one window. Disabled in the manifest until it can arrange subwindows or a player-only reference exists. The forced-width render also shows the config drawer undocked, an RB1 frame-constraint symptom to fix regardless. |
 
 ## Reading the failures
 
