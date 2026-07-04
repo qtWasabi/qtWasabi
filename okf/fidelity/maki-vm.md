@@ -45,6 +45,18 @@ related:
 > event the 5.666 surface genuinely lacks); still-unbound methods now
 > fail soft at their reference arity, closing the arity-guess
 > stack-desync class.
+>
+> STATUS 2026-07-05, phase B LANDED: typed instances.  `new`
+> List/BitList/Map/Region carry real behaviour keyed off the class
+> stamp (Map via BitmapRegistry with the reference channel semantics,
+> Region QRegion-backed incl. loadFromMap threshold+inverted, List
+> with faithful index/string-compare semantics); ObjectTable::destroy
+> performs class-aware teardown (a deleted Timer kills its QTimer —
+> the zombie fix) while the ScriptObject stays alive;
+> vcpu_getInterfaceObject honours GUIDs for stamped instances via the
+> registry ancestor walk.  Remaining: real typeCheck + per-class
+> singletons (needs the Config service, #237), then delete the flat
+> fallback and the alias rows.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
