@@ -20,7 +20,23 @@ related:
 > STATUS 2026-07-04: the transport slice of the event surface is
 > closed: the engine derives System.onPlay/onResume/onPause/onStop
 > from the same host status getStatus() reads (one source, no embedder
-> wiring). The rest of this audit stands.
+> wiring).
+>
+> STATUS 2026-07-05, keystone phase A LANDED: the class registry is
+> real. 54 classes with their interop GUIDs and ancestor links resolve
+> the .maki GUID tables (getClassFromGuid/getClassFromName), every
+> script owns its type list (the shared static also corrupted
+> OPCODE_NEW/UMV across loads), addrefDLF resolves (declared class,
+> method) via the ancestor walk, and new-constructed objects carry
+> their class. Migration is evidence-first: scoped rows inherit body
+> and arity from the flat table, scoped misses fall back flat and are
+> traced (WASABIQT_TRACE_SCOPED_MISS — 308 pairs on Bento form the
+> table-population worklist). First splits landed: Slider and Frame
+> get/setPosition no longer attr-sniff. Remaining phases: populate the
+> GuiObject/SystemObject tables from the miss trace, typed
+> instantiate depth (Timer/Region/Map behaviours keyed off the class
+> stamp), GUID-keyed getInterface + real typeCheck, then delete the
+> flat fallback.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
