@@ -11,7 +11,17 @@
 # Winamp with the RAM album loaded (tests/refs in the qtamp repo).
 DeClassified	QTAMP-DeClassified	25	1	testtone	fixed
 winamp1	QTAMP-winamp1	25	1	testtone	fixed
-Winamp2000SP4	QTAMP-Winamp2000SP4	25	0.5	testtone	fixed
+# Winamp2000SP4's screenshot.png is REFERENCE DRIFT: the capture dates
+# from v1.3 (2020-06-10) but the skin XML is v1.4-RC2 (2023-03-11) with
+# a redesigned lower-right chrome (SHUFFLE/repeat bevel buttons became a
+# Playlists button plus Win9x checkboxes) and a titlebar block that did
+# not exist at v1.3 at all.  No version of the XML declares the capture's
+# 552x234 geometry (all versions declare 550x242), so neither the shipped
+# fork nor the v1.3 tag can be scored against it exactly.  The capture
+# stays a VISUAL guide for the engine gaps it exposes (gradient titlebar,
+# truetype fonts, caption text); pixel gating for this skin lives in the
+# hermetic regression baseline in the qtamp repo (tests/regression).
+#Winamp2000SP4	QTAMP-Winamp2000SP4	25	0.5	testtone	fixed
 Bento	Bento	25	1	Music/RAM	ref
 # WinampModern's reference is a MULTI-WINDOW session capture (player +
 # playlist editor + media library arranged separately); the harness
