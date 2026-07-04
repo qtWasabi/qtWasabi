@@ -103,6 +103,15 @@ for d in "${required[@]}"; do
     fi
 done
 
+# Case normalization: the tree was authored on case-insensitive
+# filesystems, so some includes disagree with on-disk casing (e.g.
+# bfc_assert.h includes Winamp/buildtype.h while the file is
+# buildType.h). Add lowercase aliases where Linux needs them.
+if [[ -f "${WASABI_SRC_LOCAL}/Src/Winamp/buildType.h" && ! -e "${WASABI_SRC_LOCAL}/Src/Winamp/buildtype.h" ]]; then
+    ln -s buildType.h "${WASABI_SRC_LOCAL}/Src/Winamp/buildtype.h"
+    echo "fetch-wasabi: ✓ case alias Winamp/buildtype.h"
+fi
+
 echo "fetch-wasabi: ✓ extracted into ${WASABI_SRC_LOCAL}/Src"
 echo "fetch-wasabi: ✓ all expected subdirs present"
 echo
