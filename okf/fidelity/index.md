@@ -75,6 +75,9 @@ gets wrong initial visibility, dead tabs, or a mis-themed window.
   the Wasabi:Frame constraint model, window sizing.
 - [Text, color, bitmaps](text-color-bitmap.md) — font metrics, tint
   fidelity, bitmap semantics.
+- [Corpus status](corpus-status.md) — per-skin fidelity against the skin
+  authors' own reference screenshots (the showcase forks are the first
+  regression corpus; 1 of 5 currently faithful).
 
 ## How this feeds the roadmap
 

@@ -137,7 +137,11 @@ recolor stays opt-in for theme-less skins); default "Text" colorgroup and
 Grow the offscreen screenshot harness into a corpus gate: many real skins
 rendered and diffed per change, unknown-DLF telemetry aggregated, the
 acceptance criteria from [the goal](../goals/any-skin-fidelity.md) checked
-per skin. Every workstream above lands behind this gate.
+per skin. Every workstream above lands behind this gate. The first corpus
+is the five QTAMP showcase forks diffed against their authors' reference
+screenshots; as of 2026-07-04 only WinampModernPP passes, and the four
+broken ones are tracked per-skin in
+[fidelity/corpus-status.md](../fidelity/corpus-status.md).
 
 - Exit: never; this is the standing regression discipline that keeps the
   register at zero once it gets there.
