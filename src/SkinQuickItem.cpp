@@ -300,6 +300,15 @@ void SkinQuickItem::scheduleRegionRebuild() {
 void SkinQuickItem::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
+    // computeWindowRegion works in layout XML units, but every consumer
+    // of m_windowRegion (setMask on the toplevel, the embedder's shaped
+    // screenshot cut) operates on the displayed window, which is scaled
+    // by the render ratio.  Publish the region in display pixels.
+    if (m_renderRatio != 1.0) {
+        QTransform t;
+        t.scale(m_renderRatio, m_renderRatio);
+        m_windowRegion = t.map(m_windowRegion);
+    }
     // Pushing setMask to a QQuickWindow on Wayfire/wlroots before
     // its first frame has been committed prevents the xdg-toplevel
     // from ever registering with the compositor.  Even after the
@@ -484,8 +493,8 @@ bool SkinQuickItem::contains(const QPointF &point) const {
     auto it = m_alphaCache.constFind(&m_tree);
     if (it == m_alphaCache.constEnd() || it->isNull()) return true;
     const QImage &buf = it.value();
-    const int x = qBound(0, int(point.x()), buf.width() - 1);
-    const int y = qBound(0, int(point.y()), buf.height() - 1);
+    const int x = qBound(0, int(p.x()), buf.width() - 1);
+    const int y = qBound(0, int(p.y()), buf.height() - 1);
     const QRgb px = buf.pixel(x, y);
     return qAlpha(px) > 16;
 }
