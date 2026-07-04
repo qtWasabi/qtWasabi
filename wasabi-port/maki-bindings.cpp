@@ -1667,6 +1667,47 @@ extern "C" scriptVar wq_setPosition(maki_cmd *, int, ScriptObject *o, scriptVar 
     return makeVoid();
 }
 
+// Class-scoped position bodies.  The class registry dispatches these
+// per the DECLARED class of the .maki import, so neither needs the
+// attr-sniffing discrimination above (which stays as the flat-table
+// fallback for imports whose class we do not know).
+extern "C" scriptVar wq_sliderGetPosition(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeInt(0);
+    const int hostVal = wq_slider_get_position(o);
+    if (hostVal >= 0) return makeInt(hostVal);
+    return makeInt(wq_widget_getAttrInt(o, L"position"));
+}
+extern "C" scriptVar wq_sliderSetPosition(maki_cmd *, int, ScriptObject *o,
+                                          scriptVar pos) {
+    if (o) {
+        int p = 0;
+        if (pos.type == SCRIPT_INT) p = pos.data.idata;
+        else if (pos.type == SCRIPT_STRING && pos.data.sdata)
+            p = static_cast<int>(std::wcstol(pos.data.sdata, nullptr, 10));
+        if (p < 0) p = 0; else if (p > 255) p = 255;
+        wchar_t buf[16];
+        std::swprintf(buf, 16, L"%d", p);
+        wq_widget_setAttr(o, L"position", buf);
+        wq_slider_set_position(o, p);
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_frameGetPosition(maki_cmd *, int, ScriptObject *o) {
+    if (!o) return makeInt(0);
+    return makeInt(wq_widget_getAttrInt(o, L"_frame_divpos"));
+}
+extern "C" scriptVar wq_frameSetPosition(maki_cmd *, int, ScriptObject *o,
+                                         scriptVar pos) {
+    if (o) {
+        int p = 0;
+        if (pos.type == SCRIPT_INT) p = pos.data.idata;
+        else if (pos.type == SCRIPT_STRING && pos.data.sdata)
+            p = static_cast<int>(std::wcstol(pos.data.sdata, nullptr, 10));
+        wq_widget_setFrameDivider(o, p);
+    }
+    return makeVoid();
+}
+
 // Container.getLayout(name) — return a layout-root-shaped pseudo so
 // callers can chain getWidth()/getHeight() against something.  Real
 // Wasabi looks up the named layout within the container; we don't
@@ -1948,6 +1989,31 @@ const MakiMethod *makiMethodTable(int *count) {
     };
     if (count) *count = sizeof(kMethods) / sizeof(kMethods[0]);
     return kMethods;
+}
+
+// Case-insensitive flat lookup, shared with the class registry's
+// migration fallback (maki-classes.cpp): a scoped row without an
+// explicit pointer resolves its body — and its battle-tested arity —
+// from here.
+void *makiFlatLookup(const wchar_t *name, int *nparams) {
+    if (!name) return nullptr;
+    int n = 0;
+    const MakiMethod *t = makiMethodTable(&n);
+    for (int i = 0; i < n; ++i) {
+        const wchar_t *a = t[i].name, *b = name;
+        while (*a && *b) {
+            wchar_t la = *a, lb = *b;
+            if (la >= L'A' && la <= L'Z') la = wchar_t(la - L'A' + L'a');
+            if (lb >= L'A' && lb <= L'Z') lb = wchar_t(lb - L'A' + L'a');
+            if (la != lb) break;
+            ++a; ++b;
+        }
+        if (*a == 0 && *b == 0) {
+            if (nparams) *nparams = t[i].nparams;
+            return t[i].ptr;
+        }
+    }
+    return nullptr;
 }
 
 }  // namespace qtWasabi::Maki

@@ -188,4 +188,9 @@ void  destroyWidgetScriptObject(void *handle);
 void *opaqueOf(void *handle);
 int   scriptIdOf(void *handle);
 
+// Class identity stamped by ObjectTable::instantiate (`new Foo`):
+// the Maki class-registry index, -1 for classless handles.
+void  setScriptObjectClass(void *handle, int classIdx);
+int   scriptObjectClassIdx(void *handle);
+
 }  // namespace qtWasabi::Maki

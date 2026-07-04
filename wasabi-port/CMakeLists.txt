@@ -94,6 +94,9 @@ set(QTWASABI_BFC_SOURCES
     # Maki method bodies — function pointers that ObjectTable::
     # addrefDLF wires into VCPUdlfEntry::ptr so CALLMs run real code.
     ${CMAKE_CURRENT_SOURCE_DIR}/maki-bindings.cpp
+    # The Maki class registry: classes + GUIDs + per-class method
+    # tables backing the (class,method)-scoped dispatch.
+    ${CMAKE_CURRENT_SOURCE_DIR}/maki-classes.cpp
 )
 
 # Object library — the .o files are pulled into both the shared and the

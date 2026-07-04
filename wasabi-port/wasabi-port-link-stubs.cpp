@@ -30,14 +30,18 @@
 #  undef max
 #endif
 
+#include "maki-classes.h"
+
 #include <cstdarg>
 #include <cstdio>
 #include <unordered_map>
 #include <cstring>
 #include <cstdlib>
 #include <cwchar>
+#include <map>
 #include <set>
 #include <string>
+#include <vector>
 
 // ── ScriptObjectManager (SOM) ────────────────────────────────────
 ScriptObjectManager::ScriptObjectManager()  {}
@@ -1305,6 +1309,7 @@ namespace qtWasabi::Maki {
 struct MakiMethod { const wchar_t *name; int nparams; void *ptr; };
 const MakiMethod *makiMethodTable(int *count);
 void *createWidgetScriptObject(void *opaqueWidget);
+void  setScriptObjectClass(void *handle, int classIdx);
 }
 
 int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
@@ -1317,6 +1322,36 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
     // duplication is harmless.
     dlf->DLFid = id;
     if (dlf->functionName) {
+        // (class, method) scoped resolution first.  `basetype` is the
+        // import's DECLARED class (the .maki's GUID table resolved
+        // through getClassFromGuid) — real Wasabi walks that class's
+        // controller ancestor chain for the method.  A scoped miss
+        // falls through to the flat name table so the migration can
+        // never silently lose a binding; misses are traceable
+        // (WASABIQT_TRACE_SCOPED_MISS=1) to grow the class tables
+        // evidence-first.
+        if (dlf->basetype >= CLASS_ID_BASE) {
+            int np = 0; void *ptr = nullptr;
+            if (qtWasabi::Maki::makiResolveScoped(
+                    dlf->basetype - CLASS_ID_BASE, dlf->functionName,
+                    &np, &ptr)) {
+                dlf->nparams = np;
+                dlf->ptr     = ptr;
+                return 1;
+            }
+            if (const char *tr = ::getenv("WASABIQT_TRACE_SCOPED_MISS");
+                tr && *tr == '1') {
+                static std::set<std::wstring> seen;
+                std::wstring k = std::wstring(
+                    ObjectTable::getClassName(dlf->basetype)) + L"." +
+                    dlf->functionName;
+                if (seen.insert(k).second) {
+                    char nb[160];
+                    wq_wide_to_ascii(k.c_str(), nb, sizeof(nb));
+                    std::fprintf(stderr, "[scoped-miss] %s -> flat\n", nb);
+                }
+            }
+        }
         int n = 0;
         const auto *t = qtWasabi::Maki::makiMethodTable(&n);
         for (int i = 0; i < n; ++i) {
@@ -1351,29 +1386,79 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
     return 1;
 }
 void ObjectTable::delrefDLF(VCPUdlfEntry *)                 {}
-int  ObjectTable::getClassFromName(const wchar_t *)         { return -1; }
-int  ObjectTable::getClassFromGuid(GUID)                    { return -1; }
-const wchar_t *ObjectTable::getClassName(int)               { return L""; }
-int  ObjectTable::getClassEntryIdx(int)                     { return -1; }
-// The Wasabi API only allows `new Foo` for specific classes (Timer,
-// Region, Map, etc.); ours can't tell what class the int id maps to
-// because getClassFromGuid stubs to -1.  Return 1 unconditionally so
-// `new Foo` doesn't get rejected as not-instantiable; instantiate()
-// hands back a fresh WidgetScriptObject so script-side calls on the
-// result land on real bindings (setDelay no-op, etc.) instead of a
-// null-call guru.
+
+// ── The class registry surface ───────────────────────────────────
+// Backed by the Maki class table (maki-classes.cpp): real GUID→class
+// and name→class resolution, so the loader's per-script typetable
+// fills with genuine class ids and every DLF import carries its
+// declared class into addrefDLF above.
+namespace {
+class_entry *classEntries() {
+    static std::vector<class_entry> entries = [] {
+        int n = 0;
+        const auto *t = qtWasabi::Maki::makiClassTable(&n);
+        std::vector<class_entry> v;
+        v.resize(size_t(n));
+        for (int i = 0; i < n; ++i) {
+            v[size_t(i)].classname       = t[i].name;
+            v[size_t(i)].classid         = CLASS_ID_BASE + i;
+            v[size_t(i)].ancestorclassid =
+                t[i].parent < 0 ? -1 : CLASS_ID_BASE + t[i].parent;
+            v[size_t(i)].controller      = nullptr;
+            v[size_t(i)].classGuid       = t[i].guid;
+            v[size_t(i)].instantiable    = 1;
+            v[size_t(i)].referenceable   = 1;
+            v[size_t(i)].external        = 0;
+            v[size_t(i)].sf              = nullptr;
+        }
+        return v;
+    }();
+    return entries.data();
+}
+int classCount() {
+    int n = 0;
+    qtWasabi::Maki::makiClassTable(&n);
+    return n;
+}
+}  // namespace
+
+int ObjectTable::getClassFromName(const wchar_t *name) {
+    const int idx = qtWasabi::Maki::makiClassIndexFromName(name);
+    return idx < 0 ? -1 : CLASS_ID_BASE + idx;
+}
+int ObjectTable::getClassFromGuid(GUID g) {
+    const int idx = qtWasabi::Maki::makiClassIndexFromGuid(g);
+    return idx < 0 ? -1 : CLASS_ID_BASE + idx;
+}
+const wchar_t *ObjectTable::getClassName(int classid) {
+    const int idx = classid - CLASS_ID_BASE;
+    if (idx < 0 || idx >= classCount()) return L"";
+    return classEntries()[idx].classname;
+}
+int ObjectTable::getClassEntryIdx(int classid) {
+    const int idx = classid - CLASS_ID_BASE;
+    return (idx >= 0 && idx < classCount()) ? idx : -1;
+}
+// Unknown ids (a GUID the registry doesn't carry resolves to -1) stay
+// instantiable so `new Foo` on an exotic class still hands back a
+// generic object instead of a silent NULL push.
 int  ObjectTable::isClassInstantiable(int)                  { return 1; }
 int  ObjectTable::isClassReferenceable(int)                 { return 0; }
-// `new Timer`, `new Map`, etc. flow through here.  Hand back a fresh
-// WidgetScriptObject so the script-side reference is non-null; the
-// existing Maki bindings (setDelay, start, stop, …) tolerate a
-// receiver without a backing widget and return safe defaults.
-ScriptObject *ObjectTable::instantiate(int) {
-    return static_cast<ScriptObject *>(
-        qtWasabi::Maki::createWidgetScriptObject(nullptr));
+// `new Timer`, `new Map`, etc.  Hand back a fresh WidgetScriptObject
+// stamped with its class, so the instance knows what it was
+// constructed as (typed behaviour hangs off this progressively); the
+// Maki bindings tolerate a receiver without a backing widget.
+ScriptObject *ObjectTable::instantiate(int classid) {
+    void *o = qtWasabi::Maki::createWidgetScriptObject(nullptr);
+    qtWasabi::Maki::setScriptObjectClass(o, classid - CLASS_ID_BASE);
+    return static_cast<ScriptObject *>(o);
 }
 void ObjectTable::destroy(ScriptObject *)                   {}
-class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
+class_entry *ObjectTable::getClassEntry(int classid) {
+    const int idx = classid - CLASS_ID_BASE;
+    if (idx < 0 || idx >= classCount()) return nullptr;
+    return &classEntries()[idx];
+}
 
 // ── SystemObject ─────────────────────────────────────────────────
 // VCPUassign uses this to gate object-typed assignment: when it
@@ -1387,7 +1472,16 @@ class_entry *ObjectTable::getClassEntry(int)                { return nullptr; }
 // non-null receivers as valid.
 int SystemObject::isObjectValid(ScriptObject *o)            { return o != nullptr; }
 PtrList<ScriptObject> *SystemObject::getAllScriptObjects()  { static PtrList<ScriptObject> empty; return &empty; }
-TList<int> *SystemObject::getTypesList()                    { static TList<int> empty; return &empty; }
+// Per-SCRIPT class table.  addScript fills this with the resolved
+// ids of the .maki's GUID table, and OPCODE_NEW / OPCODE_UMV read it
+// back at runtime — a single shared list would hold only the LAST
+// loaded script's classes.  Keyed off `this` because each script's
+// SystemObject is a distinct registered instance; entries live as
+// long as the process (bounded by the number of scripts ever loaded).
+TList<int> *SystemObject::getTypesList() {
+    static std::map<const SystemObject *, TList<int>> lists;
+    return &lists[this];
+}
 void SystemObject::setIsOldFormat(int)                       {}
 int  SystemObject::isOldFormat()                             { return 0; }
 int  SystemObject::isLoaded()                                { return 0; }

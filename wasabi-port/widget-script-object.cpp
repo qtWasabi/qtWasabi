@@ -42,6 +42,11 @@ public:
     ~WidgetScriptObject() override = default;
 
     void  setOpaque(void *w) { m_widget = w; }
+    // Registry class index stamped at construction (ObjectTable::
+    // instantiate for `new Foo`); -1 = classless (widget handles,
+    // singletons).  Typed behaviour attaches here progressively.
+    void  setClassIdx(int idx) { m_classIdx = idx; }
+    int   classIdx() const { return m_classIdx; }
     void *opaque() const     { return m_widget; }
     void  setAttributeTag(const wchar_t *n) { m_isAttribute = true; m_attrName = n ? n : L""; }
 
@@ -134,6 +139,7 @@ public:
 
 private:
     void *m_widget = nullptr;       // opaque ResolvedWidget*
+    int   m_classIdx = -1;          // Maki class registry index
     bool  m_isAttribute = false;    // tagged by wq_newAttribute (trace only)
     std::wstring m_attrName;
     int   m_scriptId = -1;
@@ -148,6 +154,16 @@ void *createWidgetScriptObject(void *opaqueWidget) {
     auto *obj = new WidgetScriptObject();
     obj->setOpaque(opaqueWidget);
     return obj;
+}
+
+void setScriptObjectClass(void *handle, int classIdx) {
+    if (handle)
+        static_cast<WidgetScriptObject *>(handle)->setClassIdx(classIdx);
+}
+
+int scriptObjectClassIdx(void *handle) {
+    return handle
+        ? static_cast<WidgetScriptObject *>(handle)->classIdx() : -1;
 }
 
 void tagScriptObjectAsAttribute(void *handle, const wchar_t *name) {
