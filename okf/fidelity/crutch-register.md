@@ -1,7 +1,7 @@
 ---
 type: Register
 id: fidelity/crutch-register
-title: Crutch register — every per-skin hardcode, and what replaces it
+title: "Crutch register: every per-skin hardcode, and what replaces it"
 description: >
   The authoritative list of skin-specific workarounds in the engine and the
   reference embedder. Each entry names the crutch, why it only works for one
@@ -23,7 +23,7 @@ the skin's own XML + scripts. Every entry below violates the one goal.
 Removal criterion: the generic mechanism ships and the crutch is deleted,
 verified across the corpus.
 
-## Embedder (qtamp `src/main.cpp`) — config/AVS drawer complex
+## Embedder (qtamp `src/main.cpp`): config/AVS drawer complex
 
 | Crutch | Where | Why per-skin | Generic replacement |
 |---|---|---|---|
@@ -36,7 +36,7 @@ verified across the corpus.
 | `toggleShade` fakes a 30 px strip | main.cpp:3676 | Invented geometry | Switch to the skin's real `<layout id="shade">` |
 | Hardcoded window title "Winamp" | main.cpp:4232 | Cosmetic, still a literal | Container/layout title from the skin |
 
-## Engine (`src/`) — layout & chrome
+## Engine (`src/`): layout & chrome
 
 | Crutch | Where | Why per-skin | Generic replacement |
 |---|---|---|---|
@@ -51,7 +51,7 @@ verified across the corpus.
 | ColorThemes scrollbar thumb geometry in LayerWidget | widgets/Layer.cpp:24 | Bento constants | One generic ScrollBar widget |
 | Dead `_tab_state_key` machinery in Grid (wireTabs no longer plants it) | widgets/Grid.cpp:22 | Orphaned half-crutch | Delete with the tab mechanism unification |
 
-## Engine — state and scripts
+## Engine: state and scripts
 
 | Crutch | Where | Why per-skin | Generic replacement |
 |---|---|---|---|
@@ -60,7 +60,7 @@ verified across the corpus.
 | `Config` singleton is a dummy; `newItem/getAttribute/enumItem` are no-ops | wasabi-port/maki-bindings.cpp:1408 | Preference-gated skin logic (a large class) is inert, forcing C++ stand-ins | Real Config service on the same store, with `onValueChanged` dispatch |
 | Autowidth font-width heuristics branch on font-family prefixes (`player.`/`drawer.`) | src/Layout.cpp (region/autowidth path) | Prefix naming from one skin family | Measure with the actual resolved font |
 
-## Engine — paint & theming
+## Engine: paint & theming
 
 | Crutch | Where | Why per-skin | Generic replacement |
 |---|---|---|---|

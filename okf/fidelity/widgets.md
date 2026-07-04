@@ -1,7 +1,7 @@
 ---
 type: Audit
 id: fidelity/widgets
-title: Widget fidelity — faithful interpretations vs. substitutes and stubs
+title: "Widget fidelity: faithful interpretations vs. substitutes and stubs"
 description: >
   Audit of every widget class against real Wasabi behaviour. The bitmap-blit
   family is largely faithful; a second tier is hand-drawn approximation; a
@@ -22,8 +22,8 @@ Paint dispatch is a clean class-per-widget model (TreePainter →
 ## Faithful today
 
 Layer, Grid (9-slice), Button (up/down/hover/active precedence), Slider
-(3-slice + thumb states), Images (frame strip), ProgressGrid, Status,
-AlbumArt — all resolve through Bitmap/Color/Gammaset registries and are
+(3-slice + thumb states), Images (frame strip), ProgressGrid, Status, and
+AlbumArt all resolve through Bitmap/Color/Gammaset registries and are
 skin-generic. The in-player playlist (PleditHostRenderer over the real
 `draw_pe`) and the Media Library direction (MlHostWidget over the real
 `wa_dlg` genex) are genuine faithful ports.

@@ -1,7 +1,7 @@
 ---
 type: Audit Index
 id: fidelity/index
-title: Fidelity audit — where qtWasabi stands against the one goal
+title: "Fidelity audit: where qtWasabi stands against the one goal"
 description: >
   Landing page for the 2026-07-03 six-dimension audit of qtWasabi and its
   reference embedder against the any-skin goal. Names what is already
@@ -65,17 +65,17 @@ gets wrong initial visibility, dead tabs, or a mis-themed window.
 
 ## Per-dimension findings
 
-- [Maki VM completeness](maki-vm.md) — class model, dispatch, events,
+- [Maki VM completeness](maki-vm.md): class model, dispatch, events,
   bindings breadth, config, containers.
-- [Crutch register](crutch-register.md) — every per-skin hardcode with its
+- [Crutch register](crutch-register.md): every per-skin hardcode with its
   generic replacement; the deletion checklist.
-- [Widget fidelity](widgets.md) — faithful vs. substitute vs. placeholder,
+- [Widget fidelity](widgets.md): faithful vs. substitute vs. placeholder,
   per widget class.
-- [Layout and geometry](layout-geometry.md) — coordinate-resolution bugs,
+- [Layout and geometry](layout-geometry.md): coordinate-resolution bugs,
   the Wasabi:Frame constraint model, window sizing.
-- [Text, color, bitmaps](text-color-bitmap.md) — font metrics, tint
+- [Text, color, bitmaps](text-color-bitmap.md): font metrics, tint
   fidelity, bitmap semantics.
-- [Corpus status](corpus-status.md) — per-skin fidelity against the skin
+- [Corpus status](corpus-status.md): per-skin fidelity against the skin
   authors' own reference screenshots (the showcase forks are the first
   regression corpus; 1 of 5 currently faithful).
 

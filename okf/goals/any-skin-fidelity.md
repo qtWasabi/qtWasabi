@@ -1,7 +1,7 @@
 ---
 type: Goal
 id: goals/any-skin-fidelity
-title: The one goal — every skin, past and future, rendered by the original Maki VM
+title: "The one goal: every skin, past and future, rendered by the original Maki VM"
 description: >
   qtWasabi's single governing objective, stated with acceptance criteria,
   operating rules, and explicit non-goals. Every design decision, review,

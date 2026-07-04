@@ -1,7 +1,7 @@
 ---
 type: Roadmap
 id: roadmap/index
-title: Convergence roadmap — from crutches to the Maki VM
+title: "Convergence roadmap: from crutches to the Maki VM"
 description: >
   The leverage-ordered plan that closes the audited gap between qtWasabi
   today and the one goal. Workstreams are named, not numbered; order within

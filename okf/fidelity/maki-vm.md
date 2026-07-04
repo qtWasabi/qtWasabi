@@ -1,7 +1,7 @@
 ---
 type: Audit
 id: fidelity/maki-vm
-title: Maki VM completeness — the root gap
+title: "Maki VM completeness: the root gap"
 description: >
   Audit of the Maki VM layer against the goal. The bytecode interpreter is
   the original; the class/dispatch/object model around it is a name-based
@@ -27,7 +27,7 @@ engine and embedder to imitate skin scripts in C++.
 ## Blockers
 
 ### No class model
-`wasabi-port/wasabi-port-link-stubs.cpp:1354` — `ObjectTable::
+`wasabi-port/wasabi-port-link-stubs.cpp:1354`: `ObjectTable::
 getClassFromName/getClassFromGuid` return `-1`; `instantiate()` returns one
 generic `WidgetScriptObject` for every `new Timer/Region/Map/List`;
 `vcpu_getInterfaceObject` returns `this` for any GUID. There are no typed
@@ -38,7 +38,7 @@ nontrivial skin does.
 `instantiate`, and GUID-keyed `getInterface`.
 
 ### Flat name-based method dispatch
-`wasabi-port/wasabi-port-link-stubs.cpp:1310` — `addrefDLF` resolves a
+In `wasabi-port/wasabi-port-link-stubs.cpp:1310`, `addrefDLF` resolves a
 method by NAME against one global table. Cross-class collisions misroute:
 `stop` lands on Timer.stop even when called on System; `getWidth/getValue`
 collide between GuiObject and Map; `getPosition` is disambiguated by
@@ -47,7 +47,7 @@ attribute-sniffing (`maki-bindings.cpp:1596`).
 **Faithful:** scope lookup by `(class, method)` once the class model exists.
 
 ### Event surface is a small subset
-`public/qtWasabi/Widget.h:173` — widgets receive C++ input but do not fire
+`public/qtWasabi/Widget.h:173`: widgets receive C++ input but do not fire
 the matching Maki handlers (`onLeftButtonDown/Up`, `onMouseMove`,
 `onEnterArea/onLeaveArea`, `onMouseWheel`, `onChar/onKeyDown/onKeyUp`,
 Slider `onSetPosition`, Button `onActivate/onToggle`, Layout/Container
@@ -59,7 +59,7 @@ its bound script object; engine-side interactivity becomes the fallback for
 script-less skins only.
 
 ### ~710 of ~869 methods are no-ops
-`wasabi-port/maki-bindings.cpp:1705` — arity-only stubs returning 0 back
+In `wasabi-port/maki-bindings.cpp:1705`, arity-only stubs returning 0 back
 whole classes: Region, Map, AnimatedLayer, List/Tree/Menu, `Wac.sendCommand`,
 System transport (`play/pause/next/previous/eject/seekTo`). Skins calling
 them silently do nothing.

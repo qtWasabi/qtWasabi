@@ -1,7 +1,7 @@
 ---
 type: Audit
 id: fidelity/corpus-status
-title: Corpus status — per-skin render fidelity against author references
+title: "Corpus status: per-skin render fidelity against author references"
 description: >
   The living record of which corpus skins render faithfully and which are
   broken, verified against the skin authors' own reference screenshots.

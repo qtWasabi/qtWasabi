@@ -1,7 +1,7 @@
 ---
 type: OKF Bundle
 id: index
-title: qtWasabi — Any-Skin Fidelity Bundle
+title: "qtWasabi: Any-Skin Fidelity Bundle"
 description: >
   Open-Knowledge-Format bundle for qtWasabi, the open-source engine that
   renders Winamp Modern (.wal / Wasabi) skins by executing their own compiled
@@ -16,7 +16,7 @@ related:
   - roadmap/index.md
 ---
 
-# qtWasabi — Any-Skin Fidelity Bundle
+# qtWasabi: Any-Skin Fidelity Bundle
 
 This bundle documents qtWasabi in the Open Knowledge Format: Markdown files
 with YAML front matter, file path as identity, cross-references as relative
@@ -55,17 +55,17 @@ A six-dimension audit of the whole tree (engine, embedder, and the reference
 Wasabi sources) produced roughly 80 structured findings. Summary and the
 per-dimension detail live under [fidelity/](fidelity/index.md):
 
-- [Maki VM completeness](fidelity/maki-vm.md) — the root gap. The bytecode
+- [Maki VM completeness](fidelity/maki-vm.md): the root gap. The bytecode
   interpreter is the original, but the class/dispatch layer around it is a
   name-based shim: no typed object model, one flat method table, most of the
   Wasabi API surface stubbed.
-- [Crutch register](fidelity/crutch-register.md) — every skin-specific
+- [Crutch register](fidelity/crutch-register.md): every skin-specific
   hardcode in engine and embedder, each mapped to its generic replacement.
-- [Widget fidelity](fidelity/widgets.md) — which widgets are faithful
+- [Widget fidelity](fidelity/widgets.md): which widgets are faithful
   interpretations and which are hand-drawn substitutes or placeholders.
-- [Layout and geometry](fidelity/layout-geometry.md) — Wasabi:Frame
+- [Layout and geometry](fidelity/layout-geometry.md): Wasabi:Frame
   constraints, coordinate-resolution bugs, and the auto-shrink heuristic.
-- [Text, color, bitmaps](fidelity/text-color-bitmap.md) — font metrics,
+- [Text, color, bitmaps](fidelity/text-color-bitmap.md): font metrics,
   gammaset/tint fidelity, bitmap semantics.
 
 ## The road

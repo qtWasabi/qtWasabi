@@ -1,7 +1,7 @@
 ---
 type: Audit
 id: fidelity/layout-geometry
-title: Layout and geometry — frame constraints, coordinate bugs, window sizing
+title: "Layout and geometry: frame constraints, coordinate bugs, window sizing"
 description: >
   Audit of the geometry model against reference Wasabi (framewnd.cpp,
   xuiframe.cpp, guiobj.cpp). Two outright coordinate-resolution bugs, an
