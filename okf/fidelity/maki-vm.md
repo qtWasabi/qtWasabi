@@ -75,8 +75,15 @@ related:
 > signature-exact — the WASM EMULATE_FUNCTION_POINTER_CASTS
 > precondition is met); known-class surfaces are authoritative (scoped
 > miss = honestly unbound, flat serves only unknown-class imports);
-> the 17 case-alias rows are deleted.  WASM next: drop the emulate
-> flag, enable ASYNCIFY, verify dialogs + shade in the browser.
+> the 17 case-alias rows are deleted.  WASM VERIFIED: with
+> signature-exact dispatch the emulate flag is gone (no ASYNCIFY — it
+> blew the -Oz binary from ~24 to 37 MiB past the 25 MiB Pages limit,
+> and the hero has no modal dialogs on its path).  Real Chromium
+> (SwiftShader WebGL): skin boots, 15 Maki scripts load, a shade
+> double-click round-trips with zero aborts — the 'function signature
+> mismatch' shade crash is gone.  Binary 23.2 MiB.  The keystone is
+> complete; the flat fallback now serves only unknown-class imports
+> and can be retired when those are enumerated.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
