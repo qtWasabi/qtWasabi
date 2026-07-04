@@ -1,0 +1,8 @@
+# skin	skin-dir-name	mae-limit
+# The limit is the fidelity budget against the author's reference
+# screenshot. Dynamic areas (ticker, time, analyzer) plus playback
+# state account for the allowance; chrome and layout dominate the
+# image, so a broken layout blows way past it.
+DeClassified	QTAMP-DeClassified	25
+winamp1	QTAMP-winamp1	25
+Winamp2000SP4	QTAMP-Winamp2000SP4	25
