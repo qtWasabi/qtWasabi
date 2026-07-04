@@ -25,6 +25,7 @@
 #include <QFontMetrics>
 #include <QGuiApplication>
 #include <QHash>
+#include <QSet>
 #include <QScreen>
 #include <QObject>
 #include <QPointer>
@@ -295,11 +296,21 @@ void registerWidgetForScripts(const QString &id, Layout::ResolvedWidget *w,
 // an onTextChanged handler.
 int fireStaticTextChanged() {
     int fired = 0;
-    for (auto it = g_scriptObjByWidget.constBegin();
-         it != g_scriptObjByWidget.constEnd(); ++it) {
-        const Layout::ResolvedWidget *w = it.key();
-        void *so = it.value();
-        if (!w || !so) continue;
+    // Per-root scoping, same rationale as firePerObjectResize: the replay
+    // after dispatchOnScriptLoaded targets the just-loaded window's labels.
+    // Iterating the global widget→scriptObject map fired it on EVERY
+    // window's text widgets and, worse, dereferenced dangling keys: an
+    // entry registered under root A for a widget owned by root B's tree
+    // (cross-window findObject) survives B's teardown, and the next skin
+    // switch walked straight into the freed widget (the Preferences
+    // skin-change SIGSEGV).  g_activeRegistered holds exactly this root's
+    // live registrations; entries can repeat, so dedupe while walking.
+    QSet<const Layout::ResolvedWidget *> seen;
+    for (const Layout::ResolvedWidget *w : g_activeRegistered) {
+        if (!w || seen.contains(w)) continue;
+        seen.insert(w);
+        void *so = g_scriptObjByWidget.value(w);
+        if (!so) continue;
         if (w->tag != QStringLiteral("text") &&
             w->tag != QStringLiteral("songticker")) continue;
         const QString t = w->attrs.value(QStringLiteral("text"));
