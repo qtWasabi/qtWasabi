@@ -36,9 +36,12 @@ void ImagesWidget::paint(QPainter *p, PaintCtx &ctx,
         } else if (src_ == QStringLiteral("balance") ||
                    src_ == QStringLiteral("pan")) {
             // Balance shares the engine-wide 0..1 host axis (0.5 = centre),
-            // same as VOLUME and the slider thumb — consume it directly.
+            // but classic BALANCE.BMP strips encode |distance from centre|:
+            // frame 0 is the centred (green) state and later frames grow
+            // hotter toward either extreme.  Fold the axis around the
+            // centre instead of consuming it linearly.
             double pos = ctx.host->sliderPosition(QStringLiteral("PAN"));
-            if (pos >= 0.0) v = qBound(0.0, pos, 1.0);
+            if (pos >= 0.0) v = qBound(0.0, qAbs(pos - 0.5) * 2.0, 1.0);
         }
     }
     int frame = qBound(0, int(v * (frames - 1) + 0.5), frames - 1);

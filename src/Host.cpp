@@ -86,15 +86,23 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
             k == QStringLiteral("songtitle") ||
             k == QStringLiteral("songinfo")  ||
             k == QStringLiteral("songticker")) {
-            // Plain title — Modern skins expect the bare track name
-            // here.  Empty when no track is loaded (real Winamp
-            // Bento shows an empty songticker in that state, not a
-            // placeholder).  The "N. <title> (M:SS)" playlist-entry
-            // format is what Maki scripts BUILD via setXmlParam
-            // when a real playlist is selected; until SkinRuntime
-            // drives that per-skin, the host's plain title is the
-            // right default.
-            return host->songTitle();
+            // Winamp's classic marquee format: "N. <title> (M:SS)"
+            // whenever a playlist entry is current, matching how the
+            // reference engine composes the main window title.  Bare
+            // title when nothing is enqueued, empty when no track is
+            // loaded (real Winamp shows an empty songticker then).
+            const QString title = host->playItemDisplayTitle();
+            const int row = host->playlistCurrentRow();
+            if (row >= 0 && !title.isEmpty()) {
+                QString s = QString::number(row + 1) + QStringLiteral(". ")
+                            + title;
+                const qint64 dur = host->durationMs();
+                if (dur > 0)
+                    s += QStringLiteral(" (") + fmtMs(dur)
+                         + QStringLiteral(")");
+                return s;
+            }
+            return title.isEmpty() ? host->songTitle() : title;
         }
         if (k == QStringLiteral("filename"))
             return host->songFilename();

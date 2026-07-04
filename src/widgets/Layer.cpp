@@ -20,6 +20,13 @@ void LayerWidget::paint(QPainter *p, PaintCtx &ctx, const QSize &canvas) {
     if (attrs.value(QStringLiteral("visible")) == QStringLiteral("0"))
         return;
 
+    // Synthesized group-background fill (Layout expandChildren): skip it
+    // when the owning group resolved to a sliver pane, so a degenerate
+    // frame pane stays invisible instead of exposing a texture strip.
+    if (attrs.value(QStringLiteral("id")) == QStringLiteral("__groupbg") &&
+        (canvas.width() <= 4 || canvas.height() <= 4))
+        return;
+
     // 1. Colour-themes scrollbar thumb: track the list's topRow.
     if (attrs.value(QStringLiteral("image")) ==
             QStringLiteral("wasabi.scrollbar.vertical.button") &&

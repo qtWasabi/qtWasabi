@@ -206,13 +206,32 @@ bool SkinQuickItem::load(const SkinXml::Document &doc,
     };
     int w = attrInt(QStringLiteral("w"));
     int h = attrInt(QStringLiteral("h"));
+    // AUTOWH: a layout that declares no size takes it from its
+    // background bitmap, exactly like the reference engine (skins such
+    // as winamp1 ship <layout id="normal" background="..."/> with no
+    // w/h at all and rely on the image's natural dimensions).
+    int autowhH = 0;
+    if (w <= 0 || h <= 0) {
+        const QString bg = m_tree.attrs.value(QStringLiteral("background"));
+        if (!bg.isEmpty()) {
+            const QImage img = m_registry.imageFor(bg);
+            if (!img.isNull()) {
+                if (w <= 0) w = img.width();
+                if (h <= 0) { h = img.height(); autowhH = h; }
+            }
+        }
+    }
     if (w <= 0) w = attrInt(QStringLiteral("minimum_w"), 354);
     if (h <= 0) h = attrInt(QStringLiteral("minimum_h"), 280);
     m_nativeSize = QSize(w, h);
     // The auto-shrink floor: never collapse below the skin's declared
     // minimum height (a drawer close that momentarily hides docked
     // content must not shrink the whole window to the bare chrome).
-    m_minShrinkH = attrInt(QStringLiteral("minimum_h"), 0);
+    // When the height came from the background bitmap (AUTOWH), that
+    // bitmap IS the authoritative extent: floor at its full height so
+    // yet-unpainted regions (an empty titlebar strip, say) cannot be
+    // shrunk away.
+    m_minShrinkH = qMax(attrInt(QStringLiteral("minimum_h"), 0), autowhH);
     setSize(QSizeF(m_nativeSize));
     m_alphaCache.clear();
     rebuildWindowRegion();

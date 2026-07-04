@@ -387,9 +387,14 @@ private:
             // fix, drops the strip.
             const QString bgImage =
                 node.attrs.value(QStringLiteral("background"));
-            if (!bgImage.isEmpty() &&
-                node.id.contains(QStringLiteral("menubar"),
-                                 Qt::CaseInsensitive)) {
+            // Reference semantics: background= is the rearmost fill of
+            // EVERY group (skins like winamp1 paint their entire window
+            // face this way).  The earlier menubar-only restriction
+            // papered over sliver frame panes becoming visible; the
+            // painter now skips a __groupbg whose resolved rect is a
+            // sliver instead, so a degenerate pane stays invisible
+            // without robbing every other group of its background.
+            if (!bgImage.isEmpty()) {
                 Element bgEl;
                 bgEl.tag = QStringLiteral("layer");
                 bgEl.attrs.insert(QStringLiteral("id"),

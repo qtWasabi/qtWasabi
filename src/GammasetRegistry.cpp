@@ -19,7 +19,8 @@ void parseValue(const QString &csv, GammaGroup &out) {
     if (parts.size() >= 3) out.b = parts[2].toInt();
 }
 
-void collect(const SkinXml::Element &el, QHash<QString, Gammaset> &sets) {
+void collect(const SkinXml::Element &el, QHash<QString, Gammaset> &sets,
+             QString &firstName) {
     if (el.tag == QStringLiteral("gammaset")) {
         Gammaset s;
         s.name = el.attrs.value(QStringLiteral("id"));
@@ -33,9 +34,12 @@ void collect(const SkinXml::Element &el, QHash<QString, Gammaset> &sets) {
             g.boost = child.attrs.value(QStringLiteral("boost")).toInt();
             s.groups.insert(id, g);
         }
-        if (!s.name.isEmpty()) sets.insert(s.name, std::move(s));
+        if (!s.name.isEmpty()) {
+            if (firstName.isEmpty()) firstName = s.name;
+            sets.insert(s.name, std::move(s));
+        }
     }
-    for (const auto &child : el.children) collect(child, sets);
+    for (const auto &child : el.children) collect(child, sets, firstName);
 }
 
 }  // namespace
@@ -43,7 +47,8 @@ void collect(const SkinXml::Element &el, QHash<QString, Gammaset> &sets) {
 int GammasetRegistry::loadFromDocument(const SkinXml::Document &doc) {
     m_sets.clear();
     m_active = nullptr;
-    collect(doc.root, m_sets);
+    QString firstName;
+    collect(doc.root, m_sets, firstName);
     // Winamp-Modern skins (Bento/Big Bento) mark the auto-selected theme
     // with a leading '*': <gammaset id="*Default">.  Without honouring it
     // m_active stays null and NO gammagroup tints are applied to any
@@ -62,6 +67,13 @@ int GammasetRegistry::loadFromDocument(const SkinXml::Document &doc) {
     else if (auto it2 = m_sets.constFind(QStringLiteral("Default"));
              it2 != m_sets.constEnd())
         m_active = &it2.value();
+    else if (auto it3 = m_sets.constFind(firstName);
+             it3 != m_sets.constEnd())
+        // No set is named Default at all: the reference GammaManager
+        // activates the first gammaset in document order (skins like
+        // Winamp2000SP4 rely on that; without it no tint applies and
+        // the whole window renders its untinted near-gray sources).
+        m_active = &it3.value();
     return m_sets.size();
 }
 
