@@ -140,7 +140,10 @@ using std::towlower;
 // macro but NOT lowercase `assert()`.  System `<cassert>` would
 // normally provide it via libc; provide our own here so plugin
 // `assert(expr)` calls compile.  Routes to libc's __assert_fail.
-#  ifdef __cplusplus
+// musl (Emscripten) already declares __assert_fail with a different
+// signature (int line, _Noreturn), so only declare it ourselves on
+// glibc-shaped platforms.
+#  if defined(__cplusplus) && !defined(__EMSCRIPTEN__)
 extern "C" void __assert_fail(const char *, const char *, unsigned int,
                                 const char *) noexcept __attribute__((noreturn));
 #  endif
