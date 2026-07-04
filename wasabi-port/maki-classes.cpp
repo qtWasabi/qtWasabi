@@ -31,6 +31,35 @@ void wq_sliderGetPosition();
 void wq_sliderSetPosition();
 void wq_frameGetPosition();
 void wq_frameSetPosition();
+void wq_listAddItem();
+void wq_listRemoveItem();
+void wq_listEnumItem();
+void wq_listGetNumItems();
+void wq_listFindItem();
+void wq_listFindItem2();
+void wq_listRemoveAll();
+void wq_bitlistGetItem();
+void wq_bitlistSetItem();
+void wq_bitlistGetSize();
+void wq_bitlistSetSize();
+void wq_mapLoadMap();
+void wq_mapGetValue();
+void wq_mapGetARGBValue();
+void wq_mapInRegion();
+void wq_mapGetWidth();
+void wq_mapGetHeight();
+void wq_mapGetRegion();
+void wq_regionAdd();
+void wq_regionSub();
+void wq_regionOffset();
+void wq_regionStretch();
+void wq_regionCopy();
+void wq_regionLoadFromBitmap();
+void wq_regionLoadFromMap();
+void wq_regionGetBoundingBoxX();
+void wq_regionGetBoundingBoxY();
+void wq_regionGetBoundingBoxW();
+void wq_regionGetBoundingBoxH();
 }
 
 #define FN(f) reinterpret_cast<void *>(&f)
@@ -708,44 +737,44 @@ const ClassMethod kPopupMenu[] = {
 };
 
 const ClassMethod kList[] = {
-    { L"addItem", 1, nullptr },
-    { L"removeItem", 1, nullptr },
-    { L"enumItem", 1, nullptr },
-    { L"findItem2", 2, nullptr },
-    { L"findItem", 1, nullptr },
-    { L"getNumItems", 0, nullptr },
-    { L"removeAll", 0, nullptr },
+    { L"addItem", 1, FN(wq_listAddItem) },
+    { L"removeItem", 1, FN(wq_listRemoveItem) },
+    { L"enumItem", 1, FN(wq_listEnumItem) },
+    { L"findItem2", 2, FN(wq_listFindItem2) },
+    { L"findItem", 1, FN(wq_listFindItem) },
+    { L"getNumItems", 0, FN(wq_listGetNumItems) },
+    { L"removeAll", 0, FN(wq_listRemoveAll) },
 };
 
 const ClassMethod kRegion[] = {
-    { L"add", 1, nullptr },
-    { L"sub", 1, nullptr },
-    { L"offset", 2, nullptr },
-    { L"stretch", 1, nullptr },
-    { L"copy", 1, nullptr },
-    { L"loadFromMap", 3, nullptr },
-    { L"loadFromBitmap", 1, nullptr },
-    { L"getBoundingBoxX", 0, nullptr },
-    { L"getBoundingBoxY", 0, nullptr },
-    { L"getBoundingBoxW", 0, nullptr },
-    { L"getBoundingBoxH", 0, nullptr },
+    { L"add", 1, FN(wq_regionAdd) },
+    { L"sub", 1, FN(wq_regionSub) },
+    { L"offset", 2, FN(wq_regionOffset) },
+    { L"stretch", 1, FN(wq_regionStretch) },
+    { L"copy", 1, FN(wq_regionCopy) },
+    { L"loadFromMap", 3, FN(wq_regionLoadFromMap) },
+    { L"loadFromBitmap", 1, FN(wq_regionLoadFromBitmap) },
+    { L"getBoundingBoxX", 0, FN(wq_regionGetBoundingBoxX) },
+    { L"getBoundingBoxY", 0, FN(wq_regionGetBoundingBoxY) },
+    { L"getBoundingBoxW", 0, FN(wq_regionGetBoundingBoxW) },
+    { L"getBoundingBoxH", 0, FN(wq_regionGetBoundingBoxH) },
 };
 
 const ClassMethod kMap[] = {
-    { L"getValue", 2, nullptr },
-    { L"getARGBValue", 3, nullptr },
-    { L"inRegion", 2, nullptr },
-    { L"loadMap", 1, nullptr },
-    { L"getWidth", 0, nullptr },
-    { L"getHeight", 0, nullptr },
-    { L"getRegion", 0, nullptr },
+    { L"getValue", 2, FN(wq_mapGetValue) },
+    { L"getARGBValue", 3, FN(wq_mapGetARGBValue) },
+    { L"inRegion", 2, FN(wq_mapInRegion) },
+    { L"loadMap", 1, FN(wq_mapLoadMap) },
+    { L"getWidth", 0, FN(wq_mapGetWidth) },
+    { L"getHeight", 0, FN(wq_mapGetHeight) },
+    { L"getRegion", 0, FN(wq_mapGetRegion) },
 };
 
 const ClassMethod kBitList[] = {
-    { L"getItem", 1, nullptr },
-    { L"setItem", 2, nullptr },
-    { L"setSize", 1, nullptr },
-    { L"getSize", 0, nullptr },
+    { L"getItem", 1, FN(wq_bitlistGetItem) },
+    { L"setItem", 2, FN(wq_bitlistSetItem) },
+    { L"setSize", 1, FN(wq_bitlistSetSize) },
+    { L"getSize", 0, FN(wq_bitlistGetSize) },
 };
 
 const ClassMethod kFile[] = {

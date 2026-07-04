@@ -1310,6 +1310,8 @@ struct MakiMethod { const wchar_t *name; int nparams; void *ptr; };
 const MakiMethod *makiMethodTable(int *count);
 void *createWidgetScriptObject(void *opaqueWidget);
 void  setScriptObjectClass(void *handle, int classIdx);
+int   scriptObjectClassIdx(void *handle);
+void  makiTypedDestroy(void *o, int classIdx);
 }
 
 int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
@@ -1453,7 +1455,16 @@ ScriptObject *ObjectTable::instantiate(int classid) {
     qtWasabi::Maki::setScriptObjectClass(o, classid - CLASS_ID_BASE);
     return static_cast<ScriptObject *>(o);
 }
-void ObjectTable::destroy(ScriptObject *)                   {}
+// OPCODE_DELETE / removeScript.  Typed teardown only — the
+// ScriptObject itself stays alive because VM variables may still
+// hold the pointer (the skin-switch UAF history); Timers stop their
+// backing QTimer (the deleted-Timer zombie fix), Map/Region/List
+// drop their instance state.
+void ObjectTable::destroy(ScriptObject *o) {
+    if (!o) return;
+    qtWasabi::Maki::makiTypedDestroy(
+        o, qtWasabi::Maki::scriptObjectClassIdx(o));
+}
 class_entry *ObjectTable::getClassEntry(int classid) {
     const int idx = classid - CLASS_ID_BASE;
     if (idx < 0 || idx >= classCount()) return nullptr;

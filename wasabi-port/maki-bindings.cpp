@@ -23,12 +23,23 @@
 #include <api/script/objecttable.h>
 #include <api/script/vcputypes.h>
 
+// Class registry + instance-class stamps (maki-classes.cpp /
+// widget-script-object.cpp) — the typed-object bodies below mint
+// Region-classed results and key teardown off the Timer class.
+namespace qtWasabi::Maki {
+int  makiClassIndexFromName(const wchar_t *name);
+void setScriptObjectClass(void *handle, int classIdx);
+}
+
 #ifdef min
 #  undef min
 #endif
 #ifdef max
 #  undef max
 #endif
+
+#include <map>
+#include <vector>
 
 #include <cstdio>
 #include <cstdlib>
@@ -1757,6 +1768,314 @@ extern "C" scriptVar wq_setFontSize(maki_cmd *, int, ScriptObject *o, scriptVar 
     wq_widget_setAttr(o, L"fontsize", buf);
     return makeVoid();
 }
+
+// ── Typed instances: List, BitList, Map, Region ──────────────────
+// `new List` / `new Map` etc. now construct class-stamped objects
+// (ObjectTable::instantiate); these bodies give them their real
+// behaviour, keyed by the receiver handle.  List/BitList are pure
+// value stores here; Map/Region pixel and region state lives on the
+// Qt side of the bridge (SkinRuntimeBridge.cpp wq_map_*/wq_region_*).
+
+extern "C" {
+int  wq_map_load(void *o, const wchar_t *bitmapId);
+int  wq_map_value(void *o, int x, int y);
+int  wq_map_argb(void *o, int x, int y, int which);
+int  wq_map_w(void *o);
+int  wq_map_h(void *o);
+int  wq_map_in_region(void *o, int x, int y);
+void wq_map_region_into(void *mapObj, void *regionObj);
+void wq_region_add(void *dst, void *src);
+void wq_region_sub(void *dst, void *src);
+void wq_region_offset(void *o, int x, int y);
+void wq_region_stretch(void *o, double f);
+void wq_region_copy(void *dst, void *src);
+int  wq_region_load_bitmap(void *o, const wchar_t *bitmapId);
+int  wq_region_load_map(void *regionObj, void *mapObj, int byteThresh,
+                        int inverted);
+int  wq_region_bbox(void *o, int which);
+void wq_typed_state_free(void *o);
+void wq_timer_kill(void *timerSO);
+}
+
+namespace {
+
+// One stored List slot.  Strings are copied (VM string temporaries
+// die at statement end); objects are held by pointer, matching the
+// reference's raw scriptVar storage.
+struct MakiListVal {
+    int          type = SCRIPT_VOID;
+    int          i    = 0;
+    double       d    = 0.0;
+    std::wstring s;
+    void        *obj  = nullptr;
+};
+
+std::map<void *, std::vector<MakiListVal>> g_makiLists;
+std::map<void *, std::vector<bool>>        g_makiBitLists;
+
+MakiListVal listValFrom(const scriptVar &v) {
+    MakiListVal out;
+    out.type = v.type;
+    switch (v.type) {
+    case SCRIPT_INT:
+    case SCRIPT_BOOLEAN: out.i = v.data.idata; break;
+    case SCRIPT_FLOAT:   out.d = v.data.fdata; break;
+    case SCRIPT_DOUBLE:  out.d = v.data.ddata; break;
+    case SCRIPT_STRING:  out.s = v.data.sdata ? v.data.sdata : L""; break;
+    case SCRIPT_OBJECT:  out.obj = v.data.odata; break;
+    default: break;
+    }
+    return out;
+}
+
+scriptVar listValTo(const MakiListVal &v) {
+    switch (v.type) {
+    case SCRIPT_INT:     return makeInt(v.i);
+    case SCRIPT_BOOLEAN: return makeBoolean(v.i);
+    case SCRIPT_FLOAT:   return makeFloat(float(v.d));
+    case SCRIPT_DOUBLE:  return makeDouble(v.d);
+    case SCRIPT_STRING:  return makeString(intern(v.s));
+    case SCRIPT_OBJECT:
+        return makeObject(static_cast<ScriptObject *>(v.obj));
+    default:             return makeVoid();
+    }
+}
+
+// findItem equality: strings compare case-insensitively (Wasabi
+// convention); everything else mirrors the reference's raw compare.
+bool listValEq(const MakiListVal &a, const scriptVar &b) {
+    if (a.type == SCRIPT_STRING && b.type == SCRIPT_STRING) {
+        const wchar_t *x = a.s.c_str();
+        const wchar_t *y = b.data.sdata ? b.data.sdata : L"";
+        while (*x && *y) {
+            wchar_t cx = *x, cy = *y;
+            if (cx >= L'A' && cx <= L'Z') cx = wchar_t(cx - L'A' + L'a');
+            if (cy >= L'A' && cy <= L'Z') cy = wchar_t(cy - L'A' + L'a');
+            if (cx != cy) return false;
+            ++x; ++y;
+        }
+        return *x == 0 && *y == 0;
+    }
+    if (a.type != b.type) return false;
+    switch (a.type) {
+    case SCRIPT_INT:
+    case SCRIPT_BOOLEAN: return a.i == b.data.idata;
+    case SCRIPT_FLOAT:   return a.d == double(b.data.fdata);
+    case SCRIPT_DOUBLE:  return a.d == b.data.ddata;
+    case SCRIPT_OBJECT:  return a.obj == b.data.odata;
+    default:             return false;
+    }
+}
+
+double numArg(const scriptVar &v) {
+    switch (v.type) {
+    case SCRIPT_INT:
+    case SCRIPT_BOOLEAN: return double(v.data.idata);
+    case SCRIPT_FLOAT:   return double(v.data.fdata);
+    case SCRIPT_DOUBLE:  return v.data.ddata;
+    case SCRIPT_STRING:
+        return v.data.sdata ? std::wcstod(v.data.sdata, nullptr) : 0.0;
+    default:             return 0.0;
+    }
+}
+int intArg(const scriptVar &v) { return int(numArg(v)); }
+
+}  // namespace
+
+// List
+extern "C" scriptVar wq_listAddItem(maki_cmd *, int, ScriptObject *o,
+                                    scriptVar v) {
+    if (o) g_makiLists[o].push_back(listValFrom(v));
+    return makeVoid();
+}
+extern "C" scriptVar wq_listRemoveItem(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar pos) {
+    if (o) {
+        auto &l = g_makiLists[o];
+        const int i = intArg(pos);
+        if (i >= 0 && size_t(i) < l.size()) l.erase(l.begin() + i);
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_listEnumItem(maki_cmd *, int, ScriptObject *o,
+                                     scriptVar pos) {
+    if (o) {
+        auto it = g_makiLists.find(o);
+        if (it != g_makiLists.end()) {
+            const int i = intArg(pos);
+            if (i >= 0 && size_t(i) < it->second.size())
+                return listValTo(it->second[size_t(i)]);
+        }
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_listGetNumItems(maki_cmd *, int, ScriptObject *o) {
+    auto it = g_makiLists.find(o);
+    return makeInt(it == g_makiLists.end() ? 0 : int(it->second.size()));
+}
+extern "C" scriptVar wq_listFindItem2(maki_cmd *, int, ScriptObject *o,
+                                      scriptVar v, scriptVar start) {
+    if (o) {
+        auto it = g_makiLists.find(o);
+        if (it != g_makiLists.end()) {
+            for (size_t i = size_t(intArg(start) > 0 ? intArg(start) : 0);
+                 i < it->second.size(); ++i)
+                if (listValEq(it->second[i], v)) return makeInt(int(i));
+        }
+    }
+    return makeInt(-1);
+}
+extern "C" scriptVar wq_listFindItem(maki_cmd *c, int vsd, ScriptObject *o,
+                                     scriptVar v) {
+    return wq_listFindItem2(c, vsd, o, v, makeInt(0));
+}
+extern "C" scriptVar wq_listRemoveAll(maki_cmd *, int, ScriptObject *o) {
+    if (o) g_makiLists.erase(o);
+    return makeVoid();
+}
+
+// BitList
+extern "C" scriptVar wq_bitlistGetItem(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar pos) {
+    auto it = g_makiBitLists.find(o);
+    if (it != g_makiBitLists.end()) {
+        const int i = intArg(pos);
+        if (i >= 0 && size_t(i) < it->second.size())
+            return makeBoolean(it->second[size_t(i)]);
+    }
+    return makeBoolean(0);
+}
+extern "C" scriptVar wq_bitlistSetItem(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar pos, scriptVar val) {
+    if (o) {
+        auto &b = g_makiBitLists[o];
+        const int i = intArg(pos);
+        if (i >= 0) {
+            if (size_t(i) >= b.size()) b.resize(size_t(i) + 1, false);
+            b[size_t(i)] = intArg(val) != 0;
+        }
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_bitlistSetSize(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar n) {
+    if (o) {
+        const int c = intArg(n);
+        g_makiBitLists[o].assign(size_t(c > 0 ? c : 0), false);
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_bitlistGetSize(maki_cmd *, int, ScriptObject *o) {
+    auto it = g_makiBitLists.find(o);
+    return makeInt(it == g_makiBitLists.end() ? 0 : int(it->second.size()));
+}
+
+// Map
+extern "C" scriptVar wq_mapLoadMap(maki_cmd *, int, ScriptObject *o,
+                                   scriptVar id) {
+    if (o && id.type == SCRIPT_STRING && id.data.sdata)
+        wq_map_load(o, id.data.sdata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_mapGetValue(maki_cmd *, int, ScriptObject *o,
+                                    scriptVar x, scriptVar y) {
+    return makeInt(wq_map_value(o, intArg(x), intArg(y)));
+}
+extern "C" scriptVar wq_mapGetARGBValue(maki_cmd *, int, ScriptObject *o,
+                                        scriptVar x, scriptVar y,
+                                        scriptVar which) {
+    return makeInt(wq_map_argb(o, intArg(x), intArg(y), intArg(which)));
+}
+extern "C" scriptVar wq_mapInRegion(maki_cmd *, int, ScriptObject *o,
+                                    scriptVar x, scriptVar y) {
+    return makeBoolean(wq_map_in_region(o, intArg(x), intArg(y)));
+}
+extern "C" scriptVar wq_mapGetWidth(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_map_w(o));
+}
+extern "C" scriptVar wq_mapGetHeight(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_map_h(o));
+}
+extern "C" scriptVar wq_mapGetRegion(maki_cmd *, int, ScriptObject *o) {
+    // Hand back a Region-classed object carrying a copy of the map's
+    // region — SMap::getRegion semantics.
+    void *region = qtWasabi::Maki::createWidgetScriptObject(nullptr);
+    qtWasabi::Maki::setScriptObjectClass(
+        region, qtWasabi::Maki::makiClassIndexFromName(L"Region"));
+    wq_map_region_into(o, region);
+    return makeObject(static_cast<ScriptObject *>(region));
+}
+
+// Region
+extern "C" scriptVar wq_regionAdd(maki_cmd *, int, ScriptObject *o,
+                                  scriptVar r) {
+    if (o && r.type == SCRIPT_OBJECT) wq_region_add(o, r.data.odata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionSub(maki_cmd *, int, ScriptObject *o,
+                                  scriptVar r) {
+    if (o && r.type == SCRIPT_OBJECT) wq_region_sub(o, r.data.odata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionOffset(maki_cmd *, int, ScriptObject *o,
+                                     scriptVar x, scriptVar y) {
+    if (o) wq_region_offset(o, intArg(x), intArg(y));
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionStretch(maki_cmd *, int, ScriptObject *o,
+                                      scriptVar f) {
+    if (o) wq_region_stretch(o, numArg(f));
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionCopy(maki_cmd *, int, ScriptObject *o,
+                                   scriptVar r) {
+    if (o && r.type == SCRIPT_OBJECT) wq_region_copy(o, r.data.odata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionLoadFromBitmap(maki_cmd *, int,
+                                             ScriptObject *o,
+                                             scriptVar id) {
+    if (o && id.type == SCRIPT_STRING && id.data.sdata)
+        wq_region_load_bitmap(o, id.data.sdata);
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionLoadFromMap(maki_cmd *, int, ScriptObject *o,
+                                          scriptVar map, scriptVar byteT,
+                                          scriptVar inv) {
+    if (o && map.type == SCRIPT_OBJECT)
+        wq_region_load_map(o, map.data.odata, intArg(byteT), intArg(inv));
+    return makeVoid();
+}
+extern "C" scriptVar wq_regionGetBoundingBoxX(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_region_bbox(o, 0));
+}
+extern "C" scriptVar wq_regionGetBoundingBoxY(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_region_bbox(o, 1));
+}
+extern "C" scriptVar wq_regionGetBoundingBoxW(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_region_bbox(o, 2));
+}
+extern "C" scriptVar wq_regionGetBoundingBoxH(maki_cmd *, int, ScriptObject *o) {
+    return makeInt(wq_region_bbox(o, 3));
+}
+
+namespace qtWasabi::Maki {
+
+// OPCODE_DELETE / removeScript teardown for typed instances.  The
+// ScriptObject itself stays alive (other VM variables may still hold
+// the pointer — see the skin-switch use-after-free history); only the
+// typed backing state is released, which also fixes the deleted-Timer
+// zombie (its QTimer kept firing until the dead-root guard hit).
+void makiTypedDestroy(void *o, int classIdx) {
+    if (!o) return;
+    static const int kTimerIdx = makiClassIndexFromName(L"Timer");
+    if (classIdx >= 0 && classIdx == kTimerIdx) wq_timer_kill(o);
+    g_makiLists.erase(o);
+    g_makiBitLists.erase(o);
+    wq_typed_state_free(o);
+}
+
+}  // namespace qtWasabi::Maki
 
 // ── method registry ─────────────────────────────────────────────
 

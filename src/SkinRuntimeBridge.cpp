@@ -21,6 +21,11 @@
 #include "../wasabi-port/maki-bridge.h"
 
 #include <QEasingCurve>
+#include <QImage>
+#include <QPoint>
+#include <QRect>
+#include <QRegion>
+#include <QTransform>
 #include <QFont>
 #include <QFontMetrics>
 #include <QGuiApplication>
@@ -1262,3 +1267,167 @@ void wq_fire_target_reached() {
 namespace qtWasabi {
 int widgetAnimationsActive() { return ::g_widgetAnimsActive; }
 }  // namespace qtWasabi
+
+// ── Maki typed objects: Map + Region backing ─────────────────────
+// `new Map` / `new Region` instances get real pixel and region
+// state here, keyed by their ScriptObject handle.  The bindings TU
+// (maki-bindings.cpp) forwards the class-scoped method bodies;
+// ObjectTable::destroy drops the state via wq_typed_state_free.
+
+namespace {
+
+struct MakiMapState {
+    QImage  img;
+    QRegion region;
+};
+QHash<void *, MakiMapState> g_makiMaps;
+QHash<void *, QRegion>      g_makiRegions;
+
+// Region from bitmap pixels, RegionI semantics: a pixel is inside
+// when its alpha clears the threshold; `inverted` flips the test.
+// Built from horizontal runs so the QRegion stays compact.
+QRegion regionFromImage(const QImage &src, int threshold, bool inverted) {
+    if (src.isNull()) return {};
+    const QImage img = src.format() == QImage::Format_ARGB32
+        ? src : src.convertToFormat(QImage::Format_ARGB32);
+    QRegion out;
+    for (int y = 0; y < img.height(); ++y) {
+        const QRgb *row = reinterpret_cast<const QRgb *>(img.scanLine(y));
+        int runStart = -1;
+        for (int x = 0; x <= img.width(); ++x) {
+            bool in = false;
+            if (x < img.width()) {
+                const int a = qAlpha(row[x]);
+                in = inverted ? (a < threshold) : (a >= threshold);
+            }
+            if (in && runStart < 0) {
+                runStart = x;
+            } else if (!in && runStart >= 0) {
+                out += QRect(runStart, y, x - runStart, 1);
+                runStart = -1;
+            }
+        }
+    }
+    return out;
+}
+
+QImage bridgeImageFor(const wchar_t *bitmapId) {
+    if (!bitmapId || !qtWasabi::g_bitmapRegistry) return {};
+    return qtWasabi::g_bitmapRegistry->imageFor(
+        QString::fromWCharArray(bitmapId));
+}
+
+}  // namespace
+
+extern "C" int wq_map_load(void *o, const wchar_t *bitmapId) {
+    if (!o) return 0;
+    MakiMapState st;
+    st.img = bridgeImageFor(bitmapId);
+    if (st.img.isNull()) return 0;
+    if (st.img.format() != QImage::Format_ARGB32)
+        st.img = st.img.convertToFormat(QImage::Format_ARGB32);
+    // loadMap builds the map's region from the bitmap alongside the
+    // pixels (SMap::loadMap calls reg->loadFromBitmap).
+    st.region = regionFromImage(st.img, 1, false);
+    g_makiMaps.insert(o, st);
+    return 1;
+}
+
+extern "C" int wq_map_value(void *o, int x, int y) {
+    auto it = g_makiMaps.constFind(o);
+    if (it == g_makiMaps.constEnd() || it->img.isNull()) return 0;
+    if (x < 0 || y < 0 || x >= it->img.width() || y >= it->img.height())
+        return 0;
+    const QRgb c = it->img.pixel(x, y);
+    return qMax(qMax(qRed(c), qGreen(c)), qBlue(c));
+}
+
+extern "C" int wq_map_argb(void *o, int x, int y, int which) {
+    auto it = g_makiMaps.constFind(o);
+    if (it == g_makiMaps.constEnd() || it->img.isNull()) return 0;
+    if (x < 0 || y < 0 || x >= it->img.width() || y >= it->img.height())
+        return 0;
+    const QRgb c = it->img.pixel(x, y);
+    switch (which % 4) {         // SMap channel order: 0=B 1=G 2=R 3=A
+    case 0:  return qBlue(c);
+    case 1:  return qGreen(c);
+    case 2:  return qRed(c);
+    default: return qAlpha(c);
+    }
+}
+
+extern "C" int wq_map_w(void *o) {
+    auto it = g_makiMaps.constFind(o);
+    return it == g_makiMaps.constEnd() ? 0 : it->img.width();
+}
+extern "C" int wq_map_h(void *o) {
+    auto it = g_makiMaps.constFind(o);
+    return it == g_makiMaps.constEnd() ? 0 : it->img.height();
+}
+
+extern "C" int wq_map_in_region(void *o, int x, int y) {
+    auto it = g_makiMaps.constFind(o);
+    if (it == g_makiMaps.constEnd()) return 0;
+    return it->region.contains(QPoint(x, y)) ? 1 : 0;
+}
+
+extern "C" void wq_map_region_into(void *mapObj, void *regionObj) {
+    if (!regionObj) return;
+    auto it = g_makiMaps.constFind(mapObj);
+    g_makiRegions.insert(regionObj,
+        it == g_makiMaps.constEnd() ? QRegion() : it->region);
+}
+
+extern "C" void wq_region_add(void *dst, void *src) {
+    if (!dst) return;
+    g_makiRegions[dst] += g_makiRegions.value(src);
+}
+extern "C" void wq_region_sub(void *dst, void *src) {
+    if (!dst) return;
+    g_makiRegions[dst] -= g_makiRegions.value(src);
+}
+extern "C" void wq_region_offset(void *o, int x, int y) {
+    if (!o) return;
+    g_makiRegions[o].translate(x, y);
+}
+extern "C" void wq_region_stretch(void *o, double f) {
+    if (!o || f <= 0.0) return;
+    QTransform t;
+    t.scale(f, f);
+    g_makiRegions[o] = t.map(g_makiRegions.value(o));
+}
+extern "C" void wq_region_copy(void *dst, void *src) {
+    if (!dst) return;
+    g_makiRegions.insert(dst, g_makiRegions.value(src));
+}
+extern "C" int wq_region_load_bitmap(void *o, const wchar_t *bitmapId) {
+    if (!o) return 0;
+    const QImage img = bridgeImageFor(bitmapId);
+    if (img.isNull()) return 0;
+    g_makiRegions.insert(o, regionFromImage(img, 1, false));
+    return 1;
+}
+extern "C" int wq_region_load_map(void *regionObj, void *mapObj,
+                                  int byteThresh, int inverted) {
+    if (!regionObj) return 0;
+    auto it = g_makiMaps.constFind(mapObj);
+    if (it == g_makiMaps.constEnd() || it->img.isNull()) return 0;
+    g_makiRegions.insert(regionObj,
+        regionFromImage(it->img, qBound(1, byteThresh, 255),
+                        inverted != 0));
+    return 1;
+}
+extern "C" int wq_region_bbox(void *o, int which) {
+    const QRect r = g_makiRegions.value(o).boundingRect();
+    switch (which) {
+    case 0:  return r.x();
+    case 1:  return r.y();
+    case 2:  return r.width();
+    default: return r.height();
+    }
+}
+
+extern "C" void wq_typed_state_free(void *o) {
+    g_makiMaps.remove(o);
+    g_makiRegions.remove(o);
+}

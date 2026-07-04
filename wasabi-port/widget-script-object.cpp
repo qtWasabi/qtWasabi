@@ -28,7 +28,10 @@
 #  undef max
 #endif
 
+#include "maki-classes.h"
+
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <map>
 #include <string>
@@ -112,7 +115,27 @@ public:
         return -1;
     }
 
-    void *vcpu_getInterfaceObject(GUID /*g*/, ScriptObject **o) override {
+    // GUID-keyed downcast (VCPUassign's type-mismatch path).  A
+    // class-stamped instance answers honestly: the requested GUID must
+    // be its class or an ancestor, mirroring ScriptObjectI's
+    // interfaces-list walk.  Classless handles (widget wrappers, the
+    // hydration singletons) keep the permissive `this` — their class
+    // identity is the embedder's, not the registry's, and the assign
+    // path is still gated off by the permissive typeCheck.
+    void *vcpu_getInterfaceObject(GUID g, ScriptObject **o) override {
+        if (m_classIdx >= 0) {
+            int n = 0;
+            const auto *t = makiClassTable(&n);
+            for (int idx = m_classIdx; idx >= 0 && idx < n;
+                 idx = t[idx].parent) {
+                if (std::memcmp(&t[idx].guid, &g, sizeof(GUID)) == 0) {
+                    if (o) *o = this;
+                    return this;
+                }
+            }
+            if (o) *o = nullptr;
+            return nullptr;
+        }
         if (o) *o = this;
         return this;
     }
