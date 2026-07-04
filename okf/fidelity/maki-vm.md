@@ -57,6 +57,18 @@ related:
 > registry ancestor walk.  Remaining: real typeCheck + per-class
 > singletons (needs the Config service, #237), then delete the flat
 > fallback and the alias rows.
+>
+> STATUS 2026-07-05, phase C LANDED: the Config service is real and
+> ONE persisted state store exists.  ConfigItem instances per page
+> (guid+name indexed), item-scoped ConfigAttribute instances with a
+> name fallback, and a \$HOME-anchored INI backing Config values plus
+> the private/public int+string families — stored user values win
+> over declared defaults, the drawer seeds became shipped first-run
+> defaults, the drawer-animation force-on list is deleted.  LESSON:
+> QSettings' UserScope prefers XDG_CONFIG_HOME over a sandboxed HOME —
+> a leaked Equalizer=1 from an intermediate build masqueraded as a
+> Bento radio regression until bisected; persistence must anchor to
+> QDir::homePath() for the hermetic contract to hold.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
