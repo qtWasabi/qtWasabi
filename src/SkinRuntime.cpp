@@ -8,6 +8,7 @@
 #include "../wasabi-port/maki-bridge.h"
 
 #include <QByteArray>
+#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -17,10 +18,16 @@
 #include <QHash>
 #include <QSet>
 #include <QString>
+#include <QTimer>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
 #include <vector>
+
+// Winamp-style playback status (0 stopped / 1 playing / 3 paused) from
+// the host callback — the same source Maki System.getStatus() reads.
+// Implemented in src/SkinRuntimeBridge.cpp inside its extern "C" block.
+extern "C" int wq_playback_status();
 
 // Bridge entry points implemented in src/SkinRuntimeBridge.cpp.
 namespace qtWasabi {
@@ -116,8 +123,56 @@ struct SkinRuntime::Impl {
     }
 };
 
-SkinRuntime::SkinRuntime()  : m_d(new Impl) {}
+namespace {
+
+// ── Transport-event watcher ─────────────────────────────────────────
+// Real Wasabi fires System.onPlay/onResume/onPause/onStop from the
+// core's playback state.  The engine owns that dispatch here, derived
+// from the SAME host callback System.getStatus() reads, so events and
+// polled status can never disagree (skins like DeClassified gate their
+// whole visualizer on onPlay; before this the embedder had to remember
+// to wire its own media framework to dispatchPlaybackState, and the
+// reference embedder's real audio pipeline never did).
+QSet<SkinRuntime *> &liveRuntimes() {
+    static QSet<SkinRuntime *> set;
+    return set;
+}
+
+void pumpTransportEvents() {
+    static int last = 0;
+    const int cur = wq_playback_status();   // 0 stop / 1 play / 3 pause
+    if (cur == last) return;
+    SkinRuntime::PlaybackState ev;
+    if (cur == 1)
+        ev = (last == 3) ? SkinRuntime::PlaybackState::Resumed
+                         : SkinRuntime::PlaybackState::Playing;
+    else if (cur == 3)
+        ev = SkinRuntime::PlaybackState::Paused;
+    else
+        ev = SkinRuntime::PlaybackState::Stopped;
+    last = cur;
+    const auto snapshot = liveRuntimes();
+    for (SkinRuntime *rt : snapshot)
+        rt->dispatchPlaybackState(ev);
+}
+
+void ensureTransportWatcher() {
+    static QTimer *watcher = nullptr;
+    if (watcher || !QCoreApplication::instance()) return;
+    watcher = new QTimer(QCoreApplication::instance());
+    watcher->setInterval(100);
+    QObject::connect(watcher, &QTimer::timeout, &pumpTransportEvents);
+    watcher->start();
+}
+
+}  // namespace
+
+SkinRuntime::SkinRuntime()  : m_d(new Impl) {
+    liveRuntimes().insert(this);
+    ensureTransportWatcher();
+}
 SkinRuntime::~SkinRuntime() {
+    liveRuntimes().remove(this);
     // Tear down under THIS runtime's root so clearWidgetRegistry drops its
     // own window's entries, not whatever root happens to be active, then
     // forget the snapshot.  rootKey is null if it never loaded.

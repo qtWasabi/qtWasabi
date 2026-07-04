@@ -57,8 +57,16 @@ while IFS=$'\t' read -r skin dir mae_limit; do
     fi
 
     shot="$TMPDIR/$skin.png"
-    QT_QPA_PLATFORM=offscreen "$QTAMP" \
+    # The author screenshots show the players DURING playback (lit
+    # analyzer, ticker, kbps/kHz boxes, play-state chrome), so render
+    # in the same state: the bundled test tone starts playing at boot.
+    # HOME points at the sandbox so the run is hermetic: the user's
+    # winamp.conf (vis mode, saved skin, volume...) must not leak into
+    # fidelity measurements.  SKIN_DIR was expanded above, so skins
+    # still come from the real location.
+    HOME="$TMPDIR" QT_QPA_PLATFORM=offscreen "$QTAMP" \
         --modern-skin "$SKIN_DIR/$dir" \
+        "$SCRIPT_DIR/testtone.wav" \
         --screenshot "$shot" >"$TMPDIR/$skin.log" 2>&1 || true
 
     if [[ ! -f "$shot" ]]; then
