@@ -2243,10 +2243,8 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"strlower",                1, (void *)wq_strlower},
         {L"strupper",                1, (void *)wq_strupper},
         {L"integerToTime",           1, (void *)wq_integerToTime},
-        {L"integertotime",           1, (void *)wq_integerToTime},
         {L"integerToLongTime",       1, (void *)wq_integerToLongTime},
         {L"floatToString",           2, (void *)wq_floatToString},
-        {L"floattostring",           2, (void *)wq_floatToString},
         {L"stringToFloat",           1, (void *)wq_stringToFloat},
         {L"random",                  1, (void *)wq_random},
         {L"sin",   1, (void *)wq_sin},   {L"cos",   1, (void *)wq_cos},
@@ -2258,11 +2256,7 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"integer", 1, (void *)wq_integer}, {L"frac", 1, (void *)wq_frac},
         {L"translate",               1, (void *)wq_translate},
         {L"stringToInteger",         1, (void *)wq_stringToInteger},
-        {L"StringToInteger",         1, (void *)wq_stringToInteger},
-        {L"stringtointeger",         1, (void *)wq_stringToInteger},
         {L"integerToString",         1, (void *)wq_integerToString},
-        {L"IntegerToString",         1, (void *)wq_integerToString},
-        {L"integertostring",         1, (void *)wq_integerToString},
         {L"messageBox",              4, (void *)wq_messageBox},
         {L"navigateUrlBrowser",      1, (void *)wq_navigateUrlBrowser},
         {L"getPrivateInt",           3, (void *)wq_getPrivateInt},
@@ -2315,12 +2309,7 @@ const MakiMethod *makiMethodTable(int *count) {
         // of three spellings — `setXmlParam` (the canonical form),
         // `setXMLParam` (configtabs.m), and `setXMLparam` (menualign.m,
         // lowercase trailing param).  All point at the same body.
-        {L"setXMLParam",             2, (void *)wq_setXmlParam},
-        {L"setXMLparam",             2, (void *)wq_setXmlParam},
         {L"getXmlParam",             1, (void *)wq_getXmlParam},
-        {L"getXMLParam",             1, (void *)wq_getXmlParam},
-        {L"getXMLparam",             1, (void *)wq_getXmlParam},
-        {L"findobject",              1, (void *)wq_findObject},
         {L"setAlpha",                1, (void *)wq_setAlpha},
         {L"getAlpha",                0, (void *)wq_getAlpha},
         {L"getAutoWidth",            0, (void *)wq_getAutoWidth},
@@ -2350,7 +2339,6 @@ const MakiMethod *makiMethodTable(int *count) {
         {L"getGroup",                1, (void *)wq_getItem},
         {L"newAttribute",            2, (void *)wq_newAttribute},
         {L"getAttribute",            1, (void *)wq_getAttribute},
-        {L"getattribute",            1, (void *)wq_getAttribute},
         {L"setData",                 1, (void *)wq_setData},
         {L"getData",                 0, (void *)wq_getData},
         {L"onDataChanged",           0, (void *)wq_onDataChanged},
@@ -2402,7 +2390,6 @@ const MakiMethod *makiMethodTable(int *count) {
         // sibling).  Was missing → defaulted to int 0 → tokenisation
         // built wrong paths → menu background layers never positioned.
         {L"getId",                   0, (void *)wq_getId},
-        {L"getid",                   0, (void *)wq_getId},
         // Layout scale + viewport queries.  Bento's
         // `simplemaximize.m` / `maximize.m` divide viewport sizes
         // by `getScale()` to derive the layout's natural pixel
@@ -2417,10 +2404,6 @@ const MakiMethod *makiMethodTable(int *count) {
         // Lowercase variants — Bento's scripts use the canonical
         // mixed-case spellings above, but some skins use these
         // alternates.  Same bodies.
-        {L"getViewPortWidthfromGuiObject",  1, (void *)wq_getViewPortWidthFromGuiObject},
-        {L"getViewPortHeightfromGuiObject", 1, (void *)wq_getViewPortHeightFromGuiObject},
-        {L"getViewPortLeftfromGuiObject",   1, (void *)wq_getViewPortLeftFromGuiObject},
-        {L"getViewPortTopfromGuiObject",    1, (void *)wq_getViewPortTopFromGuiObject},
         // Named-window control (vis/video drawer detach in Winamp
         // Modern routes through these).
         {L"showWindow",                     3, (void *)wq_showWindow},

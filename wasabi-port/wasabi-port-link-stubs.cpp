@@ -1341,6 +1341,13 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
                 dlf->ptr     = ptr;
                 return 1;
             }
+            // A KNOWN class's exported surface is authoritative — a
+            // method the reference table does not carry stays honestly
+            // unbound at the kKnownMethods arity (real Wasabi: the
+            // ancestor walk falls off the root and the call returns 0).
+            // The flat path below now serves only imports whose class
+            // the registry does not know (basetype -1: exotic external
+            // classes, old-format binaries).
             if (const char *tr = ::getenv("WASABIQT_TRACE_SCOPED_MISS");
                 tr && *tr == '1') {
                 static std::set<std::wstring> seen;
@@ -1350,9 +1357,12 @@ int ObjectTable::addrefDLF(VCPUdlfEntry *dlf, int id) {
                 if (seen.insert(k).second) {
                     char nb[160];
                     wq_wide_to_ascii(k.c_str(), nb, sizeof(nb));
-                    std::fprintf(stderr, "[scoped-miss] %s -> flat\n", nb);
+                    std::fprintf(stderr, "[scoped-miss] %s -> unbound\n", nb);
                 }
             }
+            dlf->nparams = lookupNparams(dlf->functionName);
+            dlf->ptr     = nullptr;
+            return 1;
         }
         int n = 0;
         const auto *t = qtWasabi::Maki::makiMethodTable(&n);
