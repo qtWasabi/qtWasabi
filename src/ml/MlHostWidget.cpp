@@ -19,6 +19,8 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QMenu>
+#include <QCursor>
 #include <QSet>
 
 #include <cstdlib>
@@ -595,16 +597,33 @@ public:
         m_libBtnCanvas =
             QRect(p->transform().map(libBtn.topLeft()), libBtn.size());
 
+        // gen_ml's play control is a SPLIT button: the "Play" face runs
+        // the default action, the separated arrow segment opens the
+        // action menu (Play / Enqueue), divider line between them.
         const QRect playBtn(libBtn.right() + 8, bottomRow.y() + 3,
                              60, bottomRow.height() - 6);
         drawWadlgButton(p, playBtn, false);
+        const int arrowW = 16;
+        const QRect playFace(playBtn.x(), playBtn.y(),
+                              playBtn.width() - arrowW, playBtn.height());
+        const QRect arrowSeg(playFace.right() + 1, playBtn.y(),
+                              arrowW, playBtn.height());
+        p->setPen(frameLite);
+        p->drawLine(arrowSeg.topLeft(), arrowSeg.bottomLeft());
         p->setPen(btnFg);
-        p->drawText(playBtn, Qt::AlignCenter,
-                    QStringLiteral("Play ▼"));
-        // Canvas-space rect for click routing (the holder paints us
+        p->drawText(playFace, Qt::AlignCenter, QStringLiteral("Play"));
+        {   // 7x4 down arrow, centred in the segment (wa_dlg style)
+            const int ax = arrowSeg.center().x() - 3;
+            const int ay = arrowSeg.center().y() - 2;
+            for (int i = 0; i < 4; ++i)
+                p->drawLine(ax + i, ay + i, ax + 6 - i, ay + i);
+        }
+        // Canvas-space rects for click routing (the holder paints us
         // through a translated painter, so map to the click coord space).
-        m_playBtnCanvas = QRect(p->transform().map(playBtn.topLeft()),
-                                playBtn.size());
+        m_playBtnCanvas = QRect(p->transform().map(playFace.topLeft()),
+                                playFace.size());
+        m_playMenuCanvas = QRect(p->transform().map(arrowSeg.topLeft()),
+                                 arrowSeg.size());
 
         p->setPen(text);
         p->drawText(QRect(playBtn.right() + 12, bottomRow.y(),
@@ -694,11 +713,23 @@ public:
             reloadAll(ctx.host);
             return;
         }
-        // Play ▼ button → play the current track view from the selected
-        // row (or the top when nothing is selected).
+        // Play split button: the face plays the current track view from
+        // the selected row; the arrow segment opens the action menu
+        // (Play / Enqueue), like gen_ml's TrackPopupMenu.
         if (ctx.host && m_playBtnCanvas.contains(pos)) {
             playVisible(ctx.host,
                         qMax(0, m_tracks.selection()), false);
+            return;
+        }
+        if (ctx.host && m_playMenuCanvas.contains(pos)) {
+            QMenu menu;
+            QAction *play = menu.addAction(QStringLiteral("Play"));
+            QAction *enq  = menu.addAction(QStringLiteral("Enqueue"));
+            Host *host = ctx.host;
+            const int row = qMax(0, m_tracks.selection());
+            QAction *picked = menu.exec(QCursor::pos());
+            if (picked == play)     playVisible(host, row, false);
+            else if (picked == enq) playVisible(host, row, true);
             return;
         }
         // Route into whichever child widget's rect contains pos.  Clicking
@@ -841,7 +872,8 @@ private:
     int                         m_lastAlbumSel  = -1;
     int                         m_activePane    = 0;   // 0 artist,1 album,2 track
     QString                     m_statusText = QStringLiteral("0 items");
-    QRect                       m_playBtnCanvas;       // Play ▼ hit rect
+    QRect                       m_playBtnCanvas;       // Play face hit rect
+    QRect                       m_playMenuCanvas;      // arrow segment hit rect
     QRect                       m_viewBtnCanvas[3];    // view-mode buttons
     QRect                       m_clearBtnCanvas;      // Clear Search
     QRect                       m_libBtnCanvas;        // Library
