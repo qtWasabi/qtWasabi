@@ -56,9 +56,18 @@ public:
     // previous theme's tint.
     void invalidateGlyphCache() { m_charTableCache.clear(); }
 
+    // Family name of a skin-shipped `<truetypefont id file>` after
+    // QFontDatabase registration, or empty when the id names no
+    // TrueType font.  TextPainter consults this before treating a
+    // font id as a system family name.
+    QString truetypeFamily(const QString &id) const {
+        return m_ttfFamilies.value(id);
+    }
+
 private:
     QHash<QString, BitmapFontDef> m_defs;
     QHash<QString, QImage>        m_charTableCache;  // by font id
+    QHash<QString, QString>       m_ttfFamilies;     // id → family
     QString                       m_skinDir;
 };
 

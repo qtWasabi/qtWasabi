@@ -316,7 +316,11 @@ bool paintText(QPainter *p,
         return true;
     }();
     (void)fontSubsInstalled;
-    QFont qf(fontId);
+    // A skin-shipped <truetypefont id file> takes precedence over
+    // treating the id as a system family name — Win9x-era skins
+    // declare e.g. font="titlebar" backed by their own Tahoma Bold.
+    const QString ttfFamily = fontReg.truetypeFamily(fontId);
+    QFont qf(ttfFamily.isEmpty() ? fontId : ttfFamily);
     const int fontsize = attrInt(attrs, QStringLiteral("fontsize"), 12);
     // Wasabi `fontsize` is a Win32 lfHeight (character cell height),
     // whereas Qt's setPixelSize is the EM bounding box, so the two

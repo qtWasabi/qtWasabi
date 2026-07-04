@@ -8,6 +8,7 @@
 #include <QChar>
 #include <QDir>
 #include <QImage>
+#include <QFontDatabase>
 #include <QImageReader>
 #include <QPoint>
 
@@ -16,7 +17,8 @@ namespace qtWasabi {
 namespace {
 
 void collectFonts(const SkinXml::Element &el,
-                  QHash<QString, BitmapFontDef> &out) {
+                  QHash<QString, BitmapFontDef> &out,
+                  QHash<QString, QString> &ttfOut) {
     if (el.tag == QStringLiteral("bitmapfont")) {
         BitmapFontDef d;
         d.id          = el.attrs.value(QStringLiteral("id"));
@@ -27,8 +29,13 @@ void collectFonts(const SkinXml::Element &el,
         d.vSpacing    = el.attrs.value(QStringLiteral("vspacing")).toInt();
         if (!d.id.isEmpty() && !d.bitmapId.isEmpty())
             out.insert(d.id, d);
+    } else if (el.tag == QStringLiteral("truetypefont")) {
+        const QString id   = el.attrs.value(QStringLiteral("id"));
+        const QString file = el.attrs.value(QStringLiteral("file"));
+        if (!id.isEmpty() && !file.isEmpty())
+            ttfOut.insert(id, file);
     }
-    for (const auto &c : el.children) collectFonts(c, out);
+    for (const auto &c : el.children) collectFonts(c, out, ttfOut);
 }
 
 }  // namespace
@@ -36,8 +43,33 @@ void collectFonts(const SkinXml::Element &el,
 int FontRegistry::loadFromDocument(const SkinXml::Document &doc) {
     m_defs.clear();
     m_charTableCache.clear();
+    m_ttfFamilies.clear();
     m_skinDir = doc.skinDir;
-    collectFonts(doc.root, m_defs);
+    QHash<QString, QString> ttfFiles;
+    collectFonts(doc.root, m_defs, ttfFiles);
+    // Register each shipped TrueType file once (several ids commonly
+    // share one file) and map every declaring id to the loaded family,
+    // so `font="titlebar"` resolves to the skin's real font instead of
+    // whatever fc-match picks for the literal id string.
+    QHash<QString, QString> familyByPath;
+    for (auto it = ttfFiles.constBegin(); it != ttfFiles.constEnd(); ++it) {
+        QString rel = it.value();
+        rel.replace(QChar('\\'), QChar('/'));
+        const QString path = QDir(m_skinDir).filePath(rel);
+        auto fIt = familyByPath.constFind(path);
+        if (fIt == familyByPath.constEnd()) {
+            QString family;
+            const int fontId = QFontDatabase::addApplicationFont(path);
+            if (fontId >= 0) {
+                const QStringList fams =
+                    QFontDatabase::applicationFontFamilies(fontId);
+                if (!fams.isEmpty()) family = fams.first();
+            }
+            fIt = familyByPath.insert(path, family);
+        }
+        if (!fIt.value().isEmpty())
+            m_ttfFamilies.insert(it.key(), fIt.value());
+    }
     return m_defs.size();
 }
 
