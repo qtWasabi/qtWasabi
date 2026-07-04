@@ -14,18 +14,26 @@
 #include <qtWasabi/Host.h>
 #include <qtWasabi/PaintCtx.h>
 
+#include <QCheckBox>
 #include <QColor>
+#include <QCursor>
 #include <QDateTime>
+#include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFont>
 #include <QFontMetrics>
-#include <QPainter>
 #include <QMenu>
-#include <QCursor>
+#include <QPainter>
 #include <QSet>
+#include <QUrl>
+#include <QVBoxLayout>
+#include <QVector>
 
 #include <cstdlib>
 #include <cstdio>
 #include <memory>
+#include <vector>
 
 namespace qtWasabi {
 namespace ml {
@@ -379,23 +387,68 @@ public:
         // box behind each glyph.
         m_tree.setBitmapResolver(&loadMlIcon);
 
-        // The filter panes are 2-column: the name plus the next filter's
-        // per-row count, right-aligned (real ml_local SimpleFilter shape).
-        // Rows are filled from the Host's tag-indexed library on first
-        // paint (reloadAll) and refiltered on selection; see below.
-        m_artistsCol.appendColumn(QStringLiteral("Artist"),  155);
-        m_artistsCol.appendColumn(QStringLiteral("Albums"),   48, 2);
+        applyPreset(0);          // "Artist\Album", ml_local's default
+        rebuildTrackColumns();
+    }
 
-        m_albumsCol.appendColumn(QStringLiteral("Album"),    155);
-        m_albumsCol.appendColumn(QStringLiteral("Tracks"),    48, 2);
+    // ── Filter-pane presets ─────────────────────────────────────────
+    // ml_local's "Select Filters & Panes" menu, exact order + wording.
+    // Presets whose fields the index does not carry (Composer,
+    // Publisher) or whose pane type is not implemented yet (Album Art
+    // tiles) stay listed but disabled, so the menu shape matches real
+    // Winamp while never offering a dead switch.
+    struct PresetDef {
+        const char *menuLabel;
+        QList<QPair<QString, QString>> fields;    // (host field, label)
+        bool supported;
+    };
+    static const QList<PresetDef> &presets() {
+        static const QList<PresetDef> k = {
+            {"Artist\\Album",
+             {{QStringLiteral("artist"), QStringLiteral("Artist")},
+              {QStringLiteral("album"),  QStringLiteral("Album")}}, true},
+            {"Artist\\Album Art",            {}, false},
+            {"Album Artist\\Album",
+             {{QStringLiteral("albumartist"), QStringLiteral("Album Artist")},
+              {QStringLiteral("album"),       QStringLiteral("Album")}}, true},
+            {"Album Artist\\Album Art",      {}, false},
+            {"Genre\\Artist\\Album",
+             {{QStringLiteral("genre"),  QStringLiteral("Genre")},
+              {QStringLiteral("artist"), QStringLiteral("Artist")},
+              {QStringLiteral("album"),  QStringLiteral("Album")}}, true},
+            {"Genre\\Album Art",             {}, false},
+            {"Year\\Artist\\Album",
+             {{QStringLiteral("year"),   QStringLiteral("Year")},
+              {QStringLiteral("artist"), QStringLiteral("Artist")},
+              {QStringLiteral("album"),  QStringLiteral("Album")}}, true},
+            {"Composer\\Album",              {}, false},
+            {"Publisher\\Artist\\Album",     {}, false},
+        };
+        return k;
+    }
 
-        m_tracks.appendColumn(QStringLiteral("Artist"),   110);
-        m_tracks.appendColumn(QStringLiteral("Album"),    130);
-        m_tracks.appendColumn(QStringLiteral("#"),         32, 2);
-        m_tracks.appendColumn(QStringLiteral("Title"),    170);
-        m_tracks.appendColumn(QStringLiteral("Length"),    54, 2);
-        m_tracks.appendColumn(QStringLiteral("Genre"),     70);
-        m_tracks.appendColumn(QStringLiteral("Year"),      46, 2);
+    // Rebuild the filter-pane chain for preset `idx`.  Each pane is
+    // 2-column: the value name plus the next filter's distinct count
+    // (the last pane counts tracks) — real ml_local SimpleFilter shape.
+    void applyPreset(int idx) {
+        m_presetIdx = idx;
+        m_panes.clear();
+        const auto &fields = presets()[idx].fields;
+        for (int i = 0; i < fields.size(); ++i) {
+            auto pane = std::make_unique<FilterPane>();
+            pane->field = fields[i].first;
+            pane->label = fields[i].second;
+            if (i + 1 < fields.size()) {
+                pane->countField = fields[i + 1].first;
+                pane->countLabel = fields[i + 1].second +
+                                   QStringLiteral("s");
+            } else {
+                pane->countLabel = QStringLiteral("Tracks");
+            }
+            pane->list.appendColumn(pane->label, 155);
+            pane->list.appendColumn(pane->countLabel, 48, 2);
+            m_panes.push_back(std::move(pane));
+        }
     }
 
     bool isInteractive() const override { return true; }
@@ -544,11 +597,17 @@ public:
             const int ih = ic.isNull() ? 11 : ic.height();
             const int bw = iw + 14;
             const QRect btn(vmX, vmTop, bw, vmH);
-            drawWadlgButton(p, btn, i == m_viewMode);
+            drawWadlgButton(p, btn, false);
             if (!ic.isNull()) {
                 const int ix = btn.x() + (bw - iw) / 2;
-                const int iy = btn.y() + (vmH - ih) / 2 + (i == m_viewMode ? 1 : 0);
+                const int iy = btn.y() + (vmH - ih) / 2;
+                // The album-art toggle swaps the last pane between the
+                // album list and cover tiles in real ml_local; the tile
+                // pane is not implemented yet, so the button reads
+                // disabled (dimmed glyph) rather than clicking dead.
+                if (i == 0) p->setOpacity(0.35);
                 p->drawImage(ix, iy, ic);
+                if (i == 0) p->setOpacity(1.0);
             }
             m_viewBtnCanvas[i] =
                 QRect(p->transform().map(btn.topLeft()), btn.size());
@@ -644,27 +703,24 @@ public:
                              QString::number(sidebar.height() - 2));
         m_tree.paint(p, ctx, QSize(r.width() + r.x(), r.height() + r.y()));
 
-        // ── Right area: Artist + Album top panes, Tracks bottom ──
+        // ── Right area: filter panes on top, Tracks below ─────────
         // Sits BELOW the search toolbar (which occupies the top of the
         // right column), so the panes line up under the Search field.
+        // Smart views ("Most Played", ...) and the non-browser nodes
+        // render as a single full-height track list — the ml_local
+        // smart-view shape — so the filter row collapses there.
         const QRect rightArea(toolbar.x(),
                                 toolbar.bottom() + 2,
                                 toolbar.width(),
                                 bottomRow.top() - toolbar.bottom() - 3);
-        const int paneH = (rightArea.height() - 2) / 2;
-        const int leftPaneW = rightArea.width() / 2;
-        const QRect artistPane(rightArea.x(),
-                                rightArea.y(),
-                                leftPaneW,
-                                paneH);
-        const QRect albumPane (rightArea.x() + leftPaneW + 2,
-                                rightArea.y(),
-                                rightArea.width() - leftPaneW - 2,
-                                paneH);
+        const bool showPanes = (m_navMode == NavMode::Browser) &&
+                               !m_panes.empty();
+        const int paneH = showPanes ? (rightArea.height() - 2) / 2 : 0;
         const QRect tracksPane(rightArea.x(),
-                                rightArea.y() + paneH + 2,
+                                rightArea.y() + (showPanes ? paneH + 2 : 0),
                                 rightArea.width(),
-                                rightArea.height() - paneH - 2);
+                                rightArea.height() -
+                                    (showPanes ? paneH + 2 : 0));
 
         auto paintBorderedPane = [&](MultiColumnListWidget &mcl,
                                        const QRect &paneR) {
@@ -682,12 +738,23 @@ public:
                               QString::number(inner.height()));
             mcl.paint(p, ctx, QSize(r.right() + 1, r.bottom() + 1));
         };
-        m_artistsCol.setActive(m_activePane == 0);
-        m_albumsCol.setActive(m_activePane == 1);
-        m_tracks.setActive(m_activePane == 2);
-        paintBorderedPane(m_artistsCol, artistPane);
-        paintBorderedPane(m_albumsCol,  albumPane);
-        paintBorderedPane(m_tracks,     tracksPane);
+        if (showPanes) {
+            // Equal-width filter panes across the top row, 2px gaps.
+            const int n = int(m_panes.size());
+            const int gap = 2;
+            const int each = (rightArea.width() - gap * (n - 1)) / n;
+            int px = rightArea.x();
+            for (int i = 0; i < n; ++i) {
+                const int w = (i == n - 1)
+                    ? rightArea.right() - px + 1 : each;
+                m_panes[i]->list.setActive(m_activePane == i);
+                paintBorderedPane(m_panes[i]->list,
+                                  QRect(px, rightArea.y(), w, paneH));
+                px += each + gap;
+            }
+        }
+        m_tracks.setActive(m_activePane == int(m_panes.size()));
+        paintBorderedPane(m_tracks, tracksPane);
 
         p->restore();
 
@@ -702,75 +769,96 @@ public:
     }
 
     void onLeftButtonDown(QPoint pos, PaintCtx &ctx) override {
-        // View-mode buttons (album-art / list / details) — select the mode.
-        for (int i = 0; i < 3; ++i)
-            if (m_viewBtnCanvas[i].contains(pos)) { m_viewMode = i; return; }
-        // Clear Search / Library both reset the view to the whole library.
-        if (ctx.host && (m_clearBtnCanvas.contains(pos) ||
-                         m_libBtnCanvas.contains(pos))) {
+        // Toolbar buttons.  [0] is the album-art toggle — swaps the last
+        // pane between album list and cover tiles in real ml_local, and
+        // stays disabled here until the tile pane exists.  [1] and [2]
+        // open ml_local's real popup menus.
+        if (m_viewBtnCanvas[0].contains(pos)) return;
+        if (ctx.host && m_viewBtnCanvas[1].contains(pos)) {
+            openFiltersMenu(ctx.host);
+            return;
+        }
+        if (m_viewBtnCanvas[2].contains(pos)) {
+            openPaneOptionsMenu(ctx.host);
+            return;
+        }
+        // Clear Search resets the view's filter state.
+        if (ctx.host && m_clearBtnCanvas.contains(pos)) {
             m_searchText.clear();
             m_activePane = 0;
             reloadAll(ctx.host);
             return;
         }
-        // Play split button: the face plays the current track view from
-        // the selected row; the arrow segment opens the action menu
-        // (Play / Enqueue), like gen_ml's TrackPopupMenu.
+        // gen_ml's Library button opens its menu (the "DoShitMenu"):
+        // Media Library Preferences... plus Help.
+        if (ctx.host && m_libBtnCanvas.contains(pos)) {
+            QMenu menu;
+            QAction *prefs = menu.addAction(QStringLiteral(
+                "Media Library Preferences...\tCtrl+Shift+P"));
+            menu.addSeparator();
+            QAction *help = menu.addAction(QStringLiteral("Help\tF1"));
+            Host *host = ctx.host;
+            QAction *picked = menu.exec(QCursor::pos());
+            if (picked == prefs) {
+                host->mlShowPreferences();
+            } else if (picked == help) {
+                QDesktopServices::openUrl(
+                    QUrl(QStringLiteral("https://qtamp.org")));
+            }
+            return;
+        }
+        // Play split button: the face runs the default action on the
+        // selection; the arrow opens the real Dialog_Play menu (the
+        // MediaWnd popup trimmed to its first two entries).
         if (ctx.host && m_playBtnCanvas.contains(pos)) {
-            playVisible(ctx.host,
-                        qMax(0, m_tracks.selection()), false);
+            playRow(ctx.host, qMax(0, m_tracks.selection()), false);
             return;
         }
         if (ctx.host && m_playMenuCanvas.contains(pos)) {
             QMenu menu;
-            QAction *play = menu.addAction(QStringLiteral("Play"));
-            QAction *enq  = menu.addAction(QStringLiteral("Enqueue"));
+            QAction *play = menu.addAction(
+                QStringLiteral("Play selection\tEnter"));
+            QAction *enq = menu.addAction(
+                QStringLiteral("Enqueue selection\tShift+Enter"));
             Host *host = ctx.host;
             const int row = qMax(0, m_tracks.selection());
             QAction *picked = menu.exec(QCursor::pos());
-            if (picked == play)     playVisible(host, row, false);
-            else if (picked == enq) playVisible(host, row, true);
+            if (picked == play)     playRow(host, row, false);
+            else if (picked == enq) playRow(host, row, true);
             return;
         }
-        // Route into whichever child widget's rect contains pos.  Clicking
-        // a nav-tree node selects it and resets the panes to the whole
-        // library (the built-in "Local Library" sections all map to "all"
-        // for now).
+        // Nav tree: selecting a node switches the right-hand view.
         if (m_tree.lastCanvasRect.contains(pos)) {
             m_tree.onLeftButtonDown(pos, ctx);
-            if (ctx.host) { m_activePane = 0; reloadAll(ctx.host); }
+            if (ctx.host) applyNavSelection(ctx.host);
             return;
         }
-        m_artistsCol.onLeftButtonDown(pos, ctx);
-        m_albumsCol.onLeftButtonDown(pos, ctx);
+        // Filter panes: the first pane whose selection changed narrows
+        // every pane after it plus the track view.  Row 0 is the "All"
+        // summary → an empty filter for that field.
+        for (auto &pane : m_panes) pane->list.onLeftButtonDown(pos, ctx);
         m_tracks.onLeftButtonDown(pos, ctx);
         if (!ctx.host) return;
-        // Selecting an artist refilters the albums + tracks; selecting an
-        // album refilters the tracks.  Row 0 of each pane is the "All"
-        // summary → an empty filter.
-        if (m_artistsCol.selection() != m_lastArtistSel) {
-            m_lastArtistSel = m_artistsCol.selection();
-            m_activePane = 0;
-            const int i = m_lastArtistSel;
-            m_selArtist = (i > 0 && i - 1 < m_artists.size())
-                              ? m_artists[i - 1].name : QString();
-            refreshAlbums(ctx.host);
+        for (size_t i = 0; i < m_panes.size(); ++i) {
+            FilterPane &pane = *m_panes[i];
+            if (pane.list.selection() == pane.lastSel) continue;
+            pane.lastSel = pane.list.selection();
+            m_activePane = int(i);
+            const int row = pane.lastSel;
+            pane.selected = (row > 0 && row - 1 < pane.values.size())
+                                ? pane.values[row - 1].name : QString();
+            refreshPanesFrom(ctx.host, int(i) + 1);
             refreshTracks(ctx.host);
-        } else if (m_albumsCol.selection() != m_lastAlbumSel) {
-            m_lastAlbumSel = m_albumsCol.selection();
-            m_activePane = 1;
-            const int j = m_lastAlbumSel;
-            m_selAlbum = (j > 0 && j - 1 < m_albums.size())
-                             ? m_albums[j - 1].name : QString();
-            refreshTracks(ctx.host);
-        } else if (m_tracks.lastCanvasRect().contains(pos)) {
-            m_activePane = 2;   // clicked in the track grid
+            return;
+        }
+        if (m_tracks.lastCanvasRect().contains(pos)) {
+            m_activePane = int(m_panes.size());
             // Double-click a track row → play the view from that track.
             const int row = m_tracks.selection();
             const qint64 now = QDateTime::currentMSecsSinceEpoch();
             if (row >= 0 && row == m_lastTrackClickRow &&
                 now - m_lastTrackClickMs < 400) {
-                playVisible(ctx.host, row, false);
+                playRow(ctx.host, row, false);
                 m_lastTrackClickMs = 0;
                 m_lastTrackClickRow = -1;
             } else {
@@ -781,68 +869,287 @@ public:
     }
 
 private:
+    // One filter pane in the browse chain (a SimpleFilter analogue).
+    struct FilterPane {
+        QString field, label;            // host field + column header
+        QString countField, countLabel;  // next field ("" ⇒ tracks)
+        MultiColumnListWidget    list;
+        QList<Host::MlFilterRow> values;
+        QString                  selected;   // "" = all
+        int                      lastSel = 0;
+        QVector<bool>            colVis { true, true };
+    };
+    enum class NavMode { Browser, SmartList, NowPlaying, EmptyList };
+
+    // The track grid's canonical column set; visibility is user-driven
+    // via Pane Options → Tracks → Customize columns.
+    struct TrackCol { const char *label; int width; int align; };
+    static const TrackCol *trackCols() {
+        static const TrackCol k[7] = {
+            {"Artist", 110, 0}, {"Album", 130, 0}, {"#",     32, 2},
+            {"Title",  170, 0}, {"Length", 54, 2}, {"Genre", 70, 0},
+            {"Year",    46, 2}};
+        return k;
+    }
+    void rebuildTrackColumns() {
+        m_tracks.clearColumns();
+        for (int i = 0; i < 7; ++i)
+            if (m_trackColVis[i])
+                m_tracks.appendColumn(
+                    QString::fromLatin1(trackCols()[i].label),
+                    trackCols()[i].width, trackCols()[i].align);
+    }
+    static void rebuildPaneColumns(FilterPane &pane) {
+        pane.list.clearColumns();
+        if (pane.colVis.value(0, true))
+            pane.list.appendColumn(pane.label, 155);
+        if (pane.colVis.value(1, true))
+            pane.list.appendColumn(pane.countLabel, 48, 2);
+    }
+    static QStringList filterCells(const QStringList &all,
+                                   const QVector<bool> &vis) {
+        QStringList out;
+        for (int i = 0; i < all.size(); ++i)
+            if (vis.value(i, true)) out << all[i];
+        return out;
+    }
+    void appendTrackRow(const QStringList &all7) {
+        m_tracks.appendRow(filterCells(all7, m_trackColVis));
+    }
+
+    // ── Toolbar menus (ml_local wording) ────────────────────────────
+    void openFiltersMenu(Host *host) {
+        QMenu menu;
+        QList<QAction *> acts;
+        const auto &defs = presets();
+        for (int i = 0; i < defs.size(); ++i) {
+            QAction *a = menu.addAction(
+                QString::fromLatin1(defs[i].menuLabel));
+            a->setCheckable(true);
+            a->setChecked(i == m_presetIdx);
+            a->setEnabled(defs[i].supported);
+            acts.append(a);
+        }
+        menu.addSeparator();
+        // "Other..." opens the smart-view query editor in real Winamp;
+        // no query editor exists here yet.
+        menu.addAction(QStringLiteral("Other..."))->setEnabled(false);
+        QAction *picked = menu.exec(QCursor::pos());
+        const int idx = acts.indexOf(picked);
+        if (idx >= 0 && idx != m_presetIdx && defs[idx].supported) {
+            applyPreset(idx);
+            reloadAll(host);
+        }
+    }
+    void openPaneOptionsMenu(Host *host) {
+        QMenu menu;
+        for (size_t i = 0; i < m_panes.size(); ++i) {
+            QMenu *sub = menu.addMenu(m_panes[i]->label);
+            sub->addAction(QStringLiteral("Customize columns..."))
+                ->setData(int(i));
+            QAction *hs = sub->addAction(
+                QStringLiteral("Show Horizontal Scrollbar"));
+            hs->setCheckable(true);
+            hs->setEnabled(false);   // pane lists have no h-scroll yet
+        }
+        QMenu *tracksSub = menu.addMenu(QStringLiteral("Tracks"));
+        tracksSub->addAction(QStringLiteral("Customize columns..."))
+            ->setData(int(m_panes.size()));
+        QAction *picked = menu.exec(QCursor::pos());
+        if (!picked || !picked->data().isValid()) return;
+        const int idx = picked->data().toInt();
+        if (idx == int(m_panes.size())) {
+            QStringList labels;
+            for (int i = 0; i < 7; ++i)
+                labels << QString::fromLatin1(trackCols()[i].label);
+            if (customizeColumnsDialog(labels, m_trackColVis, 3)) {
+                rebuildTrackColumns();
+                if (host) refreshTracks(host);
+            }
+        } else if (idx >= 0 && idx < int(m_panes.size())) {
+            FilterPane &pane = *m_panes[idx];
+            QStringList labels { pane.label, pane.countLabel };
+            if (customizeColumnsDialog(labels, pane.colVis, 0)) {
+                rebuildPaneColumns(pane);
+                if (host) {
+                    refreshPanesFrom(host, idx);
+                    refreshTracks(host);
+                }
+            }
+        }
+    }
+    // The customizeColumnsDialog analogue: checkable column list with
+    // OK/Cancel; `forcedIdx` stays visible (the identity column).
+    static bool customizeColumnsDialog(const QStringList &labels,
+                                       QVector<bool> &vis, int forcedIdx) {
+        QDialog dlg;
+        dlg.setWindowTitle(QStringLiteral("Customize columns"));
+        auto *lay = new QVBoxLayout(&dlg);
+        QList<QCheckBox *> boxes;
+        for (int i = 0; i < labels.size(); ++i) {
+            auto *cb = new QCheckBox(labels[i], &dlg);
+            cb->setChecked(vis.value(i, true));
+            if (i == forcedIdx) { cb->setChecked(true); cb->setEnabled(false); }
+            lay->addWidget(cb);
+            boxes << cb;
+        }
+        auto *bb = new QDialogButtonBox(
+            QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+        QObject::connect(bb, &QDialogButtonBox::accepted,
+                         &dlg, &QDialog::accept);
+        QObject::connect(bb, &QDialogButtonBox::rejected,
+                         &dlg, &QDialog::reject);
+        lay->addWidget(bb);
+        if (dlg.exec() != QDialog::Accepted) return false;
+        for (int i = 0; i < labels.size() && i < vis.size(); ++i)
+            vis[i] = boxes[i]->isChecked();
+        return true;
+    }
+
+    // ── Nav-tree view routing ───────────────────────────────────────
+    // Map the selected node to a view.  Matching on the id's last path
+    // segment routes plugin-registered nodes (different invariant ids,
+    // same names) identically to the built-in fallbacks.
+    void applyNavSelection(Host *host) {
+        const QString key = m_tree.selectedNodeId()
+                                .section(QChar('/'), -1).trimmed().toLower();
+        m_navMode   = NavMode::Browser;
+        m_smartView = Host::MlViewAll;
+        if (key == QStringLiteral("audio") ||
+            key == QStringLiteral("local media") ||
+            key == QStringLiteral("local library")) {
+            // full browser
+        } else if (key == QStringLiteral("video")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewVideo;
+        } else if (key == QStringLiteral("most played")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewMostPlayed;
+        } else if (key == QStringLiteral("recently added")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewRecentlyAdded;
+        } else if (key == QStringLiteral("recently played")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewRecentlyPlayed;
+        } else if (key == QStringLiteral("never played")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewNeverPlayed;
+        } else if (key == QStringLiteral("top rated")) {
+            m_navMode = NavMode::SmartList;
+            m_smartView = Host::MlViewTopRated;
+        } else if (key == QStringLiteral("now playing")) {
+            m_navMode = NavMode::NowPlaying;
+        } else {
+            // Plugin sections without a data backend yet (Playlists,
+            // Devices, Bookmarks, History, Podcasts, Online Services)
+            // show the empty list a data-less real install shows.
+            m_navMode = NavMode::EmptyList;
+        }
+        m_activePane = 0;
+        reloadAll(host);
+    }
+
     // ── Media Library data plumbing ─────────────────────────────────
-    // Pull the whole artist → album → track view from the Host on the
-    // first paint, then refilter incrementally on selection.
     void reloadAll(Host *host) {
-        m_selArtist.clear();
-        m_selAlbum.clear();
-        refreshArtists(host);
-        refreshAlbums(host);
+        for (auto &pane : m_panes) pane->selected.clear();
+        if (m_navMode == NavMode::Browser) refreshPanesFrom(host, 0);
         refreshTracks(host);
     }
-    void refreshArtists(Host *host) {
-        m_artists = host->mlArtists();
-        const int totalAlbums = host->mlAlbums(QString()).size();
-        m_artistsCol.clearRows();
-        m_artistsCol.appendRow({allSummary(m_artists.size(), "artist"),
-                                 QString::number(totalAlbums)});
-        for (const auto &a : m_artists)
-            m_artistsCol.appendRow({a.name, QString::number(a.albumCount)});
-        m_artistsCol.setSelection(0);
-        m_lastArtistSel = 0;
+    // The (field, value) selections of the panes before `upto`.
+    QList<QPair<QString, QString>> paneEquals(int upto) const {
+        QList<QPair<QString, QString>> eq;
+        if (m_navMode != NavMode::Browser) return eq;
+        for (int i = 0; i < upto && i < int(m_panes.size()); ++i)
+            if (!m_panes[i]->selected.isEmpty())
+                eq.append({ m_panes[i]->field, m_panes[i]->selected });
+        return eq;
     }
-    void refreshAlbums(Host *host) {
-        m_albums = host->mlAlbums(m_selArtist);
-        m_selAlbum.clear();
-        int totalTracks = 0;
-        for (const auto &a : m_albums) totalTracks += a.trackCount;
-        m_albumsCol.clearRows();
-        m_albumsCol.appendRow({allSummary(m_albums.size(), "album"),
-                                QString::number(totalTracks)});
-        for (const auto &a : m_albums)
-            m_albumsCol.appendRow({a.name, QString::number(a.trackCount)});
-        m_albumsCol.setSelection(0);
-        m_lastAlbumSel = 0;
+    void refreshPanesFrom(Host *host, int first) {
+        for (int i = first; i < int(m_panes.size()); ++i) {
+            FilterPane &pane = *m_panes[i];
+            pane.selected.clear();
+            pane.values = host->mlFilterValues(pane.field, pane.countField,
+                                               paneEquals(i));
+            // "All" row: total = distinct count of the count-field under
+            // the same upstream filters (track count for the last pane).
+            int total = 0;
+            if (pane.countField.isEmpty()) {
+                for (const auto &v : pane.values) total += v.count;
+            } else {
+                total = host->mlFilterValues(pane.countField, QString(),
+                                             paneEquals(i)).size();
+            }
+            pane.list.clearRows();
+            pane.list.appendRow(filterCells(
+                { allSummary(pane.values.size(), pane.label),
+                  QString::number(total) }, pane.colVis));
+            for (const auto &v : pane.values)
+                pane.list.appendRow(filterCells(
+                    { v.name, QString::number(v.count) }, pane.colVis));
+            pane.list.setSelection(0);
+            pane.lastSel = 0;
+        }
     }
     void refreshTracks(Host *host) {
-        m_trackRows = host->mlTracks(m_selArtist, m_selAlbum);
         m_tracks.clearRows();
+        m_trackRows.clear();
+        if (m_navMode == NavMode::EmptyList) {
+            m_statusText = QStringLiteral("0 items");
+            return;
+        }
+        if (m_navMode == NavMode::NowPlaying) {
+            const int n = host->playlistRowCount();
+            qint64 totalMs = 0;
+            for (int i = 0; i < n; ++i) {
+                const qint64 ms = host->playlistRowDurationMs(i);
+                totalMs += ms;
+                appendTrackRow({ QString(), QString(),
+                                 QString::number(i + 1),
+                                 host->playlistRowText(i), formatLen(ms),
+                                 QString(), QString() });
+            }
+            m_statusText = n == 0
+                ? QStringLiteral("0 items")
+                : QStringLiteral("%1 items  [%2]").arg(n)
+                      .arg(formatLen(totalMs));
+            return;
+        }
+        m_trackRows = host->mlTracksQuery(paneEquals(int(m_panes.size())),
+                                          m_smartView);
         qint64 totalMs = 0;
         for (const auto &t : m_trackRows) {
             totalMs += t.lengthMs;
-            m_tracks.appendRow({
+            appendTrackRow({
                 t.artist, t.album,
                 t.track > 0 ? QString::number(t.track) : QString(),
                 t.title, formatLen(t.lengthMs), t.genre,
-                t.year > 0 ? QString::number(t.year) : QString()});
+                t.year > 0 ? QString::number(t.year) : QString() });
         }
         m_statusText = m_trackRows.isEmpty()
             ? QStringLiteral("0 items")
             : QStringLiteral("%1 items  [%2]").arg(m_trackRows.size())
                   .arg(formatLen(totalMs));
     }
-    // Send the current track view to the player, playing from `startRow`.
-    void playVisible(Host *host, int startRow, bool enqueueOnly) {
-        if (!host || m_trackRows.isEmpty()) return;
+    // Run the view's default action from `startRow`: the browser views
+    // hand the visible track paths to the player; Now Playing jumps the
+    // player's own queue.
+    void playRow(Host *host, int startRow, bool enqueueOnly) {
+        if (!host) return;
+        if (m_navMode == NavMode::NowPlaying) {
+            const int n = host->playlistRowCount();
+            if (!enqueueOnly && n > 0)
+                host->playlistPlayRow(qBound(0, startRow, n - 1));
+            return;
+        }
+        if (m_trackRows.isEmpty()) return;
         QList<QString> paths;
         paths.reserve(m_trackRows.size());
         for (const auto &t : m_trackRows) paths.append(t.path);
         host->mlPlayTracks(paths, startRow, enqueueOnly);
     }
-    static QString allSummary(int n, const char *noun) {
+    static QString allSummary(int n, const QString &label) {
         return QStringLiteral("All (%1 %2%3)")
-            .arg(n).arg(QString::fromLatin1(noun)).arg(n == 1 ? "" : "s");
+            .arg(n).arg(label.toLower()).arg(n == 1 ? "" : "s");
     }
     static QString formatLen(qint64 ms) {
         if (ms <= 0) return QString();
@@ -852,8 +1159,6 @@ private:
     }
 
     TreeListWidget        m_tree;
-    MultiColumnListWidget m_artistsCol;
-    MultiColumnListWidget m_albumsCol;
     MultiColumnListWidget m_tracks;
     QRect                 m_lastRect;
     // Handle to the media-library window — set on construction.  Read
@@ -863,22 +1168,21 @@ private:
 
     // Live Media Library state, sourced from the Host on first paint.
     bool                        m_dataLoaded = false;
-    QList<Host::MlArtistRow>    m_artists;
-    QList<Host::MlAlbumRow>     m_albums;
+    std::vector<std::unique_ptr<FilterPane>> m_panes;
+    int                         m_presetIdx  = 0;
+    NavMode                     m_navMode    = NavMode::Browser;
+    int                         m_smartView  = Host::MlViewAll;
+    QVector<bool>               m_trackColVis {
+        true, true, true, true, true, true, true };
     QList<Host::MlTrackRow>     m_trackRows;    // current track view (with paths)
-    QString                     m_selArtist;    // "" = all artists
-    QString                     m_selAlbum;     // "" = all albums
-    int                         m_lastArtistSel = -1;
-    int                         m_lastAlbumSel  = -1;
-    int                         m_activePane    = 0;   // 0 artist,1 album,2 track
+    int                         m_activePane = 0;  // pane index; panes.size() = tracks
     QString                     m_statusText = QStringLiteral("0 items");
     QRect                       m_playBtnCanvas;       // Play face hit rect
     QRect                       m_playMenuCanvas;      // arrow segment hit rect
-    QRect                       m_viewBtnCanvas[3];    // view-mode buttons
+    QRect                       m_viewBtnCanvas[3];    // toolbar buttons
     QRect                       m_clearBtnCanvas;      // Clear Search
     QRect                       m_libBtnCanvas;        // Library
     QRect                       m_searchBoxCanvas;     // search edit box
-    int                         m_viewMode   = 1;      // 0 art,1 list,2 details
     QString                     m_searchText;          // live search filter
     int                         m_lastTrackClickRow = -1;
     qint64                      m_lastTrackClickMs  = 0;

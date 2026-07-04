@@ -207,6 +207,45 @@ public:
     virtual QList<MlTrackRow>  mlTracks(const QString &artist, const QString &album) const { Q_UNUSED(artist); Q_UNUSED(album); return {}; }
     virtual int                mlTotalTracks() const { return 0; }
 
+    // ── Generic Media Library filter/query surface.  ml_local's view
+    //    presets ("Artist\Album", "Genre\Artist\Album", …) browse the
+    //    library through a CHAIN of filter panes; each pane lists the
+    //    distinct values of one tag field, narrowed by the selections in
+    //    the panes before it.  `equals` carries those upstream
+    //    (field, value) selections.  Fields: "artist" (album-artist
+    //    folded, guest suffixes stripped), "albumartist", "album",
+    //    "genre", "year".  `countField` names the field whose DISTINCT
+    //    count fills the pane's second column ("" ⇒ track count).
+    struct MlFilterRow { QString name; int count = 0; };
+    virtual QList<MlFilterRow> mlFilterValues(
+        const QString &field, const QString &countField,
+        const QList<QPair<QString, QString>> &equals) const {
+        Q_UNUSED(field); Q_UNUSED(countField); Q_UNUSED(equals);
+        return {};
+    }
+    // Track query joining the filter selections with one of ml_local's
+    // default smart views.  The numeric ids mirror the stock queries:
+    //   0 All            (Audio: type = 0)
+    //   1 Video          (type = 1)
+    //   2 MostPlayed     (playcount > 0)
+    //   3 RecentlyAdded  (dateadded > [3 days ago])
+    //   4 RecentlyPlayed (lastplay > [2 weeks ago])
+    //   5 NeverPlayed    (playcount = 0 | playcount isempty)
+    //   6 TopRated       (rating >= 3)
+    enum MlSmartView {
+        MlViewAll = 0, MlViewVideo, MlViewMostPlayed, MlViewRecentlyAdded,
+        MlViewRecentlyPlayed, MlViewNeverPlayed, MlViewTopRated
+    };
+    virtual QList<MlTrackRow> mlTracksQuery(
+        const QList<QPair<QString, QString>> &equals, int smartView) const {
+        Q_UNUSED(equals); Q_UNUSED(smartView);
+        return {};
+    }
+
+    // "Media Library Preferences..." from gen_ml's Library button menu.
+    // Default: no-op (embedder without a preferences dialog).
+    virtual void mlShowPreferences() {}
+
     // Send Media Library tracks to the player.  `paths` is the current
     // view (e.g. the visible track grid); the embedder appends them to
     // its playlist and, unless `enqueueOnly`, starts playback from

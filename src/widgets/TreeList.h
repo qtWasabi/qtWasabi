@@ -56,6 +56,16 @@ public:
     int  selection() const { return m_selection; }
     void setSelection(int row);
 
+    // Stable id of the selected row's node (invariantId, falling back
+    // to displayLabel), resolved against the last painted flatten.
+    // Empty when nothing has painted yet or selection is out of range.
+    QString selectedNodeId() const {
+        if (m_selection < 0 || m_selection >= m_lastVisible.size())
+            return {};
+        const TreeListNode &n = m_lastVisible[m_selection].node;
+        return n.invariantId.isEmpty() ? n.displayLabel : n.invariantId;
+    }
+
     // Bitmap-registry the widget should consult for icon ids.  When
     // a node's iconResource starts with `/` or a known file
     // extension, the widget loads it directly via QImage; otherwise
