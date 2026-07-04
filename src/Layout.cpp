@@ -1267,6 +1267,32 @@ bool expandLayout(const SkinXml::Document &doc,
     Expander ex(groupdefs, sendparams, hidden);
     ex.expandChildren(*layout, out, /*instanceId*/ {});
 
+    // The layout root's own background= is the window face: the
+    // rearmost fill behind everything, exactly like a group's (skins
+    // such as winamp1 declare <layout background="player.main..."/>
+    // and paint their whole chrome that way).  Synthesize the same
+    // fill layer expandChildren produces for groups, front of list.
+    {
+        const QString rootBg =
+            layout->attrs.value(QStringLiteral("background"));
+        if (!rootBg.isEmpty()) {
+            Element bgEl;
+            bgEl.tag = QStringLiteral("layer");
+            bgEl.attrs.insert(QStringLiteral("id"),
+                              QStringLiteral("__groupbg"));
+            bgEl.attrs.insert(QStringLiteral("image"), rootBg);
+            bgEl.attrs.insert(QStringLiteral("x"), QStringLiteral("0"));
+            bgEl.attrs.insert(QStringLiteral("y"), QStringLiteral("0"));
+            bgEl.attrs.insert(QStringLiteral("w"), QStringLiteral("0"));
+            bgEl.attrs.insert(QStringLiteral("h"), QStringLiteral("0"));
+            bgEl.attrs.insert(QStringLiteral("relatw"), QStringLiteral("1"));
+            bgEl.attrs.insert(QStringLiteral("relath"), QStringLiteral("1"));
+            bgEl.attrs.insert(QStringLiteral("tile"), QStringLiteral("1"));
+            out.children.insert(out.children.begin(),
+                                makeResolved(bgEl));
+        }
+    }
+
     // Resolve the `:componentname` / `:containerid` skin variables to the
     // container's declared name / id — the Winamp API's public-var
     // substitution.  This is what makes a dynamic container's titlebar read
