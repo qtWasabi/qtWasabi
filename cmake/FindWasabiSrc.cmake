@@ -20,6 +20,12 @@ if(NOT WASABI_SRC_DIR)
         set(WASABI_SRC_DIR "$ENV{WASABI_SRC_DIR}")
     elseif(EXISTS "${CMAKE_SOURCE_DIR}/wasabi-src/Src/Wasabi")
         set(WASABI_SRC_DIR "${CMAKE_SOURCE_DIR}/wasabi-src/Src")
+    elseif(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../wasabi-src/Src/Wasabi")
+        # Embedder build (qtWasabi added as a subdirectory, e.g. qtamp's
+        # deps/qtWasabi): CMAKE_SOURCE_DIR is the embedder's root, so also
+        # probe relative to qtWasabi itself, which is where
+        # scripts/fetch-wasabi.sh extracts the tree.
+        set(WASABI_SRC_DIR "${CMAKE_CURRENT_LIST_DIR}/../wasabi-src/Src")
     endif()
 endif()
 
