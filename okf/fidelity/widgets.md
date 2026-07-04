@@ -16,6 +16,12 @@ related:
 
 # Widget fidelity
 
+> NOTE 2026-07-04: the DropDownList/ComboBox implementation spec was
+> extracted from the reference source into
+> [dropdownlist-spec.md](dropdownlist-spec.md). Bento's visible "Play"
+> dropdown is a gen_ml button MENU, not a DropDownList; the Menu popup
+> remains the user-visible RB6 item.
+
 Paint dispatch is a clean class-per-widget model (TreePainter →
 `Widget::paint`). Fidelity is three-tiered.
 
