@@ -43,9 +43,10 @@ only="${1:-}"
 fail=0
 printf "%-18s %-11s %-9s %-7s %s\n" "skin" "size" "mae" "limit" "result"
 
-while IFS=$'\t' read -r skin dir mae_limit ratio track; do
+while IFS=$'\t' read -r skin dir mae_limit ratio track fit; do
     ratio="${ratio:-1}"
     track="${track:-testtone}"
+    fit="${fit:-fixed}"
     [[ "$skin" =~ ^# ]] && continue
     [[ -n "$only" && "$skin" != "$only" ]] && continue
     ref="$REF_DIR/ref-$skin.png"
@@ -76,11 +77,17 @@ while IFS=$'\t' read -r skin dir mae_limit ratio track; do
     # leak into fidelity measurements — a stored synthetic theme once
     # masqueraded as an engine color bug.  SKIN_DIR and media were
     # expanded above, so both still come from their real locations.
-    # Resizable skins have no canonical size; match the reference
-    # capture's window size so geometry is compared like for like.
-    refsz=$(python3 -c "from PIL import Image; im=Image.open('$ref'); print(f'{im.width}x{im.height}')")
+    # Resizable skins (fit=ref) have no canonical size; match the
+    # reference capture's window size so geometry is compared like for
+    # like.  Fixed-size skins must derive their size from the layout,
+    # so forcing them would hide sizing bugs (and W2K's resize cascade
+    # livelocks when forced against its ratio).
+    forceresize=""
+    if [[ "$fit" == "ref" ]]; then
+        forceresize=$(python3 -c "from PIL import Image; im=Image.open('$ref'); print(f'{im.width}x{im.height}')")
+    fi
     HOME="$TMPDIR" WASABIQT_RENDER_RATIO="$ratio" \
-        WASABIQT_SHOT_ALPHA=1 WASABIQT_FORCE_RESIZE="$refsz" \
+        WASABIQT_SHOT_ALPHA=1 WASABIQT_FORCE_RESIZE="$forceresize" \
         QT_QPA_PLATFORM=offscreen "$QTAMP" \
         --modern-skin "$SKIN_DIR/$dir" \
         "$media" \
