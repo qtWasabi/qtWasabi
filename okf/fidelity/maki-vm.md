@@ -32,11 +32,19 @@ related:
 > and arity from the flat table, scoped misses fall back flat and are
 > traced (WASABIQT_TRACE_SCOPED_MISS — 308 pairs on Bento form the
 > table-population worklist). First splits landed: Slider and Frame
-> get/setPosition no longer attr-sniff. Remaining phases: populate the
-> GuiObject/SystemObject tables from the miss trace, typed
+> get/setPosition no longer attr-sniff. Remaining phases: typed
 > instantiate depth (Timer/Region/Map behaviours keyed off the class
 > stamp), GUID-keyed getInterface + real typeCheck, then delete the
 > flat fallback.
+>
+> STATUS 2026-07-05, phase A2 LANDED: all 36 reference exported-method
+> tables are transcribed into the registry (SystemObject 220,
+> GuiObject 103, GuiList 89, ... plus the Object root).  The scoped
+> fallback dropped from 396 (class, method) pairs to ONE across the
+> eight-skin corpus (SystemObject.onCurrentTrackRated, a WACUP-era
+> event the 5.666 surface genuinely lacks); still-unbound methods now
+> fail soft at their reference arity, closing the arity-guess
+> stack-desync class.
 
 The opensourced VCPU bytecode loop (`vcpu.cpp`, patched, vendored) executes
 compiled `.maki` verbatim. Everything around it that real Wasabi provides,
