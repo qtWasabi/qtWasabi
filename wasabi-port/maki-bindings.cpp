@@ -118,6 +118,30 @@ extern "C" scriptVar wq_getSkinName(maki_cmd *, int, ScriptObject *) {
     return makeString(L"qtWasabi");
 }
 
+// SApplication
+//
+// Win9x-era skins compose their titlebar caption from the Application
+// object ("Winamp " + GetVersionNumberString()); unbound these fell
+// into the NULL-CALLM no-op and the caption stayed empty.  The values
+// identify the skin platform being emulated (the classic 5.666
+// surface), not the embedder — shipped skins feature-gate on them,
+// e.g. Winamp2000SP4 deliberately degrades itself when it sees "5.8".
+extern "C" scriptVar wq_appGetName(maki_cmd *, int, ScriptObject *) {
+    return makeString(L"Winamp");
+}
+extern "C" scriptVar wq_appGetVersionString(maki_cmd *, int,
+                                            ScriptObject *) {
+    return makeString(L"Winamp 5.666");
+}
+extern "C" scriptVar wq_appGetVersionNumberString(maki_cmd *, int,
+                                                  ScriptObject *) {
+    return makeString(L"5.666");
+}
+extern "C" scriptVar wq_appGetBuildNumber(maki_cmd *, int,
+                                          ScriptObject *) {
+    return makeInt(3516);
+}
+
 // getDate() returns a date HANDLE (the time_t) that the getDate* extractors
 // consume; getTimeOfDay() is ms since midnight.  Were constant 0 (1970
 // epoch / dead time-delta).  time_t fits in int until 2038.
@@ -1707,6 +1731,11 @@ const MakiMethod *makiMethodTable(int *count) {
         // SystemObject
         {L"getRuntimeVersion",       0, (void *)wq_getRuntimeVersion},
         {L"getSkinName",             0, (void *)wq_getSkinName},
+        // SApplication
+        {L"GetApplicationName",      0, (void *)wq_appGetName},
+        {L"GetVersionString",        0, (void *)wq_appGetVersionString},
+        {L"GetVersionNumberString",  0, (void *)wq_appGetVersionNumberString},
+        {L"GetBuildNumber",          0, (void *)wq_appGetBuildNumber},
         {L"getDate",                 0, (void *)wq_getDate},
         {L"getTimeOfDay",            0, (void *)wq_getTimeOfDay},
         {L"getDateYear",  1, (void *)wq_getDateYear},  {L"getDateMonth", 1, (void *)wq_getDateMonth},
