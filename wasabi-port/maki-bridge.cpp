@@ -165,6 +165,43 @@ int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName) {
     return fired;
 }
 
+int fireTwoIntEventOnObject(void *recv, const wchar_t *eventName,
+                            int a, int b) {
+    // Fire <widget>.<eventName>(int, int) on `recv` — receiver-gated
+    // like fireZeroArgEventOnObject.  Carries the GuiObject mouse
+    // events (onLeftButtonDown/Up, onRightButtonDown/Up — all
+    // declared (int x, int y)) from the embedder's hit-test into the
+    // VM; wa2songtimer.m's elapsed/remaining toggle binds these on an
+    // invisible TimerTrigger layer.
+    if (!recv || !eventName) return 0;
+    int fired = 0;
+    const int n = VCPU::DLFentryTable.getNumItems();
+    for (int i = 0; i < n; ++i) {
+        VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
+        if (!e || !e->functionName) continue;
+        if (wcscmp(e->functionName, eventName) != 0) continue;
+        auto *wso = static_cast<ScriptObject *>(recv);
+        int next = 0, evIdx = 0, inh = 0;
+        int varId = wso->vcpu_getAssignedVariable(
+            0, e->scriptId, e->DLFid, &next, &evIdx, &inh);
+        if (varId < 0) continue;
+        scriptVar va{}; va.type = SCRIPT_INT; va.data.idata = a;
+        scriptVar vb{}; vb.type = SCRIPT_INT; vb.data.idata = b;
+        VCPU::push(va); VCPU::push(vb);
+        scriptVar recvVar{};
+        recvVar.type = SCRIPT_OBJECT;
+        recvVar.data.odata = wso;
+        setCurrentScriptId(e->scriptId);
+        VCPU::executeEvent(recvVar, e->DLFid, e->nparams, e->scriptId);
+        ++fired;
+    }
+    if (std::getenv("WASABIQT_TRACE_MAKI"))
+        std::fprintf(stderr,
+            "[maki] fireTwoIntEventOnObject(%p, %ls, %d, %d) -> fired=%d\n",
+            recv, eventName, a, b, fired);
+    return fired;
+}
+
 int fireOnActionEvent(void *recv, const wchar_t *action,
                       const wchar_t *param, int x, int y,
                       int p1, int p2, void *source) {

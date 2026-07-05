@@ -146,6 +146,13 @@ bool fireFourIntEvent(int scriptId, void *recv,
 // event.  Returns the number of scripts whose handler fired.
 int fireZeroArgEventOnObject(void *recv, const wchar_t *eventName);
 
+// Fire <widget>.<eventName>(int, int) on `recv` — the GuiObject mouse
+// events (onLeftButtonDown/Up, onRightButtonDown/Up all declare
+// (int x, int y)).  Receiver-gated like fireZeroArgEventOnObject;
+// returns the number of handlers fired.
+int fireTwoIntEventOnObject(void *recv, const wchar_t *eventName,
+                            int a, int b);
+
 // Fire `onAction(String action, String param, int x, int y,
 // int p1, int p2, GuiObject source)` on `recv` (the action_target
 // widget).  Used when a Button/ToggleButton with `action="X"
