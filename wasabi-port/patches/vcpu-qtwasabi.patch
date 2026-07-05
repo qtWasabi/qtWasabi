@@ -81,7 +81,26 @@
          scriptVar r = callDLF(e, np);
          VCPUscriptVar vr;
          vr.scriptId = VSD;
-@@ -1581,8 +1631,28 @@
+@@ -1264,9 +1314,18 @@
+           if (v1.v.data.sdata) 
+ 		  {
+             wcsncpy(s, v1.v.data.sdata, n);
++            // qtWasabi: wcsncpy leaves s UNTERMINATED when wcslen(v1)
++            // == n (concatenating an empty right operand, `x + ""`) —
++            // wcsncat's wcslen(dst) then scans past the allocation.
++            // Native allocator slack usually hides it; the wasm heap
++            // traps and the stray write corrupts the VM tables.
++            s[n] = 0;
+ 			wcsncat(s, (v2.v.data.sdata ? v2.v.data.sdata : L""), n);
+           } else
++		  {
+ 			  wcsncpy(s, (v2.v.data.sdata ? v2.v.data.sdata : L""), n);
++			  s[n] = 0;
++		  }
+ 
+           v1.v = SOM::makeVar(SCRIPT_STRING);
+           SOM::assign(&v1.v, s);
+@@ -1581,8 +1640,28 @@
        SOM::assign(&v->v, &sv);
      }
    } else {
@@ -112,7 +131,7 @@
    }
  
    return v->v;
-@@ -1636,15 +1706,83 @@
+@@ -1636,15 +1715,83 @@
    VCPUscriptVar object = pop();
    scriptVar r = MAKE_SCRIPT_INT(0);
  
@@ -203,7 +222,7 @@
    }
  #ifndef _DEBUG
    try
-@@ -1653,7 +1791,7 @@
+@@ -1653,7 +1800,7 @@
      if (object.v.data.odata) object.v.data.odata->vcpu_setScriptId(object.scriptId);
  
      if (e->ptr != NULL) {
@@ -212,7 +231,7 @@
          case 0:
            r = ((scriptVar (*)(maki_cmd *, int vsd, class ScriptObject *))e->ptr)(NULL, VCPU::VSD, object.v.data.odata);
            break;
-@@ -1882,7 +2020,17 @@
+@@ -1882,7 +2029,17 @@
  void VCPU::killOrphan(int id) {
    int pos;
    OrphanEntry *p = orphans.findItem((const wchar_t *)&id, &pos);
@@ -231,7 +250,7 @@
    if (p->v.v.type == SCRIPT_STRING)
      FREE((void *)p->v.v.data.sdata);
    delete p;
-@@ -1892,7 +2040,25 @@
+@@ -1892,7 +2049,25 @@
  // -------------------------------------------------------------
  VCPUscriptVar *VCPU::getOrphan(int id) {
    OrphanEntry *p = orphans.findItem((const wchar_t *)&id);
