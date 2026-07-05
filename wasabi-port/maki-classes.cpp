@@ -31,6 +31,14 @@ void wq_sliderGetPosition();
 void wq_sliderSetPosition();
 void wq_frameGetPosition();
 void wq_frameSetPosition();
+void wq_systemGetPosition();
+void wq_menuAddCommand();
+void wq_menuAddSeparator();
+void wq_menuGetNumCommands();
+void wq_menuCheckCommand();
+void wq_menuDisableCommand();
+void wq_menuPopAtMouse();
+void wq_menuPopAtXY();
 void wq_listAddItem();
 void wq_listRemoveItem();
 void wq_listEnumItem();
@@ -240,7 +248,7 @@ const ClassMethod kSystemObject[] = {
     { L"previous", 0, nullptr },
     { L"eject", 0, nullptr },
     { L"seekTo", 1, nullptr },
-    { L"getPosition", 0, nullptr },
+    { L"getPosition", 0, FN(wq_systemGetPosition) },
     { L"setEqBand", 2, nullptr },
     { L"setEqPreAmp", 1, nullptr },
     { L"setEq", 1, nullptr },
@@ -727,13 +735,13 @@ const ClassMethod kTimerRef[] = {
 
 const ClassMethod kPopupMenu[] = {
     { L"addSubMenu", 2, nullptr },
-    { L"addCommand", 4, nullptr },
-    { L"addSeparator", 0, nullptr },
-    { L"popAtXY", 2, nullptr },
-    { L"popAtMouse", 0, nullptr },
-    { L"getNumCommands", 0, nullptr },
-    { L"checkCommand", 2, nullptr },
-    { L"disableCommand", 2, nullptr },
+    { L"addCommand", 4, FN(wq_menuAddCommand) },
+    { L"addSeparator", 0, FN(wq_menuAddSeparator) },
+    { L"popAtXY", 2, FN(wq_menuPopAtXY) },
+    { L"popAtMouse", 0, FN(wq_menuPopAtMouse) },
+    { L"getNumCommands", 0, FN(wq_menuGetNumCommands) },
+    { L"checkCommand", 2, FN(wq_menuCheckCommand) },
+    { L"disableCommand", 2, FN(wq_menuDisableCommand) },
 };
 
 const ClassMethod kList[] = {

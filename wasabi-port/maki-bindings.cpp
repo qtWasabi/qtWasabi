@@ -125,8 +125,14 @@ extern "C" scriptVar wq_getRuntimeVersion(maki_cmd *, int, ScriptObject *) {
     return makeDouble(2.0);
 }
 
+// Bridge-owned name of the loaded skin (SkinRuntimeBridge.cpp).  Real
+// Wasabi returns the skin's folder name; scripts key their per-skin
+// preferences on it (getPrivateInt(getSkinName(), ...)).
+extern "C" const wchar_t *wq_skin_name();
+
 extern "C" scriptVar wq_getSkinName(maki_cmd *, int, ScriptObject *) {
-    return makeString(L"qtWasabi");
+    const wchar_t *n = wq_skin_name();
+    return makeString(n && *n ? n : L"qtWasabi");
 }
 
 // SApplication
@@ -456,19 +462,21 @@ extern "C" scriptVar wq_strupper(maki_cmd *, int, ScriptObject *, scriptVar s) {
     return makeString(intern(str));
 }
 
-// integerToTime(sec) → "M:SS"; integerToLongTime(sec) → "H:MM:SS"/"M:SS".
-// Were UNBOUND → int 0 → "Seek: 0/0" / " (0)" instead of real times.
+// integerToTime(ms) → "M:SS"; integerToLongTime(ms) → "H:MM:SS".
+// Both take MILLISECONDS (Wasabi divides by 60000/1000) — every Maki
+// producer feeding them (getPosition, getPlayItemLength, the "length"
+// metadata field, getTimeOfDay) is on the millisecond scale too.
 extern "C" scriptVar wq_integerToTime(maki_cmd *, int, ScriptObject *, scriptVar v) {
-    int s = vargint(v); if (s < 0) s = 0;
-    wchar_t buf[32]; swprintf(buf, 32, L"%d:%02d", s / 60, s % 60);
+    int ms = vargint(v); if (ms < 0) ms = 0;
+    wchar_t buf[32];
+    swprintf(buf, 32, L"%d:%02d", ms / 60000, ms % 60000 / 1000);
     return makeString(intern(std::wstring(buf)));
 }
 extern "C" scriptVar wq_integerToLongTime(maki_cmd *, int, ScriptObject *, scriptVar v) {
-    int s = vargint(v); if (s < 0) s = 0;
-    const int h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
+    int ms = vargint(v); if (ms < 0) ms = 0;
     wchar_t buf[40];
-    if (h > 0) swprintf(buf, 40, L"%d:%02d:%02d", h, m, sec);
-    else       swprintf(buf, 40, L"%d:%02d", m, sec);
+    swprintf(buf, 40, L"%d:%02d:%02d",
+             ms / 3600000, (ms % 3600000) / 60000, ms % 60000 / 1000);
     return makeString(intern(std::wstring(buf)));
 }
 
@@ -583,24 +591,55 @@ static std::unordered_map<std::wstring, int> &privateIntStore() {
     return m;
 }
 
+// Shared cores — also reachable from the embedder side (qtamp's
+// Preferences writes the same TimerElapsedRemaining slot the skin
+// scripts read) through the wq_privateInt* C surface below.
+static int privateIntGet(const std::wstring &sec, const std::wstring &key,
+                         int def) {
+    std::wstring k = sec + L"|" + key;
+    auto &m = privateIntStore();
+    std::wstring stored;
+    if (prefLoad(L"private-int", k, stored)) {
+        const int v = int(std::wcstol(stored.c_str(), nullptr, 10));
+        m[k] = v;
+        return v;
+    }
+    auto it = m.find(k);
+    if (it != m.end()) return it->second;
+    return def;
+}
+static void privateIntSet(const std::wstring &sec, const std::wstring &key,
+                          int v) {
+    std::wstring k = sec + L"|" + key;
+    privateIntStore()[k] = v;
+    prefSave(L"private-int", k, std::to_wstring(v));
+}
+extern "C" int wq_privateIntGet(const wchar_t *sec, const wchar_t *key,
+                                int def) {
+    if (!sec || !key) return def;
+    return privateIntGet(sec, key, def);
+}
+extern "C" void wq_privateIntSet(const wchar_t *sec, const wchar_t *key,
+                                 int v) {
+    if (!sec || !key) return;
+    privateIntSet(sec, key, v);
+}
+
 extern "C" scriptVar wq_getPrivateInt(maki_cmd *, int, ScriptObject *,
                                        scriptVar sec, scriptVar key,
                                        scriptVar def) {
     if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
         key.type != SCRIPT_STRING || !key.data.sdata)
         return def;
-    std::wstring k = std::wstring(sec.data.sdata) + L"|" +
-                     std::wstring(key.data.sdata);
-    auto &m = privateIntStore();
-    std::wstring stored;
-    if (prefLoad(L"private-int", k, stored)) {
-        const int v = int(std::wcstol(stored.c_str(), nullptr, 10));
-        m[k] = v;
-        return makeInt(v);
+    int d = 0;
+    switch (def.type) {
+        case SCRIPT_INT:
+        case SCRIPT_BOOLEAN: d = def.data.idata; break;
+        case SCRIPT_FLOAT:   d = static_cast<int>(def.data.fdata); break;
+        case SCRIPT_DOUBLE:  d = static_cast<int>(def.data.ddata); break;
+        default: d = 0;
     }
-    auto it = m.find(k);
-    if (it != m.end()) return makeInt(it->second);
-    return def;
+    return makeInt(privateIntGet(sec.data.sdata, key.data.sdata, d));
 }
 
 extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
@@ -609,8 +648,6 @@ extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
     if (sec.type != SCRIPT_STRING || !sec.data.sdata ||
         key.type != SCRIPT_STRING || !key.data.sdata)
         return makeVoid();
-    std::wstring k = std::wstring(sec.data.sdata) + L"|" +
-                     std::wstring(key.data.sdata);
     int v = 0;
     switch (val.type) {
         case SCRIPT_INT:
@@ -619,8 +656,7 @@ extern "C" scriptVar wq_setPrivateInt(maki_cmd *, int, ScriptObject *,
         case SCRIPT_DOUBLE:  v = static_cast<int>(val.data.ddata); break;
         default: v = 0;
     }
-    privateIntStore()[k] = v;
-    prefSave(L"private-int", k, std::to_wstring(v));
+    privateIntSet(sec.data.sdata, key.data.sdata, v);
     return makeVoid();
 }
 
@@ -1019,11 +1055,19 @@ static int resolveMetaInt(const wchar_t *key) {
     const wchar_t *s = resolveMeta(std::wstring(key));
     return (s && *s) ? static_cast<int>(std::wcstol(s, nullptr, 10)) : 0;
 }
-// getPlayItemLength() → seconds; getPlaylistLength()/getPlaylistIndex().
-// Were UNBOUND → int 0 → dead seek range / total-time, zero-iteration
-// playlist loops.  qtamp has the data (QMediaPlayer duration + Host playlist).
+// getPlayItemLength() → milliseconds (Wasabi returns core_getLength(0);
+// scripts feed it straight into integerToTime and compare against ms
+// constants); getPlaylistLength()/getPlaylistIndex().  Were UNBOUND →
+// int 0 → dead seek range / total-time, zero-iteration playlist loops.
 extern "C" scriptVar wq_getPlayItemLength(maki_cmd *, int, ScriptObject *) {
     return makeInt(resolveMetaInt(L"playitem:length"));
+}
+// System.getPosition() → playback position in milliseconds (Wasabi
+// returns core_getPosition(0)).  Class-scoped: the flat `getPosition`
+// name belongs to Slider/Frame receivers, so the System split lives in
+// the class registry (maki-classes.cpp).
+extern "C" scriptVar wq_systemGetPosition(maki_cmd *, int, ScriptObject *) {
+    return makeInt(resolveMetaInt(L"playitem:position"));
 }
 extern "C" scriptVar wq_getPlaylistLength(maki_cmd *, int, ScriptObject *) {
     return makeInt(resolveMetaInt(L"playlist:length"));
@@ -2010,6 +2054,97 @@ double numArg(const scriptVar &v) {
 int intArg(const scriptVar &v) { return int(numArg(v)); }
 
 }  // namespace
+
+// PopupMenu — instance state keyed by ScriptObject*, like List.  The
+// Qt-side popup (QMenu at the cursor) lives behind the wq_menu_*
+// bridge implemented in SkinRuntimeBridge.cpp; this side only keeps
+// the command list a script builds via addCommand/addSeparator.
+struct MakiMenuItem {
+    std::wstring text;
+    int  id       = 0;
+    bool checked  = false;
+    bool disabled = false;
+    bool separator = false;
+};
+static std::unordered_map<ScriptObject *, std::vector<MakiMenuItem>>
+    g_makiMenus;
+
+extern "C" void wq_menu_bridge_begin();
+extern "C" void wq_menu_bridge_add(const wchar_t *text, int id,
+                                   int checked, int disabled,
+                                   int separator);
+extern "C" int  wq_menu_bridge_exec(int atMouse, int x, int y);
+
+extern "C" scriptVar wq_menuAddCommand(maki_cmd *, int, ScriptObject *o,
+                                       scriptVar txt, scriptVar id,
+                                       scriptVar checked,
+                                       scriptVar disabled) {
+    if (o) {
+        MakiMenuItem it;
+        it.text = (txt.type == SCRIPT_STRING && txt.data.sdata)
+                      ? txt.data.sdata : L"";
+        it.id       = intArg(id);
+        it.checked  = intArg(checked)  != 0;
+        it.disabled = intArg(disabled) != 0;
+        g_makiMenus[o].push_back(std::move(it));
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_menuAddSeparator(maki_cmd *, int,
+                                         ScriptObject *o) {
+    if (o) {
+        MakiMenuItem it;
+        it.separator = true;
+        g_makiMenus[o].push_back(std::move(it));
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_menuGetNumCommands(maki_cmd *, int,
+                                           ScriptObject *o) {
+    auto it = g_makiMenus.find(o);
+    return makeInt(it == g_makiMenus.end() ? 0
+                                           : int(it->second.size()));
+}
+extern "C" scriptVar wq_menuCheckCommand(maki_cmd *, int, ScriptObject *o,
+                                         scriptVar id, scriptVar on) {
+    if (o) {
+        auto it = g_makiMenus.find(o);
+        if (it != g_makiMenus.end())
+            for (auto &c : it->second)
+                if (c.id == intArg(id)) c.checked = intArg(on) != 0;
+    }
+    return makeVoid();
+}
+extern "C" scriptVar wq_menuDisableCommand(maki_cmd *, int,
+                                           ScriptObject *o,
+                                           scriptVar id, scriptVar dis) {
+    if (o) {
+        auto it = g_makiMenus.find(o);
+        if (it != g_makiMenus.end())
+            for (auto &c : it->second)
+                if (c.id == intArg(id)) c.disabled = intArg(dis) != 0;
+    }
+    return makeVoid();
+}
+static scriptVar menuPop(ScriptObject *o, int atMouse, int x, int y) {
+    auto it = g_makiMenus.find(o);
+    if (it == g_makiMenus.end() || it->second.empty()) return makeInt(0);
+    wq_menu_bridge_begin();
+    for (const auto &c : it->second)
+        wq_menu_bridge_add(c.text.c_str(), c.id, c.checked ? 1 : 0,
+                           c.disabled ? 1 : 0, c.separator ? 1 : 0);
+    // Wasabi popAtMouse blocks until the user picks a command and
+    // returns its id; a dismissed menu returns 0 (script guards like
+    // wa2songtimer's `timermode >= 1 && <= 2` rely on that).
+    return makeInt(wq_menu_bridge_exec(atMouse, x, y));
+}
+extern "C" scriptVar wq_menuPopAtMouse(maki_cmd *, int, ScriptObject *o) {
+    return menuPop(o, 1, 0, 0);
+}
+extern "C" scriptVar wq_menuPopAtXY(maki_cmd *, int, ScriptObject *o,
+                                    scriptVar x, scriptVar y) {
+    return menuPop(o, 0, intArg(x), intArg(y));
+}
 
 // List
 extern "C" scriptVar wq_listAddItem(maki_cmd *, int, ScriptObject *o,
