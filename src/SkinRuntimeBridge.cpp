@@ -21,7 +21,9 @@
 #include "../wasabi-port/maki-bridge.h"
 
 #include <QEasingCurve>
+#include <QCursor>
 #include <QDir>
+#include <QMenu>
 #include <QSettings>
 #include <QImage>
 #include <QPoint>
@@ -263,6 +265,36 @@ void switchActiveRoot(const void *key) {
 
 void  setActiveScriptRoot(const void *rootKey) { switchActiveRoot(rootKey); }
 const void *activeScriptRoot()                 { return g_activeRoot; }
+
+// Skin name reported by Maki System.getSkinName().  Real Wasabi keeps
+// the folder name the skin was switched to; scripts key their per-skin
+// preferences on it, so it has to be stable per skin, not per build.
+namespace { std::wstring g_activeSkinName = L"qtWasabi"; }
+void setActiveSkinName(const QString &name) {
+    if (!name.isEmpty()) g_activeSkinName = name.toStdWString();
+}
+extern "C" const wchar_t *wq_skin_name() { return g_activeSkinName.c_str(); }
+QString activeSkinName() {
+    return QString::fromStdWString(g_activeSkinName);
+}
+
+// Embedder access to the scripts' private-int store (the slots Maki's
+// getPrivateInt/setPrivateInt persist).  qtamp's Preferences writes
+// the same TimerElapsedRemaining slot wa2songtimer.m reads, so the
+// dialog radios and the skin's own click-toggle stay one state.
+extern "C" int  wq_privateIntGet(const wchar_t *sec, const wchar_t *key,
+                                 int def);
+extern "C" void wq_privateIntSet(const wchar_t *sec, const wchar_t *key,
+                                 int v);
+int privateConfigInt(const QString &section, const QString &key, int def) {
+    return wq_privateIntGet(section.toStdWString().c_str(),
+                            key.toStdWString().c_str(), def);
+}
+void setPrivateConfigInt(const QString &section, const QString &key,
+                         int value) {
+    wq_privateIntSet(section.toStdWString().c_str(),
+                     key.toStdWString().c_str(), value);
+}
 bool  scriptRootAlive(const void *rootKey) {
     return rootKey == g_activeRoot || g_roots.contains(rootKey);
 }
@@ -526,6 +558,87 @@ int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName) {
     auto it = g_byId.constFind(widgetId.toLower());
     if (it == g_byId.constEnd()) return 0;
     return Maki::fireZeroArgEventOnObject(it->scriptObject, eventName);
+}
+
+int fireWidgetXYEvent(const QString &widgetId, const wchar_t *eventName,
+                      int x, int y) {
+    if (widgetId.isEmpty() || !eventName) return 0;
+    auto it = g_byId.constFind(widgetId.toLower());
+    if (it == g_byId.constEnd()) return 0;
+    return Maki::fireTwoIntEventOnObject(it->scriptObject, eventName, x, y);
+}
+
+int fireWidgetXYEventOn(const Widget *w,
+                        const wchar_t *eventName, int x, int y) {
+    // Instance-exact variant: resolve the receiver through the
+    // widget-pointer map instead of the id table.  Duplicate ids
+    // across layouts (WinampModernPP has a TimerTrigger in BOTH the
+    // normal and the shade layout) collide in the id table — last
+    // registration wins — so an id-keyed dispatch can gate against
+    // the WRONG instance's bindings and drop the event.
+    if (!w || !eventName) return 0;
+    void *so = g_scriptObjByWidget.value(w);
+    if (!so) return 0;
+    return Maki::fireTwoIntEventOnObject(so, eventName, x, y);
+}
+
+// ── Maki PopupMenu backing ──────────────────────────────────────────
+// maki-bindings.cpp collects a script's addCommand/addSeparator items
+// and hands them over through this incremental C surface right before
+// popAtMouse/popAtXY; exec shows a native QMenu and blocks until the
+// user picks (Wasabi semantics: returns the command id, 0 when
+// dismissed).  WASABIQT_TEST_MENU_PICK=<id> short-circuits the exec
+// for offscreen tests — a nested QMenu event loop never returns
+// without real input.  On WebAssembly exec is a no-op returning 0:
+// nested event loops need asyncify, which the build deliberately
+// omits; the scripts' left-click toggles stay available there.
+namespace {
+struct PendingMenuItem {
+    QString text;
+    int  id;
+    bool checked;
+    bool disabled;
+    bool separator;
+};
+QList<PendingMenuItem> g_pendingMenu;
+}  // namespace
+
+extern "C" void wq_menu_bridge_begin() { g_pendingMenu.clear(); }
+
+extern "C" void wq_menu_bridge_add(const wchar_t *text, int id,
+                                   int checked, int disabled,
+                                   int separator) {
+    g_pendingMenu.append(PendingMenuItem{
+        text ? QString::fromWCharArray(text) : QString(),
+        id, checked != 0, disabled != 0, separator != 0});
+}
+
+extern "C" int wq_menu_bridge_exec(int atMouse, int x, int y) {
+    if (g_pendingMenu.isEmpty()) return 0;
+    if (const QByteArray pick = qgetenv("WASABIQT_TEST_MENU_PICK");
+        !pick.isEmpty()) {
+        fprintf(stderr, "[popupmenu] test pick=%s of %d items\n",
+                pick.constData(), int(g_pendingMenu.size()));
+        return pick.toInt();
+    }
+#ifdef Q_OS_WASM
+    Q_UNUSED(atMouse); Q_UNUSED(x); Q_UNUSED(y);
+    return 0;
+#else
+    QMenu menu;
+    QHash<QAction *, int> ids;
+    for (const PendingMenuItem &it : std::as_const(g_pendingMenu)) {
+        if (it.separator) { menu.addSeparator(); continue; }
+        QAction *a = menu.addAction(it.text);
+        a->setCheckable(it.checked);   // Wasabi checked flag = shown check
+        a->setChecked(it.checked);
+        a->setEnabled(!it.disabled);
+        ids.insert(a, it.id);
+    }
+    const QPoint at = atMouse ? QCursor::pos() : QPoint(x, y);
+    QAction *picked = menu.exec(at);
+    return picked ? ids.value(picked, 0) : 0;
+#endif
 }
 
 bool fireWidgetAttrSet(const QString &widgetId,

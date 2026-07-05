@@ -265,6 +265,10 @@ int SkinRuntime::loadScripts(const SkinXml::Document &doc,
     // registry all land in this root's snapshot — not another window's.
     m_d->rootKey = &root;
     setActiveScriptRoot(&root);
+    // System.getSkinName() reports the skin's folder name (real Wasabi
+    // keeps the name the skin was switched to); scripts key their
+    // per-skin preferences on it.
+    setActiveSkinName(QFileInfo(doc.skinDir).fileName());
     m_d->destroyAll();
 
     // 1) Build the widget-object table.

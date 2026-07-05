@@ -206,6 +206,16 @@ void fireTargetReached();
 // `onMouseMove`, `onMouseEnter`, `onMouseLeave`.
 int fireWidgetEvent(const QString &widgetId, const wchar_t *eventName);
 
+// Fire <widget>.<eventName>(int x, int y) — the GuiObject mouse events
+// (onLeftButtonDown/Up, onRightButtonDown/Up).  Receiver-gated; returns
+// the number of handlers fired.
+int fireWidgetXYEvent(const QString &widgetId, const wchar_t *eventName,
+                      int x, int y);
+// Instance-exact variant keyed by the resolved widget pointer —
+// immune to duplicate ids across layouts (normal vs shade).
+int fireWidgetXYEventOn(const class Widget *w,
+                        const wchar_t *eventName, int x, int y);
+
 // Simulate a real click on the widget identified by `widgetId`, performing
 // its `action=` exactly as a mouse click would (builtin transport/window
 // verbs, TOGGLE, action_target/onAction).  The embedder registers the
@@ -254,6 +264,21 @@ void registerSkinVolumeCallbacks(std::function<void(int v255)> setVol,
 // so this is a no-op for them.
 void        setActiveScriptRoot(const void *rootKey);
 const void *activeScriptRoot();
+// Name of the loaded skin, as Maki System.getSkinName() reports it.
+// Real Wasabi returns the name the skin was switched to — its folder
+// name under Skins/ — and scripts key their per-skin preferences on
+// it (getPrivateInt(getSkinName(), ...)).  SkinRuntime::loadScripts
+// sets it from the document's skin directory.
+void        setActiveSkinName(const QString &name);
+// The name registered by the last loadScripts (the skin folder name).
+QString     activeSkinName();
+
+// The scripts' persisted private-int store (Maki getPrivateInt/
+// setPrivateInt slots), embedder-side.  Section is usually the skin
+// name; qtamp's Preferences shares slots with skin scripts this way.
+int  privateConfigInt(const QString &section, const QString &key, int def);
+void setPrivateConfigInt(const QString &section, const QString &key,
+                         int value);
 // Whether a root is still live (the active root, or a saved snapshot in
 // the root registry).  Async VM entries (Maki timers) use this to refuse
 // firing for a window that has been torn down (skin switch).
