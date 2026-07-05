@@ -118,24 +118,53 @@ bool paintText(QPainter *p,
     if (w <= 0) w = isBitmap ? (fontDef->charWidth * 8) : 64;
     if (h <= 0) h = isBitmap ? fontDef->charHeight     : 16;
 
-    // Pick the string: text/default → resolver(display=) →
-    // resolver(id=) → empty.  Wasabi's Text::getPrintedText() prefers
-    // deftext (the `text=` slot, which setXmlParam("text", …) and
-    // setText() write) over the display-driven name, so a script that
-    // takes over a display widget wins — wa2songtimer.m drives the
-    // `display="time"` timer with elapsed/countdown strings this way.
-    // Skins never statically author both text= and a live display=,
-    // so static renders are unaffected.  The id fallback stays: many
-    // skins declare `display=""` and follow one naming convention
-    // (Bitrate, Frequency, Songticker, Time, …), so the Host resolver
-    // that handles `display="songbitrate"` also handles `id="Bitrate"`.
-    QString text = attrs.value(QStringLiteral("text"));
-    if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
+    // Pick the string.  Two regimes, split by WHO wrote text=:
+    //
+    //  • A script took over (`_script_text` marker, stamped by the
+    //    setXmlParam/setText attr write): its text wins outright.
+    //    Wasabi's Text::setText replaces the printed string and the
+    //    widget stops following the display feed — wa2songtimer.m
+    //    drives the `display="time"` timer with elapsed/countdown
+    //    strings this way, every 50ms tick.
+    //
+    //  • Statically authored text=/default= is deftext: the string
+    //    shown while the display feed has nothing (real Wasabi's feed
+    //    UPDATES the text at runtime; our feed is a paint-time
+    //    resolver, so the equivalent is resolver-first with deftext
+    //    as the fallback).  Inverting this globally muted every live
+    //    display value whose widget ships an idle placeholder — the
+    //    kbps/khz fields went permanently "--"/blank while playing.
+    //
+    // The id fallback stays: many skins declare `display=""` and
+    // follow one naming convention (Bitrate, Frequency, Songticker…),
+    // so the Host resolver that handles `display="songbitrate"` also
+    // handles `id="Bitrate"`.
+    const bool scriptText =
+        attrs.value(QStringLiteral("_script_text")) == QStringLiteral("1") &&
+        !attrs.value(QStringLiteral("text")).isEmpty();
     const QString display = attrs.value(QStringLiteral("display"));
-    if (text.isEmpty() && resolver && !display.isEmpty()) text = resolver(display);
-    if (text.isEmpty() && resolver) {
-        const QString id = attrs.value(QStringLiteral("id"));
-        if (!id.isEmpty()) text = resolver(id);
+    QString text;
+    if (scriptText) {
+        // Non-empty only: a script that setText("")s a widget (idle
+        // reset) hands it back to the feed — our feed is paint-time,
+        // it cannot overwrite a stale marker the way Wasabi's push
+        // updates would.
+        text = attrs.value(QStringLiteral("text"));
+    } else {
+        // Feed first, deftext as the fallback: real Wasabi's display
+        // feed UPDATES the widget text at runtime, so the authored
+        // text=/default= is what shows while the feed has nothing.
+        // The resolver returns empty for value-less states (bitrate 0
+        // while stopped) so the author's placeholder ("(___)") shows.
+        // The id fallback covers the `display=""` naming convention
+        // (Bitrate, Frequency, Songticker, Time, …).
+        if (resolver && !display.isEmpty()) text = resolver(display);
+        if (text.isEmpty() && resolver) {
+            const QString id = attrs.value(QStringLiteral("id"));
+            if (!id.isEmpty()) text = resolver(id);
+        }
+        if (text.isEmpty()) text = attrs.value(QStringLiteral("text"));
+        if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
     }
     if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1) {
         std::fprintf(stderr,

@@ -106,15 +106,22 @@ DisplayResolver makeDefaultDisplayResolver(Host *host) {
         }
         if (k == QStringLiteral("filename"))
             return host->songFilename();
+        // Empty when there is no meaningful value (stopped / nothing
+        // decoded) — the widget's authored deftext placeholder
+        // ("(___)" on the Modern kbps field) shows instead.
         if (k == QStringLiteral("kbps") ||
             k == QStringLiteral("bitrate") ||
-            k == QStringLiteral("songbitrate"))
-            return QString::number(host->bitrate());
+            k == QStringLiteral("songbitrate")) {
+            const int b = host->bitrate();
+            return b > 0 ? QString::number(b) : QString();
+        }
         if (k == QStringLiteral("khz") ||
             k == QStringLiteral("samplerate") ||
             k == QStringLiteral("songsamplerate") ||
-            k == QStringLiteral("frequency"))
-            return QString::number(host->sampleRate() / 1000);
+            k == QStringLiteral("frequency")) {
+            const int s = host->sampleRate() / 1000;
+            return s > 0 ? QString::number(s) : QString();
+        }
         if (k == QStringLiteral("volume"))
             return QString::number(host->volume());
         return QString();

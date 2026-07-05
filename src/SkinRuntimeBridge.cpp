@@ -893,6 +893,14 @@ void wq_widget_setAttr(void *handle, const wchar_t *name, const wchar_t *value) 
                          idl.toLocal8Bit().constData(), name, value ? value : L"");
     }
     w->setXmlParam(qtWasabi::fromWide(name), newVal);
+    // A script writing text= takes the widget over: Wasabi's setText
+    // replaces the printed string and the widget stops following its
+    // display feed.  TextPainter keys on this marker — statically
+    // authored text=/default= stays deftext (a feed placeholder), a
+    // script-written one wins over the resolver.
+    if (std::wcscmp(name, L"text") == 0)
+        w->attrs.insert(QStringLiteral("_script_text"),
+                        QStringLiteral("1"));
     if (qtWasabi::g_repaint) qtWasabi::g_repaint();
 }
 
