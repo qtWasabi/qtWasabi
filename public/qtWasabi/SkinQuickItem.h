@@ -168,11 +168,15 @@ public:
     // walk.  Public so MouseArea handlers can call it.
     Q_INVOKABLE QString dispatchClickAt(QPointF localPoint);
 
-    // Test hook: run a full left press+release through the REAL handlers
+    // Test hook: run a full press+release through the REAL handlers
     // (mousePressEvent / mouseReleaseEvent), exactly as a live click does —
     // offscreen QQuickItems don't receive synthesised platform mouse events,
     // so this is how offscreen tests exercise the true click path.
-    Q_INVOKABLE void testClick(QPointF localPoint);
+    // `button` selects the mouse button; right-button runs the same
+    // script-first dispatch a live right-click gets (onRightButtonDown/
+    // Up, onRightClick, context-menu fallthrough).
+    Q_INVOKABLE void testClick(QPointF localPoint,
+                               Qt::MouseButton button = Qt::LeftButton);
 
     // Re-point the borrowed document pointer.  Used by subclasses
     // that take ownership of the parsed Document (QtampPlayerWindow

@@ -584,12 +584,12 @@ SkinQuickItem::alphaHitTestList(QPoint pointInLayout, bool actionOnly,
     return out;
 }
 
-void SkinQuickItem::testClick(QPointF localPoint) {
+void SkinQuickItem::testClick(QPointF localPoint, Qt::MouseButton button) {
     QMouseEvent press(QEvent::MouseButtonPress, localPoint, localPoint, localPoint,
-                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                      button, button, Qt::NoModifier);
     mousePressEvent(&press);
     QMouseEvent rel(QEvent::MouseButtonRelease, localPoint, localPoint, localPoint,
-                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+                    button, Qt::NoButton, Qt::NoModifier);
     mouseReleaseEvent(&rel);
 }
 
