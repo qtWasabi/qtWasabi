@@ -105,6 +105,23 @@ QString canonicalAttrKey(const QString &k) {
     return it == kAttrAliases.constEnd() ? k : it.value();
 }
 
+// Skins are authored on Windows, so `file=` attributes routinely use
+// backslash separators (`scripts\wa2songtimer.maki`).  QFile treats a
+// backslash as an ordinary filename character on Linux/macOS, so the
+// reference silently fails to resolve.  Normalise once at parse time —
+// every downstream consumer (script loader, BitmapRegistry,
+// FontRegistry, include resolution) then sees portable paths.
+QString normalisePathSeparators(QString path) {
+    path.replace(QChar('\\'), QChar('/'));
+    return path;
+}
+
+void normaliseFileAttr(QHash<QString, QString> &attrs) {
+    const auto it = attrs.find(QStringLiteral("file"));
+    if (it != attrs.end() && it->contains(QChar('\\')))
+        *it = normalisePathSeparators(*it);
+}
+
 // Wrap the file's content in a synthetic <wasabi-root> so files with
 // several top-level siblings (e.g. xml/player.xml: two <include>s
 // followed by a <container>) parse cleanly under QXmlStreamReader,
@@ -248,7 +265,7 @@ struct Parser {
             QString file;
             for (const auto &a : xml.attributes()) {
                 if (a.name().toString().toLower() == QStringLiteral("file"))
-                    file = a.value().toString();
+                    file = normalisePathSeparators(a.value().toString());
             }
             xml.skipCurrentElement();
             if (file.isEmpty()) return true;
@@ -269,6 +286,7 @@ struct Parser {
             e.attrs.insert(canonicalAttrKey(a.name().toString().toLower()),
                            a.value().toString());
         }
+        normaliseFileAttr(e.attrs);
         injectImplicitAttrs(tag, e.attrs);
         ++doc->elementCount;
         ScopeGuard scope(&scopeStack, tag, e.attrs);
@@ -317,7 +335,7 @@ struct Parser {
                 QString file;
                 for (const auto &a : xml.attributes()) {
                     if (a.name().toString().toLower() == QStringLiteral("file"))
-                        file = a.value().toString();
+                        file = normalisePathSeparators(a.value().toString());
                 }
                 xml.skipCurrentElement();
                 if (file.isEmpty()) continue;
@@ -342,6 +360,7 @@ struct Parser {
                 e.attrs.insert(canonicalAttrKey(a.name().toString().toLower()),
                                a.value().toString());
             }
+            normaliseFileAttr(e.attrs);
             injectImplicitAttrs(tag, e.attrs);
             ++doc->elementCount;
 
