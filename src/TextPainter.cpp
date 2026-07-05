@@ -118,24 +118,25 @@ bool paintText(QPainter *p,
     if (w <= 0) w = isBitmap ? (fontDef->charWidth * 8) : 64;
     if (h <= 0) h = isBitmap ? fontDef->charHeight     : 16;
 
-    // Pick the string: resolver(display=) → resolver(id=) →
-    // default/text → empty.  Many Wasabi skins (Winamp Modern PP,
-    // Bento, etc.) declare text widgets with `display=""` and rely
-    // on a Maki script doing `Bitrate.setXmlParam("text", "320")`
-    // to populate it at runtime.  Until SkinRuntime drives that,
-    // fall back to using the widget's `id` as a display key — every
-    // Modern skin follows the same naming convention (Bitrate,
-    // Frequency, Songticker, Time, …), so the same Host resolver
+    // Pick the string: text/default → resolver(display=) →
+    // resolver(id=) → empty.  Wasabi's Text::getPrintedText() prefers
+    // deftext (the `text=` slot, which setXmlParam("text", …) and
+    // setText() write) over the display-driven name, so a script that
+    // takes over a display widget wins — wa2songtimer.m drives the
+    // `display="time"` timer with elapsed/countdown strings this way.
+    // Skins never statically author both text= and a live display=,
+    // so static renders are unaffected.  The id fallback stays: many
+    // skins declare `display=""` and follow one naming convention
+    // (Bitrate, Frequency, Songticker, Time, …), so the Host resolver
     // that handles `display="songbitrate"` also handles `id="Bitrate"`.
-    QString text;
+    QString text = attrs.value(QStringLiteral("text"));
+    if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
     const QString display = attrs.value(QStringLiteral("display"));
-    if (resolver && !display.isEmpty()) text = resolver(display);
+    if (text.isEmpty() && resolver && !display.isEmpty()) text = resolver(display);
     if (text.isEmpty() && resolver) {
         const QString id = attrs.value(QStringLiteral("id"));
         if (!id.isEmpty()) text = resolver(id);
     }
-    if (text.isEmpty()) text = attrs.value(QStringLiteral("default"));
-    if (text.isEmpty()) text = attrs.value(QStringLiteral("text"));
     if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1) {
         std::fprintf(stderr,
               "[textpaint] id='%s' resolved='%s' attrtext='%s' display='%s' rect=%dx%d@(%d,%d)\n",
