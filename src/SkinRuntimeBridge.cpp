@@ -243,15 +243,20 @@ void loadActiveRoot(const void *key) {
 }
 void switchActiveRoot(const void *key) {
     if (key == g_activeRoot) return;
-    if (!g_activeRoot) {
+    if (!g_activeRoot && !g_roots.contains(key)) {
         // First activation: the current live globals were configured FOR
         // this incoming root (the embedder sets the bitmap registry +
         // repaint/resize callbacks before the first loadScripts), so adopt
-        // them instead of loading an empty snapshot over them.
+        // them instead of loading an empty snapshot over them.  Only for a
+        // root with NO saved snapshot — if one exists (the previous root
+        // was dropped from inside a ScopedScriptRoot bracket, e.g. a
+        // subwindow's runtime destroyed inside its own scope), the live
+        // globals belong to the DEAD root; adopting them would hand this
+        // root dangling pointers (the skin-switch getAutoWidth SIGSEGV).
         g_activeRoot = key;
         return;
     }
-    saveActiveRoot();
+    if (g_activeRoot) saveActiveRoot();
     loadActiveRoot(key);
 }
 }  // namespace
@@ -273,7 +278,22 @@ ScopedScriptRoot::~ScopedScriptRoot() { switchActiveRoot(m_prev); }
 // dispatch re-establishes one (adopt-on-first-activation).
 void dropScriptRoot(const void *rootKey) {
     g_roots.remove(rootKey);
-    if (g_activeRoot == rootKey) g_activeRoot = nullptr;
+    if (g_activeRoot == rootKey) {
+        // The dropped root is the LIVE one — scrub every swappable global
+        // so no wq_* lookup (bitmapWidth's g_bitmapRegistry, flat g_byId,
+        // the layout-root pseudo, repaint/resize callbacks) can see the
+        // dead root's pointers, and so a subsequent adopt-on-first-
+        // activation inherits clean nulls instead of dangling state.
+        g_byId.clear();
+        g_activeRegistered.clear();
+        g_layoutRootScriptObject = nullptr;
+        g_repaint    = {};
+        g_skinResize = {};
+        g_targetW = g_targetH = g_targetX = g_targetY = -1;
+        g_animatedResizePending = false;
+        g_bitmapRegistry = nullptr;
+        g_activeRoot = nullptr;
+    }
 }
 
 // Called by SkinRuntime after every successful loadScripts pass.
