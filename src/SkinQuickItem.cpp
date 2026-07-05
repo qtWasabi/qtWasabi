@@ -300,8 +300,14 @@ void SkinQuickItem::scheduleRegionRebuild() {
 void SkinQuickItem::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
-    // The paint clip in updatePaintNode works on the layout-unit buffer.
-    m_windowRegionLayout = m_windowRegion;
+    // The paint clip in updatePaintNode works on the layout-unit buffer
+    // and needs the VISIBLE silhouette (z-ordered composition), not the
+    // input region: the two-pass window region subtracts every cutout
+    // globally, which eats chrome that legitimately re-adds above a
+    // mask — the player's hatched CONFIG bevel over the drawer's edge
+    // cutouts (the "cut-off rounded corner" regression).
+    m_windowRegionLayout = Layout::computeVisualRegion(
+        m_tree, m_registry, m_nativeSize);
     // computeWindowRegion works in layout XML units, but every consumer
     // of m_windowRegion (setMask on the toplevel, the embedder's shaped
     // screenshot cut) operates on the displayed window, which is scaled

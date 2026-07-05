@@ -73,6 +73,9 @@ gets wrong initial visibility, dead tabs, or a mis-themed window.
   per widget class.
 - [Layout and geometry](layout-geometry.md): coordinate-resolution bugs,
   the Wasabi:Frame constraint model, window sizing.
+- [Window regions](window-regions.md): sysregion z-order composition,
+  the visible silhouette vs the input region, the drawer-bar/cut-corner
+  artifact pair and its fix history.
 - [Text, color, bitmaps](text-color-bitmap.md): font metrics, tint
   fidelity, bitmap semantics.
 - [Corpus status](corpus-status.md): per-skin fidelity against the skin

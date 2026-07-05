@@ -123,6 +123,18 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
                             BitmapRegistry &registry,
                             QSize canvas);
 
+// The VISIBLE silhouette — Win32 SetWindowRgn composition, applied in
+// tree (z) order in a single walk: additive contributions and
+// sysregion="-N" cutouts interleave, so a cutout only carves what was
+// composed below it and chrome above re-adds its pixels (the player's
+// CONFIG bevel over the drawer's edge masks).  computeWindowRegion's
+// two-pass subtract-always-wins variant stays for the INPUT region,
+// where over-subtraction is the safe direction.  Use this one to clip
+// the paint buffer.
+QRegion computeVisualRegion(const ResolvedWidget &root,
+                            BitmapRegistry &registry,
+                            QSize canvas);
+
 // Walk the resolved tree and pair every `sysregion="-N"` cutout layer
 // to its sibling chrome layer by the bitmap-id naming convention
 // `<chrome>.region` → `<chrome>` (e.g. `drawer.main.left.region` is

@@ -1702,7 +1702,7 @@ namespace {
 // drawer's left-edge cutout vs player.main's fillRect — both walk
 // inside player.content.dummy.group, drawer first, so drawer
 // cutouts got re-filled by player.main).
-enum class RegionPass { Additive, Subtractive };
+enum class RegionPass { Additive, Subtractive, Ordered };
 
 // Sysregion-bitmap "narrowing-strip" detector.
 //
@@ -1802,7 +1802,9 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     };
     if (isContainer && r.width() > 0 && r.height() > 0) {
         const QString sr = regionAttr();
-        if (sr == QStringLiteral("1") && pass == RegionPass::Additive) {
+        if (sr == QStringLiteral("1") &&
+            (pass == RegionPass::Additive ||
+             pass == RegionPass::Ordered)) {
             p.fillRect(r, Qt::black);
             outFoundAny = true;
         }
@@ -1852,8 +1854,9 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
             // region buffer's alpha at those pixels).
             const bool cutoutMode = sr.startsWith(QChar('-'));
             const bool runHere =
-                cutoutMode ? (pass == RegionPass::Subtractive)
-                           : (pass == RegionPass::Additive);
+                pass == RegionPass::Ordered ||
+                (cutoutMode ? (pass == RegionPass::Subtractive)
+                            : (pass == RegionPass::Additive));
             if (runHere) {
                 if (cutoutMode)
                     p.setCompositionMode(
@@ -1974,6 +1977,37 @@ QRegion computeWindowRegion(const ResolvedWidget &root,
         fprintf(stderr, "[sysregion] region buffer saved to "
                         "/tmp/qtwasabi-region.png (foundAny=%d)\n",
                 foundAny ? 1 : 0);
+    }
+    if (!foundAny) return QRegion();
+    return regionFromAlpha(buf);
+}
+
+QRegion computeVisualRegion(const ResolvedWidget &root,
+                            BitmapRegistry &registry,
+                            QSize canvas) {
+    if (canvas.width() <= 0 || canvas.height() <= 0)
+        return QRegion();
+
+    QImage buf(canvas, QImage::Format_ARGB32_Premultiplied);
+    buf.fill(Qt::transparent);
+    bool foundAny = false;
+    {
+        QPainter p(&buf);
+        p.setRenderHint(QPainter::Antialiasing,          false);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, false);
+        // Single ORDERED walk — Win32 SetWindowRgn composition: each
+        // contribution applies in tree (z) order, so a sysregion="-N"
+        // cutout only carves what was composed below it and chrome
+        // painted above re-adds its pixels.  Modern's stack needs the
+        // order both ways: the drawer's edge masks carve its strips
+        // early, then player.main / window.bg2 re-add the player band
+        // (the hatched CONFIG bevel that overlaps the drawer's top
+        // rows), and the player's own corner masks carve its rounded
+        // bottom corners last.  The two-pass computeWindowRegion —
+        // subtract-always-wins — would eat that bevel: right for a
+        // conservative input region, wrong for the visible silhouette.
+        paintRegionLayers(p, root, registry, canvas, foundAny,
+                          RegionPass::Ordered);
     }
     if (!foundAny) return QRegion();
     return regionFromAlpha(buf);
