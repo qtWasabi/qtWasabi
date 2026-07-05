@@ -300,6 +300,8 @@ void SkinQuickItem::scheduleRegionRebuild() {
 void SkinQuickItem::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
+    // The paint clip in updatePaintNode works on the layout-unit buffer.
+    m_windowRegionLayout = m_windowRegion;
     // computeWindowRegion works in layout XML units, but every consumer
     // of m_windowRegion (setMask on the toplevel, the embedder's shaped
     // screenshot cut) operates on the displayed window, which is scaled
@@ -386,6 +388,21 @@ QSGNode *SkinQuickItem::updatePaintNode(QSGNode *old, UpdatePaintNodeData *) {
     buf.fill(Qt::transparent);
     {
         QPainter bp(&buf);
+        // Clip the paint to the skin's window region — the visual half of
+        // Win32 SetWindowRgn.  In real Winamp the region shapes BOTH input
+        // and pixels (the sysregion="-N" masks carve the drawer's narrowed
+        // edges and the rounded corners out of the visible window); on
+        // Wayland setMask is input-only and in the WebAssembly canvas there
+        // is no mask at all, so without this clip the carved-out chrome
+        // (the drawer's full-width fill past its right frame cap) stays
+        // visible as an opaque strip.  Same approach as SkinView::
+        // paintEvent.  Skipped while a tween is in flight: region rebuilds
+        // are suppressed during animations, and clipping against the stale
+        // region would chop the sliding drawer mid-animation.
+        if (!m_windowRegionLayout.isEmpty() &&
+            widgetAnimationsActive() == 0 && !m_layoutAnimActive &&
+            !qEnvironmentVariableIsSet("WASABIQT_NO_REGION_CLIP"))
+            bp.setClipRegion(m_windowRegionLayout);
         paintInto(&bp, sz);
         // The old pixel-subtraction corner-rounding pipeline (chrome
         // bitmap pre-bake in BitmapRegistry::chromeImageFor + final-

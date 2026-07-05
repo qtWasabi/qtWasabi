@@ -287,6 +287,10 @@ private:
     int m_wheelAccumY = 0;
     // Cached window region from the last rebuildWindowRegion call.
     QRegion m_windowRegion;
+    // Same region in layout units (pre-renderRatio scale) — the paint
+    // buffer works in layout units, the published m_windowRegion in
+    // display pixels.
+    QRegion m_windowRegionLayout;
     // Auto-shrink to painted extent toggle (off by default).
     bool   m_autoShrink = false;
     double m_renderRatio = 1.0;
