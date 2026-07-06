@@ -59,7 +59,7 @@ set(QTWASABI_BFC_SOURCES
     # under `#define __APPLE__ 1`, which routes va_sprintf to the
     # POSIX vswprintf path that works on Linux.
     ${CMAKE_CURRENT_SOURCE_DIR}/StringW-port.cpp
-    ${WASABI_SRC_DIR}/Wasabi/bfc/string/string.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/va-fixed/bfc/string/string.cpp
 
     # ── Maki VM (opensourced + qtWasabi patch) ─────────────────────────
     # vcpu.cpp is the bit-perfect bytecode dispatch loop.  We copy the
@@ -99,13 +99,41 @@ set(QTWASABI_BFC_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/maki-classes.cpp
 )
 
+# x86-64 SysV va_list is an array type, so upstream's
+# `va_list saveargs = args;` in the two string TUs is invalid there —
+# the aarch64 and wasm ABIs accept the assignment, which is why every
+# earlier target built.  Rewrite to va_copy in configure-time
+# build-tree copies (the user-supplied mirror stays untouched).  The
+# quoted own-header includes must become <bfc/string/...> ones because
+# the copies live outside the mirror's directory; trees that already
+# carry the va_copy form (the original Linux port) copy through
+# unchanged.
+set(QTWASABI_VA_FIXED_DIR ${CMAKE_CURRENT_BINARY_DIR}/va-fixed)
+foreach(_va_file IN ITEMS bfc/string/string.cpp bfc/string/StringW.cpp)
+    file(READ ${WASABI_SRC_DIR}/Wasabi/${_va_file} _va_src)
+    string(REPLACE "va_list saveargs = args;"
+                   "va_list saveargs; va_copy(saveargs, args);"
+                   _va_src "${_va_src}")
+    # string.cpp's `#include "string.h"` has no sibling to hit (there is
+    # no bfc/string/string.h anywhere) — it always fell through to the
+    # libc header; keep exactly that with the angle form.
+    string(REPLACE "#include \"string.h\"" "#include <string.h>"
+                   _va_src "${_va_src}")
+    string(REPLACE "#include \"StringW.h\"" "#include <bfc/string/StringW.h>"
+                   _va_src "${_va_src}")
+    file(WRITE ${QTWASABI_VA_FIXED_DIR}/${_va_file} "${_va_src}")
+endforeach()
+
 # Object library — the .o files are pulled into both the shared and the
 # static libqtwasabi without rebuilding twice.  Downstream targets in
 # src/ refer to it via the QTWASABI_PORT_OBJECTS variable below.
 add_library(qtwasabi_port OBJECT ${QTWASABI_BFC_SOURCES})
 
 set(QTWASABI_PORT_INCLUDES
-    # include-stubs/ FIRST so our overrides for entangled windowing
+    # va-fixed/ FIRST so StringW-port.cpp's <bfc/string/StringW.cpp>
+    # include resolves to the va_copy-rewritten copy.
+    ${QTWASABI_VA_FIXED_DIR}
+    # include-stubs/ next so our overrides for entangled windowing
     # headers (Canvas.h, api_timer.h) win over WASABI_SRC_DIR.
     ${QTWASABI_PORT_STUBDIR}
     # vcpu.cpp lives in our build tree (patched copy), but does
