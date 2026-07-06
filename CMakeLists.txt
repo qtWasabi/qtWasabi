@@ -47,7 +47,9 @@ if(NOT EXISTS "${WASABI_SRC_DIR}/Elevator/IFileTypeRegistrar_32.h"
    OR (APPLE AND NOT EXISTS
        "${WASABI_SRC_DIR}/replicant/foundation/osx-amd64/types.h")
    OR (EMSCRIPTEN AND NOT EXISTS
-       "${WASABI_SRC_DIR}/replicant/foundation/wasm32/types.h"))
+       "${WASABI_SRC_DIR}/replicant/foundation/wasm32/types.h")
+   OR (UNIX AND NOT APPLE AND NOT EMSCRIPTEN AND NOT EXISTS
+       "${WASABI_SRC_DIR}/replicant/foundation/linux-amd64/types.h"))
     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/wasabi-port/platform-overlay/Src/
          DESTINATION ${WASABI_SRC_DIR})
 endif()
