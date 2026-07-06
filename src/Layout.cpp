@@ -1759,6 +1759,24 @@ QImage stripNarrowingColumns(const QImage &src) {
     return out;
 }
 
+// True if this node has any descendant that declares a meaningful
+// region directive (`sysregion` / `regionop`, add or cutout) — i.e.,
+// the group backs its silhouette with explicit region contribution
+// layers rather than relying solely on the blind container rect-fill.
+bool hasRegionContribDescendant(const ResolvedWidget &node) {
+    auto meaningful = [](const QString &v) {
+        return !v.isEmpty() && v != QStringLiteral("0");
+    };
+    for (const auto &c : node.children) {
+        if (!c) continue;
+        if (meaningful(c->attrs.value(QStringLiteral("sysregion"))) ||
+            meaningful(c->attrs.value(QStringLiteral("regionop"))))
+            return true;
+        if (hasRegionContribDescendant(*c)) return true;
+    }
+    return false;
+}
+
 void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
                        BitmapRegistry &reg, QSize canvas,
                        bool &outFoundAny,
@@ -1802,9 +1820,30 @@ void paintRegionLayers(QPainter &p, const ResolvedWidget &w,
     };
     if (isContainer && r.width() > 0 && r.height() > 0) {
         const QString sr = regionAttr();
-        if (sr == QStringLiteral("1") &&
-            (pass == RegionPass::Additive ||
-             pass == RegionPass::Ordered)) {
+        // In the VISUAL (Ordered) pass a container's blind rect-fill
+        // re-adds pixels in z-order, so a fill composed AFTER a
+        // sibling's cutout re-widens whatever the cutout carved.  That
+        // is correct only when the group actually paints opaque chrome
+        // there — the player's CONFIG bevel (backed by sysregion="1"
+        // layers) legitimately re-adds over the drawer's edge cutout.
+        // A pure overlay group with no opaque backing re-adds nothing
+        // real: WinampModernPP's player.normal.drawer.shadow has no
+        // `background` and only ghost shadow layers, carrying
+        // sysregion="1" solely on the instance.  Its full-width fill,
+        // composed after the drawer's narrowing-strip cutout, re-widens
+        // the drawer's carved bottom edge — the 3px grey sliver poking
+        // past the player's rounded corner.  So in the visual pass only
+        // fill when the group is backed by an opaque `background`
+        // texture or by its own region contribution layers.  The input
+        // region (Additive/Subtractive two-pass) keeps the conservative
+        // full-rect fill — over-inclusion is the safe direction there.
+        bool doFill = (pass == RegionPass::Additive);
+        if (pass == RegionPass::Ordered) {
+            const bool hasBackground = !w.attrs
+                .value(QStringLiteral("background")).isEmpty();
+            doFill = hasBackground || hasRegionContribDescendant(w);
+        }
+        if (sr == QStringLiteral("1") && doFill) {
             p.fillRect(r, Qt::black);
             outFoundAny = true;
         }
