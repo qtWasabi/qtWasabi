@@ -25,6 +25,48 @@ const playerAssets = (): Plugin => ({
   }
 })
 
+// Static head assets (PYLON_STATIC_DIR): serves the wasm remote head
+// (index.html + qtamp.js/.wasm + qtloader.js) from the same process —
+// the cdp harness and small deployments need no extra web server.
+const staticDir = (): Plugin => ({
+  name: 'static-dir',
+  strategy: 'last',
+  setup: app => {
+    const dir = process.env.PYLON_STATIC_DIR
+    if (!dir) return
+    const MIME: Record<string, string> = {
+      '.html': 'text/html',
+      '.js': 'application/javascript',
+      '.wasm': 'application/wasm',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png'
+    }
+    const serveFile = async (name: string) => {
+      const {readFile} = await import('node:fs/promises')
+      const {join, extname, normalize} = await import('node:path')
+      const safe = normalize(name).replace(/^([/\.])+/, '')
+      const data = await readFile(join(dir, safe === '' ? 'index.html' : safe))
+      return {data, mime: MIME[extname(safe || 'index.html')] ?? 'application/octet-stream'}
+    }
+    app.get('/', async c => {
+      try {
+        const {data, mime} = await serveFile('index.html')
+        return c.body(data, 200, {'content-type': mime, 'cache-control': 'no-cache'})
+      } catch {
+        return c.text('not found', 404)
+      }
+    })
+    app.get('/:file{.+\.(html|js|wasm|svg|png)}', async c => {
+      try {
+        const {data, mime} = await serveFile(c.req.param('file'))
+        return c.body(data, 200, {'content-type': mime, 'cache-control': 'no-cache'})
+      } catch {
+        return c.text('not found', 404)
+      }
+    })
+  }
+})
+
 // Album-art sidecar: pass through to the player backend with ETag
 // semantics (ETag = artToken per the contract; legacy channel interim).
 const artRoute = (): Plugin => ({
@@ -77,5 +119,5 @@ const servePylon = (): Plugin => ({
 export default {
   graphiql: false,
   landingPage: false,
-  plugins: [playerAssets(), artRoute(), servePylon()]
+  plugins: [playerAssets(), artRoute(), staticDir(), servePylon()]
 } satisfies PylonConfig
