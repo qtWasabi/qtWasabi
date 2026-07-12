@@ -2,7 +2,7 @@
 // unit tests can inject a scripted double and the WASM build can swap
 // the event stream for a browser-native EventSource.
 //
-// The wire protocol is pylon/PROTOCOL.md: JSON POSTs (commands), JSON
+// The wire protocol is docs/PROTOCOL.md: JSON POSTs (commands), JSON
 // GETs (state), raw GETs (album art) and one long-lived SSE stream.
 #pragma once
 

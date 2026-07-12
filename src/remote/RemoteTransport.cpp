@@ -68,7 +68,7 @@ EM_JS(void, qtwasabi_es_open, (int id, const char *urlPtr), {
         _qtwasabi_es_free(ptr);
     };
     // SSE named events bypass onmessage — subscribe to every event the
-    // protocol defines (pylon/PROTOCOL.md).
+    // protocol defines (docs/PROTOCOL.md).
     for (const n of ['state', 'transport', 'track', 'playlist', 'eq',
                      'ping', 'next', 'complete'])
         es.addEventListener(n, (e) => push(n, e.data));
