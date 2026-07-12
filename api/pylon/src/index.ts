@@ -16,7 +16,6 @@
 import {Pylon, experimentalCreatePubSub} from '@getcronit/pylon'
 
 import {backendLink} from './backendlink'
-import {eq63ToMaki, eqMakiTo63, richFieldsFromChannelMeta} from './channelmap'
 
 // ── typed surface ────────────────────────────────────────────────────
 
@@ -345,22 +344,32 @@ const channelPlayer = (): Player => {
       durationMs: Number(t.durationMs) || 0,
       volume: Number(t.volume) || 0,
       pan: typeof t.pan === 'number' ? t.pan : 0.5,
-      shuffle: false,
-      repeat: 'OFF'
+      shuffle: !!t.shuffle,
+      repeat: String(t.repeat ?? 'REPEAT_OFF').replace('REPEAT_', '') as
+        | 'OFF'
+        | 'ALL'
+        | 'ONE'
     },
     track: tr.title || tr.filename
       ? {
           title: tr.title ?? '',
           artist: tr.artist ?? '',
           album: tr.album ?? '',
-          ...richFieldsFromChannelMeta(tr.meta),
+          albumArtist: tr.albumArtist ?? '',
+          genre: tr.genre ?? '',
+          year: tr.year ?? '',
+          trackNo: tr.trackNo ?? '',
+          disc: tr.disc ?? '',
+          composer: tr.composer ?? '',
+          publisher: tr.publisher ?? '',
+          streamGenre: tr.streamGenre ?? '',
           filename: tr.filename ?? '',
           displayTitle: tr.displayTitle ?? tr.title ?? '',
           decoder: tr.decoder ?? '',
           bitrate: Number(tr.bitrate) || 0,
           sampleRate: Number(tr.sampleRate) || 0,
           channels: Number(tr.channels) || 0,
-          artToken: tr.filename ? String(tr.filename) : null,
+          artToken: tr.artToken ? String(tr.artToken) : null,
           artUrl: tr.filename ? '/art/current' : null
         }
       : null,
@@ -373,10 +382,10 @@ const channelPlayer = (): Player => {
     eq: {
       on: !!eq.on,
       auto: !!eq.auto,
-      // NOT `Number(x) || 31`: slider 0 (full boost) is falsy.
-      preamp: eq63ToMaki(typeof eq.preamp === 'number' ? eq.preamp : 31),
-      bands: (Array.isArray(eq.bands) ? eq.bands : Array(10).fill(31)).map(
-        (b: unknown) => eq63ToMaki(typeof b === 'number' ? b : 31)
+      // Maki scale end to end since the gRPC player protocol.
+      preamp: typeof eq.preamp === 'number' ? eq.preamp : 0,
+      bands: (Array.isArray(eq.bands) ? eq.bands : Array(10).fill(0)).map(
+        (b: unknown) => (typeof b === 'number' ? b : 0)
       )
     }
   }
@@ -474,18 +483,35 @@ export default new Pylon({
        * change or revision gap.
        */
       player,
-      capabilities: (): Capabilities => ({
-        localFiles: false,
-        ingest: backendLink != null,
-        playlistEdit: true,
-        library: false,
-        mediaLibrary: false,
-        visPcm: false,
-        pcmStream: false,
-        preferences: false,
-        shuffleRepeat: false,
-        musicRoot: null
-      }),
+      capabilities: (): Capabilities => {
+        const c: any = backendLink?.capabilities
+        if (c) {
+          return {
+            localFiles: !!c.localFiles,
+            ingest: !!c.ingest,
+            playlistEdit: !!c.playlistEdit,
+            library: !!c.library,
+            mediaLibrary: !!c.mediaLibrary,
+            visPcm: !!c.visPcm,
+            pcmStream: !!c.pcmStream,
+            preferences: !!c.preferences,
+            shuffleRepeat: !!c.shuffleRepeat,
+            musicRoot: c.musicRoot || null
+          }
+        }
+        return {
+          localFiles: false,
+          ingest: false,
+          playlistEdit: true,
+          library: false,
+          mediaLibrary: false,
+          visPcm: false,
+          pcmStream: false,
+          preferences: false,
+          shuffleRepeat: false,
+          musicRoot: null
+        }
+      },
       apiInfo: (): ApiInfo => ({
         schemaVersion: '2.0.0',
         playerProtocol: '1.0.0',
@@ -566,7 +592,7 @@ export default new Pylon({
       /** Preamp, Maki scale -127..127. */
       setEqPreamp: async (value: number): Promise<CommandResult> => {
         if (backendLink)
-          return channelResult('setEqPreamp', {value: eqMakiTo63(value)})
+          return channelResult('setEqPreamp', {value})
         state.eq.preamp = Math.max(-127, Math.min(127, value))
         emit('EQ')
         return result(true)
@@ -577,7 +603,7 @@ export default new Pylon({
         value: number
       ): Promise<CommandResult> => {
         if (backendLink)
-          return channelResult('setEqBand', {band, value: eqMakiTo63(value)})
+          return channelResult('setEqBand', {band, value})
         if (band < 0 || band > 9) return result(false, 'band out of range')
         state.eq.bands[band] = Math.max(-127, Math.min(127, value))
         emit('EQ')

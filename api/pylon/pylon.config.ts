@@ -69,23 +69,26 @@ const staticDir = (): Plugin => ({
   }
 })
 
-// Album-art sidecar: pass through to the player backend with ETag
-// semantics (ETag = artToken per the contract; legacy channel interim).
+// Album-art sidecar: served from the player protocol's chunked GetArt
+// stream with ETag semantics (ETag == artToken per the contract).
 const artRoute = (): Plugin => ({
   name: 'art',
   setup: app => {
-    const base = process.env.QTAMP_BACKEND_URL
-    if (!base) return
+    if (!process.env.QTAMP_PLAYER_SOCKET) return
     app.get('/art/current', async c => {
-      const headers: Record<string, string> = {}
-      const inm = c.req.header('if-none-match')
-      if (inm) headers['if-none-match'] = inm
-      try {
-        const upstream = await fetch(`${base}/art/current`, {headers})
-        return upstream as unknown as Response
-      } catch {
-        return c.text('player backend unavailable', 502)
+      const {backendLink} = await import('./src/backendlink')
+      if (!backendLink) return c.text('no player', 404)
+      const art = await backendLink.getArt()
+      if (!art) return c.text('no art', 404)
+      const etag = `"${art.token}"`
+      if (c.req.header('if-none-match') === etag) {
+        return c.body(null, 304, {etag})
       }
+      return c.body(art.data, 200, {
+        'content-type': art.mime,
+        etag,
+        'cache-control': 'no-cache'
+      })
     })
   }
 })

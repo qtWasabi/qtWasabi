@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# V1a e2e: real `qtamp --backend` (legacy channel) fronted by the
+# e2e: real `qtamp --serve-player` (gRPC player protocol) fronted by the
 # canonical qtwasabi-pylon serving schema v2 — checks over TCP AND the
 # unix socket: snapshot mapping, mutation round trip, revision guard
 # rejection as CommandResult.error, typed playerEvents push.
@@ -17,21 +17,18 @@ tmp="$(mktemp -d)"
 BPID=""; PPID_PYLON=""
 trap 'kill $BPID $PPID_PYLON 2>/dev/null; rm -rf "$tmp"' EXIT
 
-QT_QPA_PLATFORM=offscreen "$QTAMP" --backend 0 >"$tmp/bout" 2>"$tmp/berr" &
+PSOCK="$tmp/player.sock"
+QT_QPA_PLATFORM=offscreen "$QTAMP" --serve-player "$PSOCK" >"$tmp/bout" 2>"$tmp/berr" &
 BPID=$!
-BPORT=""
-for _ in $(seq 1 100); do
-  BPORT="$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$tmp/berr" | head -1)"
-  [ -n "$BPORT" ] && break; sleep 0.1
-done
-[ -n "$BPORT" ] || { echo "backend never came up"; exit 1; }
-echo "backend :$BPORT"
+for _ in $(seq 1 100); do [ -S "$PSOCK" ] && break; sleep 0.1; done
+[ -S "$PSOCK" ] || { echo "player never came up"; exit 1; }
+echo "player on unix:$PSOCK"
 
 EPORT=$((18900 + RANDOM % 100))
 SOCK="${XDG_RUNTIME_DIR:-/tmp}/qtwasabi/e2e-channel-$$.sock"
 rm -f "$SOCK"
 ( cd "$HERE" && exec env PORT=$EPORT PYLON_SOCKET="$SOCK" \
-    QTAMP_BACKEND_URL="http://127.0.0.1:$BPORT" \
+    QTAMP_PLAYER_SOCKET="$PSOCK" \
     PYLON_DISABLE_TELEMETRY=true \
     node .pylon/index.js >"$tmp/pout" 2>&1 ) &
 PPID_PYLON=$!
@@ -61,8 +58,15 @@ contains "$GUARD" 'ismatch' "guard error message surfaces"
 # channel slider 0); auto is stored player state.
 PRE="$(GQL http://127.0.0.1:$EPORT/graphql -d '{"query":"mutation{setEqPreamp(value:127){ok player{eq{preamp}}}}"}')"
 contains "$PRE" '"preamp":127' "setEqPreamp round-trips on the Maki scale"
-RAWPRE="$(curl -s "http://127.0.0.1:$BPORT/state" | grep -o '"preamp":[0-9]*')"
-contains "$RAWPRE" '"preamp":0' "channel carries slider scale (Maki +127 = slider 0)"
+RAWPRE="$(cd "$HERE" && node --input-type=module -e "
+import grpc from '@grpc/grpc-js'
+import loader from '@grpc/proto-loader'
+const def = loader.loadSync('$HERE/../player.proto', {keepCase:false, longs:Number, defaults:true, oneofs:true})
+const pkg = grpc.loadPackageDefinition(def)
+const c = new pkg.wasabi.player.v1.Player('unix:$PSOCK', grpc.credentials.createInsecure())
+c.GetState({sections:[5]}, (e, st) => { console.log(e ? 'ERR' : 'preamp='+st.eq.preamp); process.exit(0) })
+")"
+contains "$RAWPRE" 'preamp=127' "player protocol carries Maki scale (grpc == graphql)"
 AUTO="$(GQL http://127.0.0.1:$EPORT/graphql -d '{"query":"mutation{setEqAuto(on:true){ok player{eq{auto}}}}"}')"
 contains "$AUTO" '"auto":true' "setEqAuto stores and reports"
 

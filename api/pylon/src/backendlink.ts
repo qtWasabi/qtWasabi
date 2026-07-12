@@ -1,14 +1,29 @@
 /**
- * BackendLink — the pylon's client of the `qtamp --backend` control
- * channel (../PROTOCOL.md): holds the /events SSE stream open forever
- * (reconnect with a fixed 1s retry — the backend is loopback), keeps a
- * merged snapshot cache, forwards commands, and fans out change pushes
- * to the GraphQL subscriptions.
+ * BackendLink — the pylon's gRPC client of the player protocol
+ * (api/player.proto v1 over `unix:` — the framework's SidecarService,
+ * or any conforming player): holds the Events stream open forever
+ * (reconnect with a fixed 1s retry — the player is a local sibling),
+ * keeps a merged snapshot cache, forwards commands, and fans out
+ * change pushes to the GraphQL subscriptions.
  *
- * The pylon never spawns the backend: both run under the container's
- * supervisor, and `Query.player` is simply null while the backend is
- * down (the ts6 pylon's bridgeLink pattern).
+ * The pylon never spawns the player: both run under the launcher /
+ * supervisor, and `Query.player` is simply null while the player is
+ * down.
+ *
+ * Snapshot vocabulary: transport/playlist keep the historic doc shape
+ * (`count`, `positionMs`, ...); track carries the proto's named rich
+ * fields; EQ is in Maki scale (-127..127) end to end — the proto
+ * killed the 0..63 wire.
  */
+import {createRequire} from 'node:module'
+import {dirname, join} from 'node:path'
+import {fileURLToPath} from 'node:url'
+
+const require = createRequire(import.meta.url)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const grpc = require('@grpc/grpc-js')
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const loader = require('@grpc/proto-loader')
 
 export type Snapshot = {
   epoch?: string
@@ -25,11 +40,41 @@ export type Snapshot = {
   eq?: Record<string, unknown>
 }
 
-const SECTION_EVENTS = ['transport', 'track', 'playlist', 'eq'] as const
+// Section enum values (api/player.proto).
+const S = {
+  TRANSPORT: 1,
+  TRACK: 2,
+  PLAYLIST_META: 3,
+  PLAYLIST_ROWS: 4,
+  EQ: 5,
+  CAPABILITIES: 6
+} as const
+
+const protoPath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '..',
+  '..',
+  'player.proto'
+)
+
+function makeClient(socket: string) {
+  const def = loader.loadSync(protoPath, {
+    keepCase: false,
+    longs: Number,
+    defaults: true,
+    oneofs: true
+  })
+  const pkg: any = grpc.loadPackageDefinition(def)
+  return new pkg.wasabi.player.v1.Player(
+    `unix:${socket}`,
+    grpc.credentials.createInsecure()
+  )
+}
 
 export class BackendLink {
-  readonly base: string
+  readonly socket: string
   snapshot: Snapshot | null = null
+  capabilities: Record<string, unknown> | null = null
   connected = false
 
   /** index.ts hooks these to publish typed subscription events. */
@@ -37,10 +82,11 @@ export class BackendLink {
   onPlaylistChange: (() => void) | null = null
   private started = false
   private stopped = false
+  private client: any
 
-  constructor(base?: string) {
-    this.base =
-      base ?? process.env.QTAMP_BACKEND_URL ?? 'http://127.0.0.1:18800'
+  constructor(socket?: string) {
+    this.socket = socket ?? process.env.QTAMP_PLAYER_SOCKET ?? ''
+    this.client = makeClient(this.socket)
   }
 
   start() {
@@ -52,6 +98,15 @@ export class BackendLink {
   /** Test hook: stop reconnecting (vitest teardown). */
   stop() {
     this.stopped = true
+    this.client.close()
+  }
+
+  private call<T = any>(method: string, req: unknown): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.client[method](req, (err: Error | null, val: T) =>
+        err ? reject(err) : resolve(val)
+      )
+    })
   }
 
   private async loop() {
@@ -59,11 +114,13 @@ export class BackendLink {
       if (this.stopped) return
       try {
         await this.refetchState()
+        this.capabilities = await this.call('GetCapabilities', {})
         await this.consumeEvents() // returns when the stream drops
       } catch {
-        // backend down or unreachable; fall through to retry
+        // player down or unreachable; fall through to retry
       }
       this.setConnected(false)
+      if (this.stopped) return
       await new Promise(r => setTimeout(r, 1000))
     }
   }
@@ -75,125 +132,190 @@ export class BackendLink {
     this.publishPlayer('connectivity')
   }
 
+  private snapshotFromState(st: any): Snapshot {
+    const pl = st.playlist ?? {}
+    return {
+      epoch: st.epoch,
+      revision: Number(st.revision) || 0,
+      serverNowMs: Number(st.serverNowMs) || 0,
+      transport: st.transport ?? {},
+      track: st.track ?? {},
+      playlist: {
+        revision: Number(pl.revision) || 0,
+        count: Number(pl.rowCount) || 0,
+        currentIndex: pl.currentIndex ?? -1,
+        rows: (pl.rows ?? []).map((r: any) => ({
+          text: r.text ?? '',
+          durationMs: Number(r.durationMs) || 0
+        }))
+      },
+      eq: st.eq ?? {}
+    }
+  }
+
   private async refetchState() {
-    const res = await fetch(`${this.base}/state`)
-    if (!res.ok) throw new Error(`state: HTTP ${res.status}`)
-    this.snapshot = (await res.json()) as Snapshot
+    const st = await this.call('GetState', {
+      sections: [S.TRANSPORT, S.TRACK, S.PLAYLIST_ROWS, S.EQ]
+    })
+    this.snapshot = this.snapshotFromState(st)
     this.setConnected(true)
     this.publishPlayer('state')
     this.publishPlaylist()
   }
 
-  private async consumeEvents() {
-    const res = await fetch(`${this.base}/events`, {
-      headers: {accept: 'text/event-stream'}
+  private consumeEvents(): Promise<void> {
+    return new Promise(resolve => {
+      const stream = this.client.Events({})
+      this.setConnected(true)
+      stream.on('data', (e: any) => this.onEvent(e))
+      stream.on('end', () => resolve())
+      stream.on('error', () => resolve())
     })
-    if (!res.ok || !res.body) throw new Error('events unavailable')
-    this.setConnected(true)
-
-    // Minimal incremental SSE parse (the C++ twin is src/ssereader.cpp;
-    // this covers the same subset: event/data fields, comments, blank-line
-    // dispatch, LF/CRLF).
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    let event = ''
-    let data: string[] = []
-    for (;;) {
-      const {done, value} = await reader.read()
-      if (done) return
-      buf += decoder.decode(value, {stream: true})
-      let nl: number
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        let line = buf.slice(0, nl)
-        buf = buf.slice(nl + 1)
-        if (line.endsWith('\r')) line = line.slice(0, -1)
-        if (line === '') {
-          if (data.length) this.onEvent(event || 'message', data.join('\n'))
-          event = ''
-          data = []
-          continue
-        }
-        if (line.startsWith(':')) continue
-        const colon = line.indexOf(':')
-        const field = colon < 0 ? line : line.slice(0, colon)
-        let val = colon < 0 ? '' : line.slice(colon + 1)
-        if (val.startsWith(' ')) val = val.slice(1)
-        if (field === 'event') event = val
-        else if (field === 'data') data.push(val)
-      }
-    }
   }
 
-  private onEvent(name: string, dataStr: string) {
-    let payload: any
-    try {
-      payload = JSON.parse(dataStr)
-    } catch {
-      return
-    }
-    if (name === 'ping') return
-    if (name === 'state') {
-      this.snapshot = payload as Snapshot
-      this.publishPlayer('state')
-      this.publishPlaylist()
-      return
-    }
-    if (!(SECTION_EVENTS as readonly string[]).includes(name)) return
+  private onEvent(e: any) {
+    if (!e || e.payload === 'ping') return
     if (!this.snapshot) {
       void this.refetchState().catch(() => {})
       return
     }
-    // Same semantics as the C++ applyEvent: epoch change or a revision
-    // gap means we missed something — re-snapshot; stale events drop.
-    if (
-      payload.epoch &&
-      this.snapshot.epoch &&
-      payload.epoch !== this.snapshot.epoch
-    ) {
+    // Same semantics as the C++ applyEvent: epoch change means a player
+    // reboot — re-snapshot; stale revisions drop.  Streams are ordered
+    // and reliable, so gaps only appear across reconnects (handled by
+    // the refetch in loop()).
+    if (e.epoch && this.snapshot.epoch && e.epoch !== this.snapshot.epoch) {
       void this.refetchState().catch(() => {})
       return
     }
-    const rev = Number(payload.revision) || 0
+    const rev = Number(e.revision) || 0
     const have = Number(this.snapshot.revision) || 0
     if (rev && rev <= have) return
-    const gap = rev && have && rev > have + 1
-    if (payload[name] !== undefined) {
+
+    const bump = (patch: Partial<Snapshot>) => {
       this.snapshot = {
         ...this.snapshot,
-        [name]: payload[name],
-        revision: rev || this.snapshot.revision,
-        serverNowMs: payload.serverNowMs ?? this.snapshot.serverNowMs
+        ...patch,
+        revision: rev || this.snapshot?.revision,
+        serverNowMs: Number(e.serverNowMs) || this.snapshot?.serverNowMs
       }
     }
-    if (gap) {
-      void this.refetchState().catch(() => {})
-      return
+
+    switch (e.payload) {
+      case 'transport':
+        bump({transport: e.transport})
+        this.publishPlayer('transport')
+        break
+      case 'track':
+        bump({track: e.track})
+        this.publishPlayer('track')
+        break
+      case 'eq':
+        bump({eq: e.eq})
+        this.publishPlayer('eq')
+        break
+      case 'playlistRows': {
+        const pl = e.playlistRows ?? {}
+        bump({
+          playlist: {
+            revision: Number(pl.revision) || 0,
+            count: Number(pl.rowCount) || 0,
+            currentIndex: pl.currentIndex ?? -1,
+            rows: (pl.rows ?? []).map((r: any) => ({
+              text: r.text ?? '',
+              durationMs: Number(r.durationMs) || 0
+            }))
+          }
+        })
+        this.publishPlaylist()
+        this.publishPlayer('playlist')
+        break
+      }
+      case 'playlistMeta': {
+        const pl = e.playlistMeta ?? {}
+        bump({
+          playlist: {
+            ...this.snapshot.playlist,
+            revision: Number(pl.revision) || 0,
+            count: Number(pl.rowCount) || 0,
+            currentIndex: pl.currentIndex ?? -1
+          }
+        })
+        this.publishPlaylist()
+        this.publishPlayer('playlist')
+        break
+      }
+      default:
+        break
     }
-    if (name === 'playlist') this.publishPlaylist()
-    this.publishPlayer(name)
+  }
+
+  /** Map the historic op vocabulary onto a proto Command. */
+  private commandFor(op: string, args: Record<string, unknown>): any {
+    const expect =
+      args.expectPlaylistRevision !== undefined
+        ? {expectPlaylistRevision: Number(args.expectPlaylistRevision)}
+        : {}
+    switch (op) {
+      case 'play': return {play: {}}
+      case 'pause': return {pause: {}}
+      case 'stop': return {stop: {}}
+      case 'next': return {next: {}}
+      case 'prev': return {prev: {}}
+      case 'seek': return {seek: {ms: Number(args.ms) || 0}}
+      case 'setVolume': return {setVolume: {v: Number(args.v) || 0}}
+      case 'setPan': return {setPan: {v: Number(args.v ?? 0.5)}}
+      case 'setEqOn': return {setEqOn: {on: !!args.on}}
+      case 'setEqAuto': return {setEqAuto: {on: !!args.on}}
+      case 'setEqPreamp':
+        return {setEqPreamp: {value: Number(args.value) || 0}}
+      case 'setEqBand':
+        return {
+          setEqBand: {band: Number(args.band), value: Number(args.value) || 0}
+        }
+      case 'playlistPlayRow':
+        return {playRow: {row: Number(args.row), ...expect}}
+      case 'playlistSetCurrentRow':
+        return {setCurrentRow: {row: Number(args.row), ...expect}}
+      case 'playlistAddPaths':
+        return {playlistAdd: {paths: (args.paths as string[]) ?? []}}
+      case 'playlistRemoveRows':
+        return {playlistRemove: {rows: (args.rows as number[]) ?? [], ...expect}}
+      case 'playlistClear': return {playlistClear: {}}
+      case 'open': return {open: {url: String(args.url ?? '')}}
+      default:
+        throw new Error(`unknown op ${op}`)
+    }
   }
 
   /**
    * Forward a command; on acceptance refresh the snapshot so mutations
-   * can return the post-write state. Backend rejections (stale playlist
+   * can return the post-write state. Player rejections (stale playlist
    * revision, gated path) surface as errors to the GraphQL caller.
    */
   async cmd(op: string, args: Record<string, unknown> = {}) {
-    const res = await fetch(`${this.base}/cmd`, {
-      method: 'POST',
-      headers: {'content-type': 'application/json'},
-      body: JSON.stringify({op, args})
-    })
-    const body = (await res.json().catch(() => ({ok: false}))) as {
-      ok?: boolean
-      error?: string
-    }
-    if (!res.ok || !body.ok) {
-      throw new Error(body.error || `command ${op} failed`)
-    }
+    const res = await this.call('Execute', this.commandFor(op, args))
+    if (!res?.ok) throw new Error(res?.error || `command ${op} failed`)
     await this.refetchState().catch(() => {})
-    return body
+    return res
+  }
+
+  /** Album art as one buffer (chunked on the wire); null = no art. */
+  getArt(): Promise<{data: Buffer; mime: string; token: string} | null> {
+    return new Promise(resolve => {
+      const stream = this.client.GetArt({})
+      const chunks: Buffer[] = []
+      let mime = 'image/png'
+      let token = ''
+      stream.on('data', (c: any) => {
+        if (c.mime) mime = c.mime
+        if (c.token) token = c.token
+        if (c.data?.length) chunks.push(Buffer.from(c.data))
+      })
+      stream.on('end', () =>
+        resolve(chunks.length ? {data: Buffer.concat(chunks), mime, token} : null)
+      )
+      stream.on('error', () => resolve(null))
+    })
   }
 
   private publishPlayer(section: string = 'state') {
@@ -205,6 +327,6 @@ export class BackendLink {
   }
 }
 
-export const backendLink = process.env.QTAMP_BACKEND_URL
+export const backendLink = process.env.QTAMP_PLAYER_SOCKET
   ? new BackendLink()
   : null
