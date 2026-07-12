@@ -107,6 +107,23 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V1 gate record (2026-07-12)
+
+The frontend speaks GraphQL — the invariant holds in the product:
+- api/pylon fronts the REAL `qtamp --backend` (BackendLink port, typed
+  events, CommandResult errors, EQ 63↔Maki interim conversion, art
+  sidecar); e2e green over TCP + unix socket.
+- GraphQLHttpTransport + GraphQLLocalTransport in qtamp translate the
+  channel-shaped RemoteHost calls to the canonical API (RemoteHost
+  unchanged); `--connect graphql+http(s)://` and `graphql+unix://`.
+- tests/remote/graphql_sync_test.sh: convergence over BOTH transports,
+  guard rejection; legacy sync_test stays green; ctest remote family
+  green; six-skin pixel suite byte-identical.
+- The wasm head speaks GraphQL (EventSource GET-subscribe + POST
+  /graphql; glue moved to the RemoteTransport base): 22 MiB, real-
+  Chromium cdp gate PASS against the canonical pylon in mock-player
+  mode (cdp-check-graphql.mjs; PYLON_STATIC_DIR serves the dist).
+
 # V0 gate record (2026-07-12)
 
 All four spikes PASS (see `spikes/v0/README.md`): pylon v3 typed

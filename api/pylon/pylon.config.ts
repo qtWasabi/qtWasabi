@@ -30,7 +30,7 @@ const playerAssets = (): Plugin => ({
 // the cdp harness and small deployments need no extra web server.
 const staticDir = (): Plugin => ({
   name: 'static-dir',
-  strategy: 'last',
+  strategy: 'first',
   setup: app => {
     const dir = process.env.PYLON_STATIC_DIR
     if (!dir) return
