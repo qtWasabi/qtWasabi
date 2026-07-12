@@ -7,7 +7,8 @@
   "scripts": {
     "build": "PYLON_DISABLE_TELEMETRY=true node node_modules/@getcronit/pylon-dev/dist/index.js build",
     "start": "node --enable-source-maps .pylon/index.js",
-    "schema": "npm run build && cp .pylon/schema.graphql ../schema.graphql"
+    "schema": "npm run build && cp .pylon/schema.graphql ../schema.graphql",
+    "test": "vitest run"
   },
   "dependencies": {
     "@getcronit/pylon": "file:vendor/getcronit-pylon-2.9.5.tgz",
@@ -18,6 +19,7 @@
     "@getcronit/pylon-dev": "file:vendor/getcronit-pylon-dev-1.0.5.tgz",
     "@getcronit/pylon-ir": "file:vendor/getcronit-pylon-ir-0.0.0.tgz",
     "@types/node": "^22.0.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
   }
 }

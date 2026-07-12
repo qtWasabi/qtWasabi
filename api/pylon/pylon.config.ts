@@ -5,6 +5,8 @@ import {dirname, join} from 'node:path'
 import {type Plugin, type PylonConfig} from '@getcronit/pylon'
 import {getRequestListener, serve} from '@hono/node-server'
 
+import {authDecision} from './src/auth'
+
 // Static-asset sanity: one extra route on the same app (stands in for
 // the wasm head's /player/ assets — no react battery needed).
 const playerAssets = (): Plugin => ({
@@ -109,9 +111,28 @@ const servePylon = (): Plugin => ({
     const raw = process.env.PORT
     const envPort = raw && raw.trim() !== '' ? Number(raw) : NaN
     if (Number.isFinite(envPort)) {
-      serve({fetch: app.fetch, port: envPort}, info =>
-        console.log(`spike pylon on http://localhost:${info.port}`)
-      )
+      // TCP goes through the bearer gate (auth.ts): loopback open,
+      // non-loopback only with PYLON_BEARER_TOKEN. Own node server so
+      // the socket's remote address is inspectable.
+      const listener = getRequestListener(app.fetch)
+      const tcp = createServer((req, res) => {
+        const verdict = authDecision({
+          remoteAddress: req.socket.remoteAddress ?? undefined,
+          authorization: req.headers.authorization,
+          token: process.env.PYLON_BEARER_TOKEN
+        })
+        if (verdict !== 'ok') {
+          res.writeHead(401, {'content-type': 'text/plain'})
+          res.end('unauthorized')
+          return
+        }
+        listener(req, res)
+      })
+      tcp.listen(envPort, () => {
+        const addr = tcp.address()
+        const port = typeof addr === 'object' && addr ? addr.port : envPort
+        console.log(`spike pylon on http://localhost:${port}`)
+      })
     }
   }
 })

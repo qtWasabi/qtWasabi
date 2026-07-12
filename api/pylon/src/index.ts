@@ -16,6 +16,7 @@
 import {Pylon, experimentalCreatePubSub} from '@getcronit/pylon'
 
 import {backendLink} from './backendlink'
+import {eq63ToMaki, eqMakiTo63, richFieldsFromChannelMeta} from './channelmap'
 
 // ── typed surface ────────────────────────────────────────────────────
 
@@ -318,11 +319,7 @@ const guardPlaylist = (expect?: number | null): string | null =>
 
 // ── channel source (real player behind qtamp --backend) ──────────────
 // Active when QTAMP_BACKEND_URL is set; the mock above serves tests.
-// EQ interim: the legacy channel carries 0..63, the schema mandates the
-// Maki scale -127..127 — converted here (quantized) until the gRPC
-// player protocol (V4) carries Maki scale natively.
-const eq63ToMaki = (v: number) => Math.round((v / 63) * 254) - 127
-const eqMakiTo63 = (v: number) => Math.round(((v + 127) / 254) * 63)
+// EQ scale + rich-metadata mapping: src/channelmap.ts (unit-tested).
 
 const channelPlayer = (): Player => {
   const s = backendLink?.snapshot
@@ -356,14 +353,7 @@ const channelPlayer = (): Player => {
           title: tr.title ?? '',
           artist: tr.artist ?? '',
           album: tr.album ?? '',
-          albumArtist: '',
-          genre: '',
-          year: '',
-          trackNo: '',
-          disc: '',
-          composer: '',
-          publisher: '',
-          streamGenre: '',
+          ...richFieldsFromChannelMeta(tr.meta),
           filename: tr.filename ?? '',
           displayTitle: tr.displayTitle ?? tr.title ?? '',
           decoder: tr.decoder ?? '',
@@ -383,9 +373,10 @@ const channelPlayer = (): Player => {
     eq: {
       on: !!eq.on,
       auto: !!eq.auto,
-      preamp: eq63ToMaki(Number(eq.preamp) || 31),
+      // NOT `Number(x) || 31`: slider 0 (full boost) is falsy.
+      preamp: eq63ToMaki(typeof eq.preamp === 'number' ? eq.preamp : 31),
       bands: (Array.isArray(eq.bands) ? eq.bands : Array(10).fill(31)).map(
-        (b: number) => eq63ToMaki(Number(b) || 31)
+        (b: unknown) => eq63ToMaki(typeof b === 'number' ? b : 31)
       )
     }
   }
@@ -575,7 +566,7 @@ export default new Pylon({
       /** Preamp, Maki scale -127..127. */
       setEqPreamp: async (value: number): Promise<CommandResult> => {
         if (backendLink)
-          return channelResult('setEqPreamp', {v: eqMakiTo63(value)})
+          return channelResult('setEqPreamp', {value: eqMakiTo63(value)})
         state.eq.preamp = Math.max(-127, Math.min(127, value))
         emit('EQ')
         return result(true)
@@ -586,7 +577,7 @@ export default new Pylon({
         value: number
       ): Promise<CommandResult> => {
         if (backendLink)
-          return channelResult('setEqBand', {band, v: eqMakiTo63(value)})
+          return channelResult('setEqBand', {band, value: eqMakiTo63(value)})
         if (band < 0 || band > 9) return result(false, 'band out of range')
         state.eq.bands[band] = Math.max(-127, Math.min(127, value))
         emit('EQ')
