@@ -145,6 +145,22 @@ target_compile_features(qtwasabi_remote PUBLIC cxx_std_20)
 set_target_properties(qtwasabi_remote PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
 
+# ── qtwasabi_head — the head framework (Qt widgets around the
+# engine): skin-derived chrome styling, growing toward HeadWindow/
+# HeadMenu/Preferences through the V5 sub-milestones.
+add_library(qtwasabi_head STATIC
+    head/HeadChrome.cpp)
+add_library(qtWasabi::Head ALIAS qtwasabi_head)
+target_include_directories(qtwasabi_head
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/public>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(qtwasabi_head
+    PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
+target_compile_features(qtwasabi_head PUBLIC cxx_std_20)
+set_target_properties(qtwasabi_head PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+
 # ── qtwasabi_serve — the framework's stock player-protocol server
 # (api/player.proto v1 over gRPC on a unix socket, backed by a
 # PlayerHost).  Built only where grpc++ exists; the wasm/head-only
