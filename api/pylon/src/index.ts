@@ -15,6 +15,8 @@
 // EQ scale: bands + preamp are -127..127 (Maki scale) end to end.
 import {Pylon, experimentalCreatePubSub} from '@getcronit/pylon'
 
+import {backendLink} from './backendlink'
+
 // ── typed surface ────────────────────────────────────────────────────
 
 export class Transport {
@@ -314,6 +316,163 @@ const guardPlaylist = (expect?: number | null): string | null =>
     ? `playlistRevision mismatch: expected ${expect}, have ${state.playlist.revision}`
     : null
 
+// ── channel source (real player behind qtamp --backend) ──────────────
+// Active when QTAMP_BACKEND_URL is set; the mock above serves tests.
+// EQ interim: the legacy channel carries 0..63, the schema mandates the
+// Maki scale -127..127 — converted here (quantized) until the gRPC
+// player protocol (V4) carries Maki scale natively.
+const eq63ToMaki = (v: number) => Math.round((v / 63) * 254) - 127
+const eqMakiTo63 = (v: number) => Math.round(((v + 127) / 254) * 63)
+
+const channelPlayer = (): Player => {
+  const s = backendLink?.snapshot
+  if (!s) throw new Error('player backend unavailable')
+  const t: any = s.transport ?? {}
+  const tr: any = s.track ?? {}
+  const pl = s.playlist ?? {}
+  const eq: any = s.eq ?? {}
+  const rows = (pl.rows ?? []).map((r, i) => ({
+    index: i,
+    text: r.text ?? '',
+    durationMs: Number(r.durationMs) || 0
+  }))
+  return {
+    epoch: s.epoch ?? 'unknown',
+    revision: Number(s.revision) || 0,
+    serverNowMs: Number(s.serverNowMs) || 0,
+    transport: {
+      playing: !!t.playing,
+      paused: !!t.paused,
+      positionMs: Number(t.positionMs) || 0,
+      positionAtMs: Number(t.positionAtMs) || 0,
+      durationMs: Number(t.durationMs) || 0,
+      volume: Number(t.volume) || 0,
+      pan: typeof t.pan === 'number' ? t.pan : 0.5,
+      shuffle: false,
+      repeat: 'OFF'
+    },
+    track: tr.title || tr.filename
+      ? {
+          title: tr.title ?? '',
+          artist: tr.artist ?? '',
+          album: tr.album ?? '',
+          albumArtist: '',
+          genre: '',
+          year: '',
+          trackNo: '',
+          disc: '',
+          composer: '',
+          publisher: '',
+          streamGenre: '',
+          filename: tr.filename ?? '',
+          displayTitle: tr.displayTitle ?? tr.title ?? '',
+          decoder: tr.decoder ?? '',
+          bitrate: Number(tr.bitrate) || 0,
+          sampleRate: Number(tr.sampleRate) || 0,
+          channels: Number(tr.channels) || 0,
+          artToken: tr.filename ? String(tr.filename) : null,
+          artUrl: tr.filename ? '/art/current' : null
+        }
+      : null,
+    playlist: {
+      revision: Number(pl.revision) || 0,
+      currentIndex: pl.currentIndex ?? -1,
+      rowCount: pl.count ?? rows.length,
+      rows
+    },
+    eq: {
+      on: !!eq.on,
+      auto: !!eq.auto,
+      preamp: eq63ToMaki(Number(eq.preamp) || 31),
+      bands: (Array.isArray(eq.bands) ? eq.bands : Array(10).fill(31)).map(
+        (b: number) => eq63ToMaki(Number(b) || 31)
+      )
+    }
+  }
+}
+
+const player = (): Player => (backendLink ? channelPlayer() : currentPlayer())
+
+const channelResult = async (
+  op: string,
+  args: Record<string, unknown> = {}
+): Promise<CommandResult> => {
+  try {
+    await backendLink!.cmd(op, args)
+    const p = channelPlayer()
+    return {ok: true, error: null, revision: p.revision, player: p}
+  } catch (e) {
+    let p: Player
+    try {
+      p = channelPlayer()
+    } catch {
+      p = currentPlayer()
+    }
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : String(e),
+      revision: p.revision,
+      player: p
+    }
+  }
+}
+
+// Bridge channel changes into the typed subscriptions.
+if (backendLink) {
+  backendLink.onPlayerChange = (section: string) => {
+    let p: Player
+    try {
+      p = channelPlayer()
+    } catch {
+      return
+    }
+    const kind: PlayerEvent['kind'] =
+      section === 'transport'
+        ? 'TRANSPORT'
+        : section === 'track'
+          ? 'TRACK'
+          : section === 'eq'
+            ? 'EQ'
+            : section === 'playlist'
+              ? 'PLAYLIST_META'
+              : 'STATE'
+    pubSub.publish('playerEvents', {
+      kind,
+      epoch: p.epoch,
+      revision: p.revision,
+      serverNowMs: p.serverNowMs,
+      transport: kind === 'TRANSPORT' || kind === 'STATE' ? p.transport : null,
+      track: kind === 'TRACK' || kind === 'STATE' ? p.track : null,
+      eq: kind === 'EQ' || kind === 'STATE' ? p.eq : null,
+      playlist:
+        kind === 'PLAYLIST_META' || kind === 'STATE'
+          ? {
+              revision: p.playlist.revision,
+              currentIndex: p.playlist.currentIndex,
+              rowCount: p.playlist.rowCount
+            }
+          : null,
+      uiExtensions: null,
+      capabilities: null
+    })
+  }
+  backendLink.onPlaylistChange = () => {
+    let p: Player
+    try {
+      p = channelPlayer()
+    } catch {
+      return
+    }
+    pubSub.publish('playlistEvents', {
+      epoch: p.epoch,
+      revision: p.revision,
+      serverNowMs: p.serverNowMs,
+      playlist: p.playlist
+    })
+  }
+  backendLink.start()
+}
+
 // ── the app ──────────────────────────────────────────────────────────
 
 export default new Pylon({
@@ -323,10 +482,10 @@ export default new Pylon({
        * The full player snapshot — the resync path.  Refetch on epoch
        * change or revision gap.
        */
-      player: currentPlayer,
+      player,
       capabilities: (): Capabilities => ({
         localFiles: false,
-        ingest: false,
+        ingest: backendLink != null,
         playlistEdit: true,
         library: false,
         mediaLibrary: false,
@@ -353,38 +512,46 @@ export default new Pylon({
       uiExtensions: (): UiExtensions => ({prefPages: [], menuItems: []})
     },
     Mutation: {
-      play: (): CommandResult => {
+      play: async (): Promise<CommandResult> => {
+        if (backendLink) return channelResult('play')
         state.transport.playing = true
         state.transport.paused = false
         emit('TRANSPORT')
         return result(true)
       },
-      pause: (): CommandResult => {
+      pause: async (): Promise<CommandResult> => {
+        if (backendLink) return channelResult('pause')
         state.transport.paused = true
         emit('TRANSPORT')
         return result(true)
       },
-      stop: (): CommandResult => {
+      stop: async (): Promise<CommandResult> => {
+        if (backendLink) return channelResult('stop')
         state.transport.playing = false
         state.transport.paused = false
         state.transport.positionMs = 0
         emit('TRANSPORT')
         return result(true)
       },
-      next: (): CommandResult => result(true),
-      prev: (): CommandResult => result(true),
-      seek: (ms: number): CommandResult => {
+      next: async (): Promise<CommandResult> =>
+        backendLink ? channelResult('next') : result(true),
+      prev: async (): Promise<CommandResult> =>
+        backendLink ? channelResult('prev') : result(true),
+      seek: async (ms: number): Promise<CommandResult> => {
+        if (backendLink) return channelResult('seek', {ms})
         state.transport.positionMs = ms
         state.transport.positionAtMs = serverNowMs()
         emit('TRANSPORT')
         return result(true)
       },
-      setVolume: (v: number): CommandResult => {
+      setVolume: async (v: number): Promise<CommandResult> => {
+        if (backendLink) return channelResult('setVolume', {v})
         state.transport.volume = Math.max(0, Math.min(100, v))
         emit('TRANSPORT')
         return result(true)
       },
-      setPan: (v: number): CommandResult => {
+      setPan: async (v: number): Promise<CommandResult> => {
+        if (backendLink) return channelResult('setPan', {v})
         state.transport.pan = Math.max(0, Math.min(1, v))
         emit('TRANSPORT')
         return result(true)
@@ -393,30 +560,44 @@ export default new Pylon({
         result(false, 'shuffle not supported by this player'),
       setRepeat: (mode: string): CommandResult =>
         result(false, 'repeat not supported by this player'),
-      setEqOn: (on: boolean): CommandResult => {
+      setEqOn: async (on: boolean): Promise<CommandResult> => {
+        if (backendLink) return channelResult('setEqOn', {on})
         state.eq.on = on
         emit('EQ')
         return result(true)
       },
-      setEqAuto: (on: boolean): CommandResult => {
+      setEqAuto: async (on: boolean): Promise<CommandResult> => {
+        if (backendLink) return channelResult('setEqAuto', {on})
         state.eq.auto = on
         emit('EQ')
         return result(true)
       },
       /** Preamp, Maki scale -127..127. */
-      setEqPreamp: (value: number): CommandResult => {
+      setEqPreamp: async (value: number): Promise<CommandResult> => {
+        if (backendLink)
+          return channelResult('setEqPreamp', {v: eqMakiTo63(value)})
         state.eq.preamp = Math.max(-127, Math.min(127, value))
         emit('EQ')
         return result(true)
       },
       /** Band 0..9, Maki scale -127..127. */
-      setEqBand: (band: number, value: number): CommandResult => {
+      setEqBand: async (
+        band: number,
+        value: number
+      ): Promise<CommandResult> => {
+        if (backendLink)
+          return channelResult('setEqBand', {band, v: eqMakiTo63(value)})
         if (band < 0 || band > 9) return result(false, 'band out of range')
         state.eq.bands[band] = Math.max(-127, Math.min(127, value))
         emit('EQ')
         return result(true)
       },
-      playRow: (row: number, expectPlaylistRevision?: number): CommandResult => {
+      playRow: async (
+        row: number,
+        expectPlaylistRevision?: number
+      ): Promise<CommandResult> => {
+        if (backendLink)
+          return channelResult('playlistPlayRow', {row, expectPlaylistRevision})
         const err = guardPlaylist(expectPlaylistRevision)
         if (err) return result(false, err)
         if (row < 0 || row >= state.playlist.rowCount)
@@ -426,17 +607,23 @@ export default new Pylon({
         emit('PLAYLIST_META')
         return result(true)
       },
-      setCurrentRow: (
+      setCurrentRow: async (
         row: number,
         expectPlaylistRevision?: number
-      ): CommandResult => {
+      ): Promise<CommandResult> => {
+        if (backendLink)
+          return channelResult('playlistSetCurrentRow', {
+            row,
+            expectPlaylistRevision
+          })
         const err = guardPlaylist(expectPlaylistRevision)
         if (err) return result(false, err)
         state.playlist.currentIndex = row
         emit('PLAYLIST_META')
         return result(true)
       },
-      playlistAdd: (paths: string[]): CommandResult => {
+      playlistAdd: async (paths: string[]): Promise<CommandResult> => {
+        if (backendLink) return channelResult('playlistAddPaths', {paths})
         for (const p of paths) {
           state.playlist.rows.push({
             index: state.playlist.rows.length,
@@ -455,10 +642,15 @@ export default new Pylon({
         })
         return result(true)
       },
-      playlistRemove: (
+      playlistRemove: async (
         rows: number[],
         expectPlaylistRevision?: number
-      ): CommandResult => {
+      ): Promise<CommandResult> => {
+        if (backendLink)
+          return channelResult('playlistRemoveRows', {
+            rows,
+            expectPlaylistRevision
+          })
         const err = guardPlaylist(expectPlaylistRevision)
         if (err) return result(false, err)
         const drop = new Set(rows)
@@ -476,7 +668,8 @@ export default new Pylon({
         })
         return result(true)
       },
-      playlistClear: (): CommandResult => {
+      playlistClear: async (): Promise<CommandResult> => {
+        if (backendLink) return channelResult('playlistClear')
         state.playlist.rows = []
         state.playlist.rowCount = 0
         state.playlist.currentIndex = -1
@@ -492,8 +685,10 @@ export default new Pylon({
       },
       pleditCommand: (verb: string): CommandResult =>
         result(false, 'pledit menus not supported by this player'),
-      open: (url: string): CommandResult =>
-        result(false, 'open not supported by this player (no musicRoot)'),
+      open: async (url: string): Promise<CommandResult> =>
+        backendLink
+          ? channelResult('open', {url})
+          : result(false, 'open not supported by this player (no musicRoot)'),
       mlPlayTracks: (
         paths: string[],
         startRow: number,

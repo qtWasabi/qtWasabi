@@ -25,6 +25,27 @@ const playerAssets = (): Plugin => ({
   }
 })
 
+// Album-art sidecar: pass through to the player backend with ETag
+// semantics (ETag = artToken per the contract; legacy channel interim).
+const artRoute = (): Plugin => ({
+  name: 'art',
+  setup: app => {
+    const base = process.env.QTAMP_BACKEND_URL
+    if (!base) return
+    app.get('/art/current', async c => {
+      const headers: Record<string, string> = {}
+      const inm = c.req.header('if-none-match')
+      if (inm) headers['if-none-match'] = inm
+      try {
+        const upstream = await fetch(`${base}/art/current`, {headers})
+        return upstream as unknown as Response
+      } catch {
+        return c.text('player backend unavailable', 502)
+      }
+    })
+  }
+})
+
 // Serve on TCP (PORT) and/or a unix socket (PYLON_SOCKET) — hono's
 // serve() exposes no socket path, so the socket listener uses the
 // request-listener adapter on a plain node http server.
@@ -56,5 +77,5 @@ const servePylon = (): Plugin => ({
 export default {
   graphiql: false,
   landingPage: false,
-  plugins: [playerAssets(), servePylon()]
+  plugins: [playerAssets(), artRoute(), servePylon()]
 } satisfies PylonConfig
