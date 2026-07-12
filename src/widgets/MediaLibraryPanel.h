@@ -28,6 +28,8 @@
 
 namespace qtWasabi {
 
+class Host;
+
 // Single tree node — describes either a plugin's root entry or one
 // of its (static or dynamic) children.  The `childProvider` is
 // invoked lazily when the node is expanded; null means the node
@@ -38,7 +40,7 @@ struct MlNode {
     QString                                displayLabel;    // e.g. "Local Library"
     QString                                iconRelPath;     // relative to ML icons base, may be empty
     bool                                   defaultExpanded = false;
-    std::function<QList<MlNode>()>         childProvider;   // null => leaf
+    std::function<QList<MlNode>(const Host *)> childProvider;  // null => leaf
 };
 
 class MediaLibraryPanel : public Widget {
@@ -85,7 +87,7 @@ private:
         bool    isExpanded;
         QString parentPath;
     };
-    QList<VisibleRow>        flattenVisible() const;
+    QList<VisibleRow>        flattenVisible(const Host *host) const;
 };
 
 }  // namespace qtWasabi

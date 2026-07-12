@@ -4,6 +4,7 @@
 #include "MediaLibraryPanel.h"
 
 #include <qtWasabi/ColorRegistry.h>
+#include <qtWasabi/Host.h>
 #include <qtWasabi/GammasetRegistry.h>
 #include <qtWasabi/PaintCtx.h>
 
@@ -81,7 +82,7 @@ void paintChromeBevel(QPainter *p, const QRect &r,
 // closed folder.
 
 // ml_local — Local Library: static set of category leaves.
-QList<MlNode> children_local() {
+QList<MlNode> children_local(const Host *) {
     return {
         {"Local Media/Audio",             "Audio",
          "ml_local/resources/ti_audio_16x16x16.bmp",             false, nullptr},
@@ -106,21 +107,13 @@ QList<MlNode> children_local() {
 // directory.  Winamp keeps its playlist index in the ml_pl plugin's
 // data dir; we mirror the same idea with
 // `$XDG_DATA_HOME/qtamp/playlists/`.
-QList<MlNode> children_playlists() {
+QList<MlNode> children_playlists(const Host *host) {
     QList<MlNode> out;
-    const QString base =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
-        QStringLiteral("/playlists");
-    QDir d(base);
-    if (!d.exists()) return out;
-    const QStringList filters{
-        QStringLiteral("*.m3u"), QStringLiteral("*.m3u8"),
-        QStringLiteral("*.pls"), QStringLiteral("*.xspf")};
-    for (const QFileInfo &fi : d.entryInfoList(filters,
-                                                 QDir::Files,
-                                                 QDir::Name)) {
-        out.append({QStringLiteral("Playlists/") + fi.fileName(),
-                    fi.completeBaseName(),
+    if (!host) return out;
+    for (const Host::MlPanelItem &it :
+         host->mlPanelChildren(QStringLiteral("playlists"))) {
+        out.append({QStringLiteral("Playlists/") + it.path,
+                    it.label,
                     QStringLiteral("ml_playlists/resources/ti_playlist_16x16x16.bmp"),
                     false, nullptr});
     }
@@ -129,45 +122,26 @@ QList<MlNode> children_playlists() {
 
 // ml_bookmarks — reads simple line-per-URL bookmarks from
 // `$XDG_DATA_HOME/qtamp/bookmarks.txt`.
-QList<MlNode> children_bookmarks() {
+QList<MlNode> children_bookmarks(const Host *host) {
     QList<MlNode> out;
-    const QString path =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
-        QStringLiteral("/bookmarks.txt");
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
-    QTextStream ts(&f);
-    while (!ts.atEnd()) {
-        const QString line = ts.readLine().trimmed();
-        if (line.isEmpty() || line.startsWith(QChar('#'))) continue;
-        out.append({QStringLiteral("Bookmarks/") + line,
-                    line, QString(), false, nullptr});
+    if (!host) return out;
+    for (const Host::MlPanelItem &it :
+         host->mlPanelChildren(QStringLiteral("bookmarks"))) {
+        out.append({QStringLiteral("Bookmarks/") + it.path,
+                    it.label, QString(), false, nullptr});
     }
     return out;
 }
 
 // ml_history — reads recent-play log from
 // `$XDG_DATA_HOME/qtamp/history.txt`, newest first.
-QList<MlNode> children_history() {
+QList<MlNode> children_history(const Host *host) {
     QList<MlNode> out;
-    const QString path =
-        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) +
-        QStringLiteral("/history.txt");
-    QFile f(path);
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return out;
-    QStringList lines;
-    QTextStream ts(&f);
-    while (!ts.atEnd()) {
-        const QString line = ts.readLine().trimmed();
-        if (!line.isEmpty() && !line.startsWith(QChar('#')))
-            lines.prepend(line);  // newest first
-        if (lines.size() >= 50) break;
-    }
-    for (const QString &line : lines) {
-        const QString label = QFileInfo(line).fileName();
-        out.append({QStringLiteral("History/") + line,
-                    label.isEmpty() ? line : label,
-                    QString(), false, nullptr});
+    if (!host) return out;
+    for (const Host::MlPanelItem &it :
+         host->mlPanelChildren(QStringLiteral("history"))) {
+        out.append({QStringLiteral("History/") + it.path,
+                    it.label, QString(), false, nullptr});
     }
     return out;
 }
@@ -175,19 +149,13 @@ QList<MlNode> children_history() {
 // ml_devices — enumerates portable devices via `/run/media/$USER`
 // (the standard UDisks2 mount point for removable storage).  Each
 // mounted volume becomes a child.
-QList<MlNode> children_devices() {
+QList<MlNode> children_devices(const Host *host) {
     QList<MlNode> out;
-    const QString user = qEnvironmentVariable("USER");
-    const QString base = user.isEmpty()
-        ? QString()
-        : QStringLiteral("/run/media/") + user;
-    if (base.isEmpty()) return out;
-    QDir d(base);
-    if (!d.exists()) return out;
-    for (const QFileInfo &fi : d.entryInfoList(
-             QDir::AllDirs | QDir::NoDotAndDotDot, QDir::Name)) {
-        out.append({QStringLiteral("Devices/") + fi.fileName(),
-                    fi.fileName(),
+    if (!host) return out;
+    for (const Host::MlPanelItem &it :
+         host->mlPanelChildren(QStringLiteral("devices"))) {
+        out.append({QStringLiteral("Devices/") + it.path,
+                    it.label,
                     QStringLiteral("ml_devices/resources/generic-device-16x16.png"),
                     false, nullptr});
     }
@@ -198,7 +166,7 @@ QList<MlNode> children_devices() {
 // `sr*` device nodes.  Each drive becomes a "DVD Drive (X:)" entry
 // where X iterates D..Z to match the Windows drive-letter cosmetic
 // the reference image shows.
-QList<MlNode> children_disc() {
+QList<MlNode> children_disc(const Host *) {
     QList<MlNode> out;
     QDir d(QStringLiteral("/sys/block"));
     QStringList drives;
@@ -221,12 +189,12 @@ QList<MlNode> children_disc() {
 
 // ml_online — no online-services catalogue is wired, so this returns
 // no children and the root stays a closed folder.
-QList<MlNode> children_online() { return {}; }
+QList<MlNode> children_online(const Host *) { return {}; }
 
 // ml_wire / podcasts — surfaces a single empty "Subscriptions" node to
 // match the canonical Bento reference's layout.  With no RSS
 // aggregator behind it the subscription list is static.
-QList<MlNode> children_podcasts() {
+QList<MlNode> children_podcasts(const Host *) {
     return {
         {"Podcasts/Subscriptions", "Subscriptions",
          QString(), false, nullptr},
@@ -269,7 +237,7 @@ QList<MlNode> buildPluginRegistry() {
               children_history});
     // ml_disc registers AFTER the rest — same as gen_ml's order.
     // Show every detected optical drive as a sibling top-level node.
-    QList<MlNode> discs = children_disc();
+    QList<MlNode> discs = children_disc(nullptr);
     r.append(discs);
     return r;
 }
@@ -287,7 +255,7 @@ MediaLibraryPanel::MediaLibraryPanel()
 }
 
 QList<MediaLibraryPanel::VisibleRow>
-MediaLibraryPanel::flattenVisible() const {
+MediaLibraryPanel::flattenVisible(const Host *host) const {
     QList<VisibleRow> out;
     // Recursively walk the registry.  Depth 0 = top-level plugin
     // roots; depth >= 1 = their children (expanded ones contribute,
@@ -299,7 +267,7 @@ MediaLibraryPanel::flattenVisible() const {
                 hasProvider && m_expanded.contains(node.invariantId);
             out.append({node, depth, hasProvider, expanded, parentPath});
             if (expanded) {
-                const QList<MlNode> kids = node.childProvider();
+                const QList<MlNode> kids = node.childProvider(host);
                 for (const MlNode &k : kids) {
                     walk(k, depth + 1, node.invariantId);
                 }
@@ -453,7 +421,7 @@ void MediaLibraryPanel::paint(QPainter *p, PaintCtx &ctx,
     drawVLine(sidebar.right(), sidebar.y(),
               sidebar.bottom(), sep);
 
-    const QList<VisibleRow> visible = flattenVisible();
+    const QList<VisibleRow> visible = flattenVisible(ctx.host);
     m_lastSidebarY     = sidebar.y() + 2;
     m_lastRowH         = rowH;
     m_lastVisibleCount = visible.size();
@@ -591,7 +559,7 @@ void MediaLibraryPanel::paint(QPainter *p, PaintCtx &ctx,
     lastPaintedAtMs = QDateTime::currentMSecsSinceEpoch();
 }
 
-void MediaLibraryPanel::onLeftButtonDown(QPoint pos, PaintCtx &) {
+void MediaLibraryPanel::onLeftButtonDown(QPoint pos, PaintCtx &ctx) {
     if (m_lastPanelRect.isEmpty()) return;
     const int sidebarX = m_lastPanelRect.x() + 2;
     const int sidebarW = 120;
@@ -601,7 +569,7 @@ void MediaLibraryPanel::onLeftButtonDown(QPoint pos, PaintCtx &) {
     const int hit = relY / m_lastRowH;
     if (hit < 0 || hit >= m_lastVisibleCount) return;
 
-    const QList<VisibleRow> visible = flattenVisible();
+    const QList<VisibleRow> visible = flattenVisible(ctx.host);
     if (hit >= visible.size()) return;
     const VisibleRow &vr = visible[hit];
 

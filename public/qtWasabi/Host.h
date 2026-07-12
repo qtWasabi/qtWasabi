@@ -184,6 +184,22 @@ public:
     //    opaque path-shaped token; the empty string means "root".
     //    Embedders typically forward to QFileSystemModel or a real
     //    tag-indexed library.  Default: empty tree.
+    // ── Media Library panel: player-state sections ────────────────
+    // The fallback ML panel used to read playlists/bookmarks/history/
+    // devices straight off the embedder's data directories — player
+    // state does not belong inside the rendering engine (Wasabi 2
+    // frontend-only rule).  Hosts enumerate them instead; namespaces:
+    // "playlists", "bookmarks", "history", "devices".  Default: empty
+    // sections.
+    struct MlPanelItem {
+        QString label;
+        QString path;
+    };
+    virtual QList<MlPanelItem> mlPanelChildren(const QString &ns) const {
+        Q_UNUSED(ns);
+        return {};
+    }
+
     virtual int     libraryRowCount(const QString &parent) const         { Q_UNUSED(parent); return 0; }
     virtual QString libraryRowLabel(const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
     virtual QString libraryRowPath (const QString &parent, int row) const { Q_UNUSED(parent); Q_UNUSED(row); return {}; }
