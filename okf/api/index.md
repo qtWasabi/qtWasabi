@@ -107,7 +107,7 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
-# V5 progress record (2026-07-12 — 5a–5e done, 5f open)
+# V5 gate record (2026-07-12 — complete)
 
 The head framework exists as `qtwasabi_head` (namespace
 `qtWasabi::head`), extracted from the reference embedder in gated,
