@@ -179,6 +179,40 @@ void restyleOpenChrome(const QString &dialogStyle,
     }
 }
 
+namespace {
+void dumpMenuLevel(const QMenu &menu, int depth) {
+    const QString pad(depth * 2, QLatin1Char(' '));
+    const auto actions = menu.actions();
+    for (const QAction *a : actions) {
+        if (!a) continue;
+        if (a->isSeparator()) {
+            fprintf(stderr, "[menu-dump] %s---\n",
+                    pad.toLocal8Bit().constData());
+            continue;
+        }
+        QString flags;
+        if (!a->isEnabled()) flags += QStringLiteral(" disabled");
+        if (a->isCheckable())
+            flags += a->isChecked() ? QStringLiteral(" checked")
+                                    : QStringLiteral(" checkable");
+        if (a->menu()) flags += QStringLiteral(" submenu");
+        fprintf(stderr, "[menu-dump] %s\"%s\"%s\n",
+                pad.toLocal8Bit().constData(),
+                a->text().toLocal8Bit().constData(),
+                flags.toLocal8Bit().constData());
+        if (a->menu()) dumpMenuLevel(*a->menu(), depth + 1);
+    }
+}
+}  // namespace
+
+void dumpMenuTree(const QMenu &menu, const QString &tag) {
+    fprintf(stderr, "[menu-dump] begin %s\n",
+            tag.toLocal8Bit().constData());
+    dumpMenuLevel(menu, 1);
+    fprintf(stderr, "[menu-dump] end %s\n",
+            tag.toLocal8Bit().constData());
+}
+
 void prepareMenuForWayland(QMenu &menu, QWindow *parent) {
     menu.ensurePolished();
     menu.winId();   // force-create the platform window so it has a handle

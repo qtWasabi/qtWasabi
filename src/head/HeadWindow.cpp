@@ -596,6 +596,21 @@ void HeadWindow::mousePressEvent(QMouseEvent *e) {
             if (interceptAction(action,
                                 hit->attrs.value(QStringLiteral("param"))))
                 return;
+            // File-pick flows leave the engine (whose pickFile
+            // default died): EJECT and Winamp-parity PLAY-on-empty
+            // route through the capability-gated head picker.
+            if (action.compare(QStringLiteral("EJECT"),
+                               Qt::CaseInsensitive) == 0) {
+                ejectFlow();
+                return;
+            }
+            if (action.compare(QStringLiteral("PLAY"),
+                               Qt::CaseInsensitive) == 0 &&
+                m_host->playlistRowCount() == 0 &&
+                m_host->songFilename().isEmpty()) {
+                ejectFlow();
+                return;
+            }
             // EQ_TOGGLE used to be handled here as a special
             // action that flipped QtampHost::m_eqEnabled.  That
             // path returned early and prevented the button-
@@ -1163,10 +1178,9 @@ void HeadWindow::keyPressEvent(QKeyEvent *e) {
         return;
     }
     if (ctrl && (e->key() == Qt::Key_O || e->key() == Qt::Key_L)) {
-        // pickFile takes a QWidget* for the file-dialog parent.
-        // Pass nullptr so the dialog parents to QGuiApplication;
-        // the QQuickWindow itself isn't a QWidget.
-        m_host->pickFile(nullptr);   // enqueues + plays internally
+        // Capability-gated: the host's own picker when it has one
+        // (enqueues + plays internally), else the head dialog.
+        ejectFlow();
         return;
     }
     if (e->key() == Qt::Key_Space) {
@@ -1253,6 +1267,16 @@ bool HeadWindow::triggerWidgetActionById(const QString &id,
     if (action.compare(QStringLiteral("TOGGLE"), Qt::CaseInsensitive) == 0) {
         const QString param = w->attrs.value(QStringLiteral("param"));
         if (!param.isEmpty()) { toggleSubwindow(param); return true; }
+    }
+    if (action.compare(QStringLiteral("EJECT"), Qt::CaseInsensitive) == 0) {
+        ejectFlow();
+        return true;
+    }
+    if (action.compare(QStringLiteral("PLAY"), Qt::CaseInsensitive) == 0 &&
+        m_host->playlistRowCount() == 0 &&
+        m_host->songFilename().isEmpty()) {
+        ejectFlow();
+        return true;
     }
     if (qtWasabi::dispatchAction(action, m_host, nullptr)) return true;
     const QString target = w->attrs.value(QStringLiteral("action_target"));

@@ -49,6 +49,12 @@ QString themedDialogStyle(const GammasetRegistry &gammasets,
 void restyleOpenChrome(const QString &dialogStyle,
                        const QString &menuStyle);
 
+// Print a menu tree (labels, separators, enabled/checkable/checked,
+// nesting) to stderr in a stable line format — the headless gate for
+// menu work: Qt menus are invisible to the pixel suite, so old-vs-new
+// extraction diffs run on this dump instead.
+void dumpMenuTree(const QMenu &menu, const QString &tag);
+
 // Wayland will only create a *grabbing* popup (one that holds keyboard
 // focus) if the popup declares a transient parent and that parent
 // recently held input.  A head's main window is a QQuickWindow with no

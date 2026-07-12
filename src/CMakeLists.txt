@@ -150,6 +150,7 @@ set_target_properties(qtwasabi_remote PROPERTIES
 # HeadMenu/Preferences through the V5 sub-milestones.
 add_library(qtwasabi_head STATIC
     head/HeadChrome.cpp
+    head/HeadMenu.cpp
     head/HeadWindow.cpp
     head/HeadWiring.cpp
     ${PROJECT_SOURCE_DIR}/public/qtWasabi/head/HeadWindow.h)

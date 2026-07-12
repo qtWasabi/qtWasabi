@@ -4,9 +4,7 @@
 #include <qtWasabi/Host.h>
 
 #include <QChar>
-#include <QFileDialog>
 #include <QFileInfo>
-#include <QStandardPaths>
 #include <QStringList>
 #include <QWidget>
 
@@ -54,17 +52,12 @@ void Host::setSliderPosition(const QString &action, double v) {
 }
 
 QUrl Host::pickFile(QWidget *embedder) {
-    const QString musicDir = QStandardPaths::writableLocation(
-        QStandardPaths::MusicLocation);
-    const QString path = QFileDialog::getOpenFileName(
-        embedder,
-        QStringLiteral("Open audio file"),
-        musicDir,
-        QStringLiteral(
-            "Audio (*.mp3 *.flac *.ogg *.opus *.wav *.m4a *.aac);;"
-            "All files (*)"));
-    if (path.isEmpty()) return QUrl();
-    return QUrl::fromLocalFile(path);
+    // No engine-owned dialog (Wasabi 2 V5d): the file picker is a HEAD
+    // affordance, capability-gated (HeadWindow::ejectFlow) — a remote
+    // player must never pop a local dialog from engine code.  Hosts
+    // that own a picker override this.
+    Q_UNUSED(embedder);
+    return QUrl();
 }
 
 DisplayResolver makeDefaultDisplayResolver(Host *host) {

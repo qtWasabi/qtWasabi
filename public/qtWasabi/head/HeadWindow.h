@@ -26,9 +26,12 @@
 #include <qtWasabi/SkinQuickItem.h>
 #include <qtWasabi/SkinRuntime.h>
 #include <qtWasabi/SkinXml.h>
+#include <qtWasabi/head/HeadMenu.h>
 
+class QAction;
 class QFileSystemWatcher;
 class QMenu;
+class QUrl;
 class QMouseEvent;
 class QKeyEvent;
 class QWheelEvent;
@@ -126,6 +129,14 @@ public:
     void prepareMenuForWayland(QMenu &menu);
     void setActiveGammaset(const QString &name) override;
 
+    // Headless menu-dump gate driver: build every menu this head can
+    // show and print their trees (WASABIQT_DUMP_MENU short-circuits
+    // the exec inside each builder).
+    void dumpMenusForGate();
+
+    // The visible <Menu> widget whose canvas rect contains `itemPos`.
+    const Widget *menuWidgetAt(QPoint itemPos) const;
+
     // Headless self-test (WASABIQT_SELFTEST_CHROME=<themeName>) for the
     // theme plumbing that can't be screenshotted: the menu-bar
     // prev/next ring and the menu/dialog re-tint.  Prints PASS/FAIL.
@@ -179,12 +190,44 @@ protected:
     // reloadSkin, after the new document is adopted and base-owned
     // subwindows are gone).
     virtual void aboutToReloadSkin() {}
+    // Selected-menu-action dispatch: embedder first refusal
+    // (handleMenuAction), then the framework id switch.
+    void dispatchMenuAction(QAction *sel);
+
     // Window title for a secondary container window.
     virtual QString subwindowTitle(const QString &containerId) const {
         return containerId;
     }
-    // The head's context menu (right-click fallback + SYSMENU).
-    virtual void showContextMenu(QPoint globalPos) { Q_UNUSED(globalPos); }
+    // The head's context menu (right-click fallback + SYSMENU): the
+    // framework builds the Winamp-parity skeleton; embedders extend it
+    // through contributeMenu/handleMenuAction.  Q_INVOKABLE so the
+    // SYSMENU action (Host::showSystemMenu) can pop it by name via
+    // QMetaObject::invokeMethod.
+    Q_INVOKABLE virtual void showContextMenu(QPoint globalPos);
+    // Embedder items at a named anchor (see HeadMenu.h).  Anchors:
+    // context.play.end, context.afterPlay, context.options.end,
+    // context.playback.end, context.windows.end,
+    // context.visualization.end, context.top.end, wa5:<menu>.end.
+    virtual void contributeMenu(const QString &menuId,
+                                const QString &anchor, MenuBuilder &b) {
+        Q_UNUSED(menuId);
+        Q_UNUSED(anchor);
+        Q_UNUSED(b);
+    }
+    // First refusal on every selected menu action id (framework ids
+    // included).  Return true = consumed.
+    virtual bool handleMenuAction(const QString &actionId) {
+        Q_UNUSED(actionId);
+        return false;
+    }
+    // Open the Preferences dialog.  Return false to fall back to the
+    // framework dialog (lands in V5e; no-op until then).
+    virtual bool showPreferences() { return false; }
+    // Per-tick hook for embedder overlays (vis surfaces): the embedder
+    // calls it from its repaint tick (qtamp drives its MilkDrop overlay
+    // directly for now; wired framework-side when the repaint timer
+    // moves into HeadWindow).
+    virtual void overlayTick() {}
     // Embedder-owned actions get first refusal before the generic
     // dispatch (vis-overlay prev/next, ...).  Return true = consumed.
     virtual bool interceptAction(const QString &action,
@@ -196,15 +239,18 @@ protected:
     // Open the popup for a skin menu-bar button (`<Menu menu="WA5:X">`).
     // Returns the SIBLING menu widget to chain to when the cursor swept
     // onto it (the menu-bar sweep), or nullptr when the popup closed
-    // normally.  Default: no menu content, close immediately.
+    // normally.  The framework builds the WA5:* skeleton (unknown ids
+    // fall back to the context menu).
     virtual const Widget *openMenuBarMenu(const QString &menuId,
                                           QPoint anchor,
-                                          const Widget *source) {
-        Q_UNUSED(menuId);
-        Q_UNUSED(anchor);
-        Q_UNUSED(source);
-        return nullptr;
-    }
+                                          const Widget *source);
+
+    // File-pick flows (EJECT, PLAY on empty, Ctrl+O/L, menu items):
+    // hosts with providesFilePicker keep their own dialogs; otherwise
+    // the head's QFileDialog serves localFiles hosts and remote hosts
+    // are silently consumed (never a local dialog).
+    void ejectFlow();
+    QList<QUrl> headPickFiles(bool folder, bool enqueueOnly = false);
 
     // Engine paint hook: threads the colour-themes list state and the
     // vis mode into TreePainter (the engine stays a pure renderer).

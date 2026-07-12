@@ -36,6 +36,13 @@ struct HostCapabilities {
     // An in-process PCM analyzer exists (vis overlays that need raw
     // audio, e.g. MilkDrop, are possible).
     bool localAnalyzer = true;
+    // The host implements its own file picker (pickFile /
+    // openFilesAndEnqueue open real dialogs).  When false and
+    // localFiles is true, the HEAD supplies the file dialog
+    // (HeadWindow's picker); when localFiles is false too, file-pick
+    // flows are silently consumed (a remote player must never pop a
+    // local dialog).
+    bool providesFilePicker = false;
 };
 
 class PlayerHost : public QObject, public Host {

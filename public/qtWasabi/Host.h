@@ -82,9 +82,9 @@ public:
     virtual void    seekMs(qint64 ms) { Q_UNUSED(ms); }
     virtual void    setVolume(int v)  { Q_UNUSED(v); }
 
-    // ── EJECT — pick a file to play.  Default opens a QFileDialog
-    //    parented to `embedder` and returns the chosen URL, or an
-    //    empty QUrl if the user cancels.
+    // ── EJECT — pick a file to play.  The default is a NO-OP (the
+    //    dialog is a head affordance, capability-gated); hosts that
+    //    own a picker override this and return the chosen URL.
     virtual QUrl    pickFile(QWidget *embedder = nullptr);
 
     // ── Window-control actions.  Defaults are no-ops that return
