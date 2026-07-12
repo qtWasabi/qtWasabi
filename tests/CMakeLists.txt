@@ -128,3 +128,14 @@ if(TARGET qtwasabi_serve)
                     $<TARGET_FILE:fake-sidecar>)
     endif()
 endif()
+
+# HeadPreferences (V5e): pages, backend persistence, presentation
+# controls — the dialog gate (invisible to the pixel suite).
+if(TARGET qtwasabi_head)
+    add_executable(headprefs_test headprefs_test.cpp)
+    target_link_libraries(headprefs_test PRIVATE
+        qtwasabi_head qtwasabi_remote qtwasabi Qt6::Widgets)
+    add_test(NAME headprefs COMMAND headprefs_test)
+    set_tests_properties(headprefs PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+endif()

@@ -44,6 +44,8 @@ class SkinView;
 
 namespace qtWasabi::head {
 
+class HeadPreferences;
+
 // Image-size callback for Layout::hitTest / alphaHitTestList
 // (`userdata` = a BitmapRegistry*).  Handles the NStatesButton `<id>0`
 // naming fallback so state buttons without explicit w/h stay hittable.
@@ -128,6 +130,21 @@ public:
     void restyleOpenChrome();
     void prepareMenuForWayland(QMenu &menu);
     void setActiveGammaset(const QString &name) override;
+
+    // Append embedder pages to the framework Preferences dialog.
+    virtual void contributePrefPages(HeadPreferences &dlg) {
+        Q_UNUSED(dlg);
+    }
+    // Live-switch to another backend (Connection page "Use").  Return
+    // false when the head cannot reconnect at runtime — the choice is
+    // persisted and applies on the next start.  Orchestrated live
+    // switching (pausing the local player on switch-away) lands in V6.
+    virtual bool connectToBackend(const QString &url,
+                                  const QString &bearerToken) {
+        Q_UNUSED(url);
+        Q_UNUSED(bearerToken);
+        return false;
+    }
 
     // Headless menu-dump gate driver: build every menu this head can
     // show and print their trees (WASABIQT_DUMP_MENU short-circuits
@@ -220,9 +237,11 @@ protected:
         Q_UNUSED(actionId);
         return false;
     }
-    // Open the Preferences dialog.  Return false to fall back to the
-    // framework dialog (lands in V5e; no-op until then).
-    virtual bool showPreferences() { return false; }
+    // Open the Preferences dialog.  The default opens the framework
+    // HeadPreferences (Connection + Presentation pages); embedders
+    // with their own dialog override.
+    virtual bool showPreferences();
+
     // Per-tick hook for embedder overlays (vis surfaces): the embedder
     // calls it from its repaint tick (qtamp drives its MilkDrop overlay
     // directly for now; wired framework-side when the repaint timer

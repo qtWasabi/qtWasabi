@@ -107,6 +107,50 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V5 progress record (2026-07-12 — 5a–5e done, 5f open)
+
+The head framework exists as `qtwasabi_head` (namespace
+`qtWasabi::head`), extracted from the reference embedder in gated,
+byte-neutral steps:
+- **5a HeadChrome**: menu/dialog QSS builders, restyle sweep, Wayland
+  popup-grab prep — free functions over the public registries.
+- **5b HeadWindow** (3 steps): doc/theme/reload/runtime core with
+  SkinQuirks table + injected settings file; subwindow machinery;
+  the full input dispatch (Wasabi click protocol, drawer, colour-theme
+  list, visMode/timeDisplayMode) with embedder hooks.
+- **5c wireRuntime**: the seven engine↔head callback registrations as
+  one call.
+- **5d HeadMenu**: capability-gated Winamp-parity menu skeleton with
+  six extension points (contributeMenu/handleMenuAction/
+  showPreferences/skinDocumentChanged/overlayTick/interceptAction),
+  stable action-id namespace, EJECT/PLAY-on-empty through the
+  capability-gated head picker (engine `Host::pickFile` default is a
+  NO-OP now; `HostCapabilities.providesFilePicker` routes picker-owning
+  hosts). Gate: menu-tree dump (`WASABIQT_DUMP_MENU`) byte-identical
+  across two fixtures + dispatch leg (`WASABIQT_TEST_HEADMENU_PICK`);
+  right-click render byte-identical to the pre-extraction binary.
+- **5e HeadPreferences**: framework Preferences (default
+  `showPreferences`) with the Connection page (backend picker —
+  fixed local default, addable remote entries with bearer tokens,
+  persisted `[backends]`/`connection/active`; `connectToBackend` hook,
+  persist-only until V6 live-switch) and the Presentation page
+  (visualization, time display, colour theme — head-local per the sync
+  model). Embedder pages via `contributePrefPages`; player pages come
+  with uiExtensions later. Token plumbing: the head sends the exact
+  `Authorization: Bearer <token>` the pylon gate compares, from
+  QTAMP_BEARER_TOKEN or the stored backend entry matching the connect
+  URL (wire-asserted by a capture-server test). **Known gap**: the
+  wasm GET-subscribe leg cannot send headers (browser EventSource) and
+  the pylon has no query-param fallback — wasm heads cannot yet
+  authenticate against a token-gated pylon.
+- Standing gates through every step: six-skin pixel suite
+  byte-identical (both lanes), container_root MAE 1.295, corpus
+  fakehost lane, chrome self-test, interaction CLICK_AT A/B against
+  pre-extraction binaries, ctest family (now incl. `menu_dump`,
+  `headprefs`, `bearer_header`).
+- **Open**: 5f `apps/head` reference app (CLI, HeadShell.qml, FakeHost
+  default — delivers the standalone corpus renderer).
+
 # V4 gate record (2026-07-12)
 
 The gRPC player protocol is live; the swap was consumer-invisible:
