@@ -83,3 +83,32 @@ target_link_libraries(text_paint_test PRIVATE
 add_test(NAME text_paint COMMAND text_paint_test)
 set_tests_properties(text_paint PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# ── qtWasabi::remote family (moved from the reference embedder, V3) ──
+# Framework-free micro-tests: each returns non-zero on failure.
+
+add_executable(remotestate_test remotestate_test.cpp)
+target_link_libraries(remotestate_test PRIVATE qtwasabi_remote)
+add_test(NAME remotestate COMMAND remotestate_test)
+
+add_executable(ssereader_test ssereader_test.cpp)
+target_link_libraries(ssereader_test PRIVATE qtwasabi_remote)
+add_test(NAME ssereader COMMAND ssereader_test)
+
+# RemoteHost against an injected transport (no network). Gui for the
+# QObject/signal machinery; runs offscreen.
+add_executable(remotehost_test remotehost_test.cpp)
+target_link_libraries(remotehost_test PRIVATE
+    qtwasabi_remote qtwasabi_static Qt6::Gui)
+add_test(NAME remotehost COMMAND remotehost_test)
+set_tests_properties(remotehost PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# FakeHost: idle calibration, canned panel sections, the empty engine
+# default, deterministic interaction.
+add_executable(fakehost_test fakehost_test.cpp)
+target_link_libraries(fakehost_test PRIVATE
+    qtwasabi_remote qtwasabi_static Qt6::Gui)
+add_test(NAME fakehost COMMAND fakehost_test)
+set_tests_properties(fakehost PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

@@ -118,6 +118,33 @@ target_compile_options(qtwasabi_pledit PRIVATE
     -Wno-multichar -Wno-unused-parameter -Wno-unused-variable)
 set_target_properties(qtwasabi_pledit PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# ── qtwasabi_remote — the remote client family (qtWasabi::remote):
+# RemoteHost over an abstract transport (HTTP legacy, GraphQL over
+# HTTP/unix socket), the SSE decoder and the shared state document,
+# plus FakeHost (the deterministic scripted host).  Separate static
+# lib so the engine itself stays free of Qt6::Network.
+add_library(qtwasabi_remote STATIC
+    remote/RemoteState.cpp
+    remote/SseReader.cpp
+    remote/RemoteTransport.cpp
+    remote/GraphQLTransport.cpp
+    remote/RemoteHost.cpp
+    # Q_OBJECT public headers for AUTOMOC (as above)
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/remote/RemoteTransport.h
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/remote/GraphQLTransport.h
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/remote/RemoteHost.h
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/FakeHost.h)
+add_library(qtWasabi::Remote ALIAS qtwasabi_remote)
+target_include_directories(qtwasabi_remote
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/public>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
+target_link_libraries(qtwasabi_remote
+    PUBLIC Qt6::Core Qt6::Gui Qt6::Network)
+target_compile_features(qtwasabi_remote PUBLIC cxx_std_20)
+set_target_properties(qtwasabi_remote PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+
 # ── shared library ─────────────────────────────────────────────
 # QTWASABI_PORT_OBJECTS is a $<TARGET_OBJECTS:qtwasabi_port> generator
 # expression — each .o is embedded directly without an intermediate
