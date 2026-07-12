@@ -139,3 +139,11 @@ if(TARGET qtwasabi_head)
     set_tests_properties(headprefs PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
+
+# Reference-head smoke (V5f): byte-identical FakeHost renders vs the
+# embedder baselines, action dump, live-stack probe over unix sockets.
+if(TARGET qtwasabi-head)
+    add_test(NAME head_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/head_smoke_test.sh
+                ${CMAKE_BINARY_DIR})
+endif()

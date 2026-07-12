@@ -131,6 +131,9 @@ public:
     void prepareMenuForWayland(QMenu &menu);
     void setActiveGammaset(const QString &name) override;
 
+    // Per-tick hook for embedder overlays (vis surfaces): the head's
+    // repaint tick calls it.
+    virtual void overlayTick() {}
     // Append embedder pages to the framework Preferences dialog.
     virtual void contributePrefPages(HeadPreferences &dlg) {
         Q_UNUSED(dlg);
@@ -242,11 +245,7 @@ protected:
     // with their own dialog override.
     virtual bool showPreferences();
 
-    // Per-tick hook for embedder overlays (vis surfaces): the embedder
-    // calls it from its repaint tick (qtamp drives its MilkDrop overlay
-    // directly for now; wired framework-side when the repaint timer
-    // moves into HeadWindow).
-    virtual void overlayTick() {}
+
     // Embedder-owned actions get first refusal before the generic
     // dispatch (vis-overlay prev/next, ...).  Return true = consumed.
     virtual bool interceptAction(const QString &action,

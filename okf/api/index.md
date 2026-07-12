@@ -148,8 +148,25 @@ byte-neutral steps:
   fakehost lane, chrome self-test, interaction CLICK_AT A/B against
   pre-extraction binaries, ctest family (now incl. `menu_dump`,
   `headprefs`, `bearer_header`).
-- **Open**: 5f `apps/head` reference app (CLI, HeadShell.qml, FakeHost
-  default — delivers the standalone corpus renderer).
+- **5f qtwasabi-head** (apps/head): the reference head — FakeHost by
+  default, a remote head with --connect (graphql+http(s)/graphql+unix,
+  bearer tokens via the shared head::makeTransport), --skin/--container/
+  --screenshot/--probe/--list-actions (skin-agnostic action dump),
+  HeadShell.qml toplevel (QML window — a C++ QQuickWindow never maps on
+  wlroots), the full startup sequence (static well-known scripts → Maki
+  runtime in the load-bearing order), resize-relayout wiring,
+  SHOT_ALPHA/FORCE_RESIZE/CLICK_AT harness compat. **Gate — the head
+  app IS the renderer**: all six embedder pixel baselines render
+  BYTE-IDENTICALLY from qtwasabi-head, and the corpus lane run with
+  QTAMP=qtwasabi-head produces the embedder lane's exact MAE values
+  (20.2/4.5/22.6). head_smoke ctest: baselines + action dump + a LIVE
+  orchestrated probe (qtamp --serve-player → pylon on a unix socket →
+  head over graphql+unix).
+
+**V5 is complete.** The head framework carries chrome, window core,
+input dispatch, runtime wiring, menus, preferences and a reference
+application; the reference embedder is a thin branding/player layer
+over it.
 
 # V4 gate record (2026-07-12)
 

@@ -152,6 +152,7 @@ add_library(qtwasabi_head STATIC
     head/HeadChrome.cpp
     head/HeadMenu.cpp
     head/HeadPreferences.cpp
+    head/HeadTransport.cpp
     ${PROJECT_SOURCE_DIR}/public/qtWasabi/head/HeadPreferences.h
     head/HeadWindow.cpp
     head/HeadWiring.cpp
@@ -162,7 +163,7 @@ target_include_directories(qtwasabi_head
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/public>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_link_libraries(qtwasabi_head
-    PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick)
+    PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Quick qtwasabi_remote)
 target_compile_features(qtwasabi_head PUBLIC cxx_std_20)
 set_target_properties(qtwasabi_head PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
