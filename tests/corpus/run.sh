@@ -29,6 +29,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENGINE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 REF_DIR="$ENGINE_ROOT/tests/golden/corpus"
 QTAMP="${QTAMP:-$ENGINE_ROOT/../../build/qtamp}"
+# EMBEDDER=fakehost renders against the deterministic scripted host —
+# the framework gates itself without any player (Wasabi 2 V2 lane).
+EMBEDDER="${EMBEDDER:-qtamp}"
+EXTRA_ARGS=()
+if [[ "$EMBEDDER" == "fakehost" ]]; then EXTRA_ARGS+=(--fakehost); fi
 SKIN_DIR="${SKIN_DIR:-$HOME/.winamp/skins}"
 MANIFEST="$SCRIPT_DIR/manifest.tsv"
 TMPDIR="$(mktemp -d)"
@@ -88,7 +93,7 @@ while IFS=$'\t' read -r skin dir mae_limit ratio track fit; do
     fi
     HOME="$TMPDIR" WASABIQT_RENDER_RATIO="$ratio" \
         WASABIQT_SHOT_ALPHA=1 WASABIQT_FORCE_RESIZE="$forceresize" \
-        QT_QPA_PLATFORM=offscreen "$QTAMP" \
+        QT_QPA_PLATFORM=offscreen "$QTAMP" "${EXTRA_ARGS[@]}" \
         --modern-skin "$SKIN_DIR/$dir" \
         "$media" \
         --screenshot "$shot" >"$TMPDIR/$skin.log" 2>&1 || true
