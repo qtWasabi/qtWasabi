@@ -151,6 +151,7 @@ set_target_properties(qtwasabi_remote PROPERTIES
 add_library(qtwasabi_head STATIC
     head/HeadChrome.cpp
     head/HeadWindow.cpp
+    head/HeadWiring.cpp
     ${PROJECT_SOURCE_DIR}/public/qtWasabi/head/HeadWindow.h)
 add_library(qtWasabi::Head ALIAS qtwasabi_head)
 target_include_directories(qtwasabi_head
