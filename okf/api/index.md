@@ -107,6 +107,28 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V2 gate record (2026-07-12)
+
+The Host vtable is a real seam — the framework gates itself without any
+player:
+- `qtamp --fakehost` renders against FakeHost, the deterministic
+  scripted host (no clocks, no I/O; idle state calibrated to QtampHost).
+  Six-skin pixel suite: **byte-identical** to the committed baselines,
+  first try; normal QtampHost path unchanged (6/6 both lanes,
+  `FAKEHOST=1 tests/regression/run.sh`).
+- Corpus lane `EMBEDDER=fakehost tests/corpus/run.sh`: same MAE
+  thresholds as the qtamp lane, all PASS.
+- Panel-seam fix: MediaLibraryPanel no longer reads playlists/
+  bookmarks/history/devices from disk — new additive virtual
+  `Host::mlPanelChildren(ns)` (default: empty); QtampHost carries the
+  moved file code verbatim, FakeHost serves canned sections. ctest
+  `fakehost` covers idle calibration, canned sections, the empty
+  engine default, and deterministic interaction.
+- Known pre-existing (NOT V2): qtWasabi `layout_test` bit-rotted
+  against the Layout API (doesn't compile), `visual_diff` goldens
+  stale — both fail identically without the V2 seam; superseded by
+  the byte-identical regression + corpus suites.
+
 # V1 gate record (2026-07-12)
 
 The frontend speaks GraphQL — the invariant holds in the product:
