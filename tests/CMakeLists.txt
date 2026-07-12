@@ -112,3 +112,19 @@ target_link_libraries(fakehost_test PRIVATE
 add_test(NAME fakehost COMMAND fakehost_test)
 set_tests_properties(fakehost PROPERTIES
     ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+# ── player-protocol conformance (V4) ─────────────────────────────────
+# fake-sidecar = FakeHost behind SidecarService; probe.mjs drives it
+# over grpc-js (node modules from api/pylon).  This is the contract
+# gate every player implementation must pass.
+if(TARGET qtwasabi_serve)
+    add_executable(fake-sidecar conformance/fake-sidecar.cpp)
+    target_link_libraries(fake-sidecar PRIVATE
+        qtwasabi_serve qtwasabi_remote qtwasabi_static Qt6::Gui)
+    find_program(NODE_BIN node)
+    if(NODE_BIN)
+        add_test(NAME conformance
+            COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/conformance/run.sh
+                    $<TARGET_FILE:fake-sidecar>)
+    endif()
+endif()
