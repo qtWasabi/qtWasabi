@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(qlocal-spike CXX)
+set(CMAKE_CXX_STANDARD 20)
+find_package(Qt6 REQUIRED COMPONENTS Core Network)
+add_executable(qlocal-spike main.cpp)
+target_link_libraries(qlocal-spike PRIVATE Qt6::Core Qt6::Network)

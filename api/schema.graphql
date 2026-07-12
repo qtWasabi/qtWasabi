@@ -1,0 +1,327 @@
+type Query {
+  """
+  The full player snapshot — the resync path.  Refetch on epoch
+change or revision gap.
+  """
+  player: Player!
+  capabilities: Capabilities!
+  apiInfo: ApiInfo!
+  library(parent: String): [LibraryNode!]!
+  mlFilterValues(field: String!, countField: String): [MlFilterValue!]!
+  mlTracks(offset: Number, limit: Number): MlTrackPage!
+  uiExtensions: UiExtensions!
+}
+
+type Mutation {
+  play: CommandResult!
+  pause: CommandResult!
+  stop: CommandResult!
+  next: CommandResult!
+  prev: CommandResult!
+  seek(ms: Number!): CommandResult!
+  setVolume(v: Number!): CommandResult!
+  setPan(v: Number!): CommandResult!
+  setShuffle(on: Boolean!): CommandResult!
+  setRepeat(mode: String!): CommandResult!
+  setEqOn(on: Boolean!): CommandResult!
+  setEqAuto(on: Boolean!): CommandResult!
+  """
+  Preamp, Maki scale -127..127.
+  """
+  setEqPreamp(value: Number!): CommandResult!
+  """
+  Band 0..9, Maki scale -127..127.
+  """
+  setEqBand(band: Number!, value: Number!): CommandResult!
+  playRow(row: Number!, expectPlaylistRevision: Number): CommandResult!
+  setCurrentRow(row: Number!, expectPlaylistRevision: Number): CommandResult!
+  playlistAdd(paths: [String!]!): CommandResult!
+  playlistRemove(rows: [Number!]!, expectPlaylistRevision: Number): CommandResult!
+  playlistClear: CommandResult!
+  pleditCommand(verb: String!): CommandResult!
+  open(url: String!): CommandResult!
+  mlPlayTracks(paths: [String!]!, startRow: Number!, enqueueOnly: Boolean): CommandResult!
+  showPreferences: CommandResult!
+  setPlayerPref(key: String!, valueJson: String!): CommandResult!
+  invokeMenuItem(id: String!, context: InvokeMenuItemContextInput): CommandResult!
+}
+
+type Subscription {
+  """
+  Sectional pushes WITHOUT playlist rows.  First value after
+subscribing is the next change; do an initial Query.player for
+the snapshot.  kind=PING every 5s carries serverNowMs.
+  """
+  playerEvents: PlayerEvent!
+  """
+  Full row sets, pushed on playlist change.
+  """
+  playlistEvents: PlaylistEvent!
+  """
+  ≤20fps, produced only while subscribed and playing.
+  """
+  spectrumFrames: SpectrumFrame!
+  """
+  LOCAL connections only; refused on TCP by the serve layer.
+  """
+  pcmFrames: PcmFrame!
+}
+
+type Player {
+  epoch: String!
+  revision: Number!
+  serverNowMs: Number!
+  transport: Transport!
+  track: Track
+  playlist: Playlist!
+  eq: Eq!
+}
+
+type Transport {
+  playing: Boolean!
+  paused: Boolean!
+  positionMs: Number!
+  positionAtMs: Number!
+  durationMs: Number!
+  volume: Number!
+  pan: Number!
+  shuffle: Boolean!
+  repeat: Repeat!
+}
+
+type Track {
+  title: String!
+  artist: String!
+  album: String!
+  albumArtist: String!
+  genre: String!
+  year: String!
+  trackNo: String!
+  disc: String!
+  composer: String!
+  publisher: String!
+  streamGenre: String!
+  filename: String!
+  displayTitle: String!
+  decoder: String!
+  bitrate: Number!
+  sampleRate: Number!
+  channels: Number!
+  artToken: String
+  artUrl: String
+}
+
+type PlaylistMeta implements IPlaylistMeta {
+  revision: Number!
+  currentIndex: Number!
+  rowCount: Number!
+}
+
+type Playlist implements IPlaylistMeta {
+  rows: [PlaylistRow!]!
+  revision: Number!
+  currentIndex: Number!
+  rowCount: Number!
+}
+
+type PlaylistRow {
+  index: Number!
+  text: String!
+  durationMs: Number!
+}
+
+type Eq {
+  on: Boolean!
+  auto: Boolean!
+  preamp: Number!
+  bands: [Number!]!
+}
+
+type Capabilities {
+  localFiles: Boolean!
+  ingest: Boolean!
+  playlistEdit: Boolean!
+  library: Boolean!
+  mediaLibrary: Boolean!
+  visPcm: Boolean!
+  pcmStream: Boolean!
+  preferences: Boolean!
+  shuffleRepeat: Boolean!
+  musicRoot: String
+}
+
+type ApiInfo {
+  schemaVersion: String!
+  playerProtocol: String!
+  serverName: String!
+}
+
+type LibraryNode {
+  label: String!
+  path: String!
+  hasChildren: Boolean!
+}
+
+type MlFilterValue {
+  name: String!
+  count: Number!
+}
+
+type MlTrackPage {
+  totalCount: Number!
+  rows: [MlTrack!]!
+}
+
+type MlTrack {
+  artist: String!
+  album: String!
+  title: String!
+  genre: String!
+  trackNo: Number!
+  year: Number!
+  lengthMs: Number!
+  path: String!
+}
+
+type UiExtensions {
+  prefPages: [PrefPage!]!
+  menuItems: [MenuItem!]!
+}
+
+type PrefPage {
+  id: String!
+  title: String!
+  sections: [PrefSection!]!
+}
+
+type PrefSection {
+  title: String!
+  fields: [PrefField!]!
+}
+
+type PrefField {
+  key: String!
+  label: String!
+  type: Type!
+  valueJson: String!
+  min: Number
+  max: Number
+  step: Number
+  enumValues: [String!]!
+  maxLength: Number
+}
+
+type MenuItem {
+  id: String!
+  label: String!
+  section: String!
+  enabled: Boolean!
+  checkable: Boolean!
+  checked: Boolean!
+  children: [MenuItem!]!
+}
+
+type CommandResult {
+  ok: Boolean!
+  error: String
+  revision: Number!
+  player: Player!
+}
+
+type PlayerEvent {
+  kind: Kind!
+  epoch: String!
+  revision: Number!
+  serverNowMs: Number!
+  transport: Transport
+  track: Track
+  eq: Eq
+  playlist: IPlaylistMeta
+  uiExtensions: UiExtensions
+  capabilities: Capabilities
+}
+
+type PlaylistEvent {
+  epoch: String!
+  revision: Number!
+  serverNowMs: Number!
+  playlist: Playlist!
+}
+
+type SpectrumFrame {
+  serverNowMs: Number!
+  spectrum: String!
+  peaks: String
+  osc: String!
+  vuLeft: Number!
+  vuRight: Number!
+}
+
+type PcmFrame {
+  serverNowMs: Number!
+  sampleRate: Number!
+  channels: Number!
+  samples: String!
+}
+
+input InvokeMenuItemContextInput {
+  playlistRows: [Number!]
+  expectPlaylistRevision: Number
+  libraryPath: String
+}
+
+interface IPlaylistMeta {
+  revision: Number!
+  currentIndex: Number!
+  rowCount: Number!
+}
+
+scalar String
+
+scalar ID
+
+scalar Int
+
+scalar Float
+
+scalar Boolean
+
+scalar Number
+
+scalar Any
+
+scalar Void
+
+scalar JSONObject
+
+scalar File
+
+scalar Date
+
+scalar JSON
+
+enum Repeat {
+  OFF
+  ALL
+  ONE
+}
+
+enum Type {
+  BOOL
+  INT
+  FLOAT
+  STRING
+  ENUM
+  PATH
+}
+
+enum Kind {
+  STATE
+  TRANSPORT
+  TRACK
+  EQ
+  PLAYLIST_META
+  UI_EXTENSIONS
+  CAPABILITIES
+  PING
+}

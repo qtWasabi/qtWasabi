@@ -1,0 +1,26 @@
+// V0 spike proto — a miniature of api/player.proto: unary state read +
+// server-streamed events, both answered from a Qt-main-thread host.
+syntax = "proto3";
+package wasabi.spike;
+
+message StateRequest {}
+
+message Transport {
+  bool playing = 1;
+  int64 position_ms = 2;
+  int32 volume = 3;
+}
+
+message State {
+  string epoch = 1;
+  int64 revision = 2;
+  int64 server_now_ms = 3;
+  Transport transport = 4;
+}
+
+message EventsRequest {}
+
+service SpikePlayer {
+  rpc GetState(StateRequest) returns (State);
+  rpc Events(EventsRequest) returns (stream State);
+}

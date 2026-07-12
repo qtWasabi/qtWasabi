@@ -1,0 +1,407 @@
+// qtWasabi player protocol v1.0.0 (Wasabi 2)
+//
+// THE contract every player implements — C++, Go, Rust, TS: one uniform
+// pattern.  A player is a gRPC service on a unix socket; the framework's
+// pylon fronts it as the one and only GraphQL server.  Consumers never
+// speak this protocol; player implementers never serve GraphQL.
+//
+// Sync semantics (carried verbatim from the verified remote split):
+//   - `epoch` is a fresh UUID per player boot.  An epoch change tells
+//     the pylon to drop every cache and refetch GetState.
+//   - `revision` is a global monotonic change counter.  Streams are
+//     ordered and reliable, so a revision gap cannot happen WITHIN a
+//     stream; after a stream drop the pylon reconnects and resyncs via
+//     GetState.
+//   - Position is NEVER pushed on a timer.  Transport events fire on
+//     edges only; `position_ms` is valid at `position_at_ms` (server
+//     monotonic clock) and consumers interpolate (PositionClock).
+//   - The 5s Ping event carries `server_now_ms` as the clock beacon.
+//
+// EQ scale: bands and preamp travel as -127..127 (the Maki script
+// scale).  The historic 0..63 wire scale double-quantizes Maki EQ
+// steppers into no-ops; skins convert at the slider edge instead.
+//
+// Frames: SpectrumFrames/PcmFrames carry binary `bytes` here; base64
+// happens only at the GraphQL/SSE edge.  PCM is produced only while a
+// stream is open, buffered losslessly, and intended for LOCAL
+// consumers (the pylon refuses to bridge it on non-local transports).
+syntax = "proto3";
+package wasabi.player.v1;
+
+// ── shared ───────────────────────────────────────────────────────────
+
+message Version {
+  // Semver of this protocol the player implements, e.g. "1.0.0".
+  string protocol = 1;
+  // Player implementation name + version, e.g. "qtamp-player 0.5".
+  string player = 2;
+}
+
+message Transport {
+  bool playing = 1;
+  bool paused = 2;
+  int64 position_ms = 3;
+  int64 position_at_ms = 4;   // server clock at sampling
+  int64 duration_ms = 5;
+  int32 volume = 6;           // 0..100
+  double pan = 7;             // 0..1, 0.5 = centre
+  bool shuffle = 8;           // capability-gated
+  Repeat repeat = 9;          // capability-gated
+}
+
+enum Repeat {
+  REPEAT_OFF = 0;
+  REPEAT_ALL = 1;
+  REPEAT_ONE = 2;
+}
+
+message Track {
+  string title = 1;
+  string artist = 2;
+  string album = 3;
+  string album_artist = 4;
+  string genre = 5;
+  string year = 6;
+  string track_no = 7;
+  string disc = 8;
+  string composer = 9;
+  string publisher = 10;
+  string stream_genre = 11;
+  string filename = 12;
+  string display_title = 13;
+  string decoder = 14;
+  int32 bitrate = 15;
+  int32 sample_rate = 16;
+  int32 channels = 17;
+  // Stable per-artwork token; changes exactly when the art changes.
+  // The pylon serves GET /art/current with ETag == art_token.
+  string art_token = 18;
+}
+
+message PlaylistRow {
+  int32 index = 1;
+  string text = 2;
+  int64 duration_ms = 3;
+}
+
+message Playlist {
+  int64 revision = 1;         // playlist-local counter, guards row ops
+  int32 current_index = 2;    // -1 = none
+  int32 row_count = 3;
+  repeated PlaylistRow rows = 4;  // only when SECTION_PLAYLIST_ROWS asked
+}
+
+message Eq {
+  bool on = 1;
+  bool auto = 2;
+  int32 preamp = 3;           // -127..127
+  repeated int32 bands = 4;   // 10 x -127..127
+}
+
+message Capabilities {
+  bool local_files = 1;       // player accepts local filesystem paths
+  bool ingest = 2;            // player accepts uploaded media
+  bool playlist_edit = 3;     // pledit verbs / row mutations
+  bool library = 4;           // library tree
+  bool media_library = 5;     // ml* query surface
+  bool vis_pcm = 6;           // SpectrumFrames available
+  bool pcm_stream = 7;        // PcmFrames available (local only)
+  bool preferences = 8;       // ShowPreferences reachable
+  bool shuffle_repeat = 9;
+  string music_root = 10;     // path confinement root, empty = none
+}
+
+// ── state, sectioned ─────────────────────────────────────────────────
+
+// Section mask: GetState and Command echoes return ONLY the requested
+// sections.  Mutations must never drag full playlist rows through the
+// pylon; PLAYLIST_META carries counts/current row without rows.
+enum Section {
+  SECTION_UNSPECIFIED = 0;
+  SECTION_TRANSPORT = 1;
+  SECTION_TRACK = 2;
+  SECTION_PLAYLIST_META = 3;
+  SECTION_PLAYLIST_ROWS = 4;
+  SECTION_EQ = 5;
+  SECTION_CAPABILITIES = 6;
+  SECTION_UI_EXTENSIONS = 7;
+}
+
+message StateRequest {
+  repeated Section sections = 1;  // empty = TRANSPORT+TRACK+PLAYLIST_META+EQ
+}
+
+message State {
+  string epoch = 1;
+  int64 revision = 2;
+  int64 server_now_ms = 3;
+  Transport transport = 4;
+  Track track = 5;
+  Playlist playlist = 6;
+  Eq eq = 7;
+  Capabilities capabilities = 8;
+  UiExtensions ui_extensions = 9;
+}
+
+// ── commands ─────────────────────────────────────────────────────────
+
+message Command {
+  oneof op {
+    PlayOp play = 1;
+    PauseOp pause = 2;
+    StopOp stop = 3;
+    NextOp next = 4;
+    PrevOp prev = 5;
+    SeekOp seek = 6;
+    SetVolumeOp set_volume = 7;
+    SetPanOp set_pan = 8;
+    SetShuffleOp set_shuffle = 9;
+    SetRepeatOp set_repeat = 10;
+    SetEqOnOp set_eq_on = 11;
+    SetEqAutoOp set_eq_auto = 12;
+    SetEqPreampOp set_eq_preamp = 13;
+    SetEqBandOp set_eq_band = 14;
+    PlayRowOp play_row = 15;
+    SetCurrentRowOp set_current_row = 16;
+    PlaylistAddOp playlist_add = 17;
+    PlaylistRemoveOp playlist_remove = 18;
+    PlaylistClearOp playlist_clear = 19;
+    PleditVerbOp pledit_verb = 20;
+    OpenOp open = 21;
+    MlPlayTracksOp ml_play_tracks = 22;
+    ShowPreferencesOp show_preferences = 23;
+    SetPrefOp set_pref = 24;            // uiExtensions pref value
+    InvokeMenuItemOp invoke_menu_item = 25;
+  }
+  // Echo only these sections in CommandResult.state (never rows unless
+  // explicitly asked — and mutations should not ask).
+  repeated Section echo = 30;
+}
+
+message PlayOp {}
+message PauseOp {}
+message StopOp {}
+message NextOp {}
+message PrevOp {}
+message SeekOp { int64 ms = 1; }
+message SetVolumeOp { int32 v = 1; }          // 0..100
+message SetPanOp { double v = 1; }            // 0..1
+message SetShuffleOp { bool on = 1; }
+message SetRepeatOp { Repeat mode = 1; }
+message SetEqOnOp { bool on = 1; }
+message SetEqAutoOp { bool on = 1; }
+message SetEqPreampOp { int32 value = 1; }    // -127..127
+message SetEqBandOp { int32 band = 1; int32 value = 2; }  // -127..127
+message PlayRowOp { int32 row = 1; optional int64 expect_playlist_revision = 2; }
+message SetCurrentRowOp { int32 row = 1; optional int64 expect_playlist_revision = 2; }
+message PlaylistAddOp { repeated string paths = 1; }
+message PlaylistRemoveOp { repeated int32 rows = 1; optional int64 expect_playlist_revision = 2; }
+message PlaylistClearOp {}
+enum PleditVerb {
+  PLEDIT_VERB_UNSPECIFIED = 0;
+  PE_ADD = 1;
+  PE_REM = 2;
+  PE_SEL = 3;
+  PE_MISC = 4;
+  PE_LIST = 5;
+}
+message PleditVerbOp { PleditVerb verb = 1; }
+message OpenOp { string url = 1; }            // music-root confined
+message MlPlayTracksOp {
+  repeated string paths = 1;
+  int32 start_row = 2;
+  bool enqueue_only = 3;
+}
+message ShowPreferencesOp {}
+message SetPrefOp { string key = 1; string value_json = 2; }
+message InvokeMenuItemOp {
+  string id = 1;
+  MenuContext context = 2;
+}
+message MenuContext {
+  repeated int32 playlist_rows = 1;
+  optional int64 expect_playlist_revision = 2;
+  string library_path = 3;
+}
+
+message CommandResult {
+  bool ok = 1;
+  string error = 2;           // empty when ok
+  int64 revision = 3;
+  State state = 4;            // sections per Command.echo
+}
+
+// ── events ───────────────────────────────────────────────────────────
+
+message EventsRequest {}
+
+message Event {
+  string epoch = 1;
+  int64 revision = 2;
+  int64 server_now_ms = 3;
+  oneof payload {
+    Transport transport = 4;
+    Track track = 5;
+    Playlist playlist_meta = 6;   // rows empty — meta only
+    Playlist playlist_rows = 7;   // full rows (playlist change)
+    Eq eq = 8;
+    Ping ping = 9;
+    UiExtensions ui_extensions = 10;
+    Capabilities capabilities = 11;
+  }
+}
+
+message Ping {}
+
+// ── vis / pcm streams ────────────────────────────────────────────────
+
+message SpectrumRequest {}
+
+message SpectrumFrame {
+  int64 server_now_ms = 1;
+  bytes spectrum = 2;   // 19 x u8, 0..255 = 0..1
+  bytes peaks = 3;      // 19 x u8; empty when peaks disabled
+  bytes osc = 4;        // 75 x i8 (two's complement), -128..127 = -1..1
+  float vu_left = 5;
+  float vu_right = 6;
+}
+
+message PcmRequest {}
+
+message PcmFrame {
+  int64 server_now_ms = 1;
+  int32 sample_rate = 2;
+  int32 channels = 3;
+  bytes samples = 4;    // interleaved s16le
+}
+
+// ── album art ────────────────────────────────────────────────────────
+
+message ArtRequest { string token = 1; }  // empty = current
+
+// Streamed in <=256 KiB chunks: embedded cover art can exceed gRPC's
+// default 4 MB unary cap.
+message ArtChunk {
+  string token = 1;
+  string mime = 2;      // first chunk only
+  bytes data = 3;
+}
+
+// ── library / media library ──────────────────────────────────────────
+
+message LibraryRequest { string parent = 1; }
+message LibraryNode {
+  string label = 1;
+  string path = 2;
+  bool has_children = 3;
+}
+message LibraryReply { repeated LibraryNode nodes = 1; }
+
+enum MlField {
+  ML_FIELD_UNSPECIFIED = 0;
+  ARTIST = 1;
+  ALBUMARTIST = 2;
+  ALBUM = 3;
+  GENRE = 4;
+  YEAR = 5;
+}
+message MlEquals { MlField field = 1; string value = 2; }
+enum MlSmartView {
+  ML_ALL = 0;
+  ML_VIDEO = 1;
+  ML_MOST_PLAYED = 2;
+  ML_RECENTLY_ADDED = 3;
+  ML_RECENTLY_PLAYED = 4;
+  ML_NEVER_PLAYED = 5;
+  ML_TOP_RATED = 6;
+}
+
+message MlFilterRequest {
+  MlField field = 1;
+  optional MlField count_field = 2;
+  repeated MlEquals where = 3;
+}
+message MlFilterValue { string name = 1; int32 count = 2; }
+message MlFilterReply { repeated MlFilterValue values = 1; }
+
+message MlTracksRequest {
+  repeated MlEquals where = 1;
+  MlSmartView smart_view = 2;
+  int32 offset = 3;
+  int32 limit = 4;
+}
+message MlTrack {
+  string artist = 1;
+  string album = 2;
+  string title = 3;
+  string genre = 4;
+  int32 track_no = 5;
+  int32 year = 6;
+  int64 length_ms = 7;
+  string path = 8;
+}
+message MlTracksReply { int32 total_count = 1; repeated MlTrack rows = 2; }
+
+// ── server-driven UI (contract now, implementation later) ────────────
+
+message UiExtensions {
+  repeated PrefPage pref_pages = 1;
+  repeated MenuItem menu_items = 2;
+}
+message PrefPage {
+  string id = 1;
+  string title = 2;
+  repeated PrefSection sections = 3;
+}
+message PrefSection {
+  string title = 1;
+  repeated PrefField fields = 2;
+}
+message PrefField {
+  string key = 1;
+  string label = 2;
+  PrefFieldType type = 3;
+  string value_json = 4;      // current value
+  // validation
+  optional double min = 5;
+  optional double max = 6;
+  optional double step = 7;
+  repeated string enum_values = 8;
+  optional int32 max_length = 9;
+}
+enum PrefFieldType {
+  PREF_FIELD_UNSPECIFIED = 0;
+  BOOL = 1;
+  INT = 2;
+  FLOAT = 3;
+  STRING = 4;
+  ENUM = 5;
+  PATH = 6;   // heads render text-with-picker on LOCAL connections only
+}
+message MenuItem {
+  string id = 1;
+  string label = 2;
+  // Anchor section in the head's generic menu skeleton, e.g. "play",
+  // "options", "playback", "windows", "footer".
+  string section = 3;
+  bool enabled = 4;
+  bool checkable = 5;
+  bool checked = 6;
+  repeated MenuItem children = 7;
+}
+
+// ── the service ──────────────────────────────────────────────────────
+
+service Player {
+  rpc GetVersion(StateRequest) returns (Version);
+  rpc GetCapabilities(StateRequest) returns (Capabilities);
+  rpc GetState(StateRequest) returns (State);
+  rpc Execute(Command) returns (CommandResult);
+  rpc Events(EventsRequest) returns (stream Event);
+  rpc SpectrumFrames(SpectrumRequest) returns (stream SpectrumFrame);
+  rpc PcmFrames(PcmRequest) returns (stream PcmFrame);
+  rpc GetArt(ArtRequest) returns (stream ArtChunk);
+  rpc Library(LibraryRequest) returns (LibraryReply);
+  rpc MlFilterValues(MlFilterRequest) returns (MlFilterReply);
+  rpc MlTracks(MlTracksRequest) returns (MlTracksReply);
+}

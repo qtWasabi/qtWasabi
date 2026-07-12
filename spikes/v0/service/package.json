@@ -1,0 +1,22 @@
+{
+  "name": "wasabi2-v0-spike-service",
+  "private": true,
+  "type": "module",
+  "description": "V0 spike: Pylon v3 (pinned feat/v3-fullstack) — typed subscription payloads, unix-socket serving, pages sanity. Not product code.",
+  "scripts": {
+    "build": "PYLON_DISABLE_TELEMETRY=true node node_modules/@getcronit/pylon-dev/dist/index.js build",
+    "start": "node --enable-source-maps .pylon/index.js",
+    "start:unix": "node --enable-source-maps run-unix.mjs"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "file:../vendor/getcronit-pylon-2.9.5.tgz",
+    "@getcronit/pylon-query": "file:../vendor/getcronit-pylon-query-0.0.0.tgz",
+    "@hono/node-server": "^1.13.0"
+  },
+  "devDependencies": {
+    "@getcronit/pylon-dev": "file:../vendor/getcronit-pylon-dev-1.0.5.tgz",
+    "@getcronit/pylon-ir": "file:../vendor/getcronit-pylon-ir-0.0.0.tgz",
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.3"
+  }
+}

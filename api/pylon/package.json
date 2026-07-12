@@ -1,0 +1,23 @@
+{
+  "name": "qtwasabi-pylon",
+  "private": true,
+  "type": "module",
+  "version": "2.0.0",
+  "description": "THE GraphQL server of the qtWasabi framework (Wasabi 2). Schema v2 source of truth; fronts any player implementing api/player.proto. Built on Pylon v3 (pinned feat/v3-fullstack + local typed-subscriptions patch).",
+  "scripts": {
+    "build": "PYLON_DISABLE_TELEMETRY=true node node_modules/@getcronit/pylon-dev/dist/index.js build",
+    "start": "node --enable-source-maps .pylon/index.js",
+    "schema": "npm run build && cp .pylon/schema.graphql ../schema.graphql"
+  },
+  "dependencies": {
+    "@getcronit/pylon": "file:vendor/getcronit-pylon-2.9.5.tgz",
+    "@getcronit/pylon-query": "file:vendor/getcronit-pylon-query-0.0.0.tgz",
+    "@hono/node-server": "^1.13.0"
+  },
+  "devDependencies": {
+    "@getcronit/pylon-dev": "file:vendor/getcronit-pylon-dev-1.0.5.tgz",
+    "@getcronit/pylon-ir": "file:vendor/getcronit-pylon-ir-0.0.0.tgz",
+    "@types/node": "^22.0.0",
+    "typescript": "5.9.3"
+  }
+}
