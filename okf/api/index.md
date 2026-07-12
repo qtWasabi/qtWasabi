@@ -107,6 +107,38 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V3 gate record (2026-07-12)
+
+Moves + schema completion, behavior-neutral + additive:
+- **Moves**: `qtWasabi::PlayerHost` (public/qtWasabi/PlayerHost.h, with
+  HostCapabilities replacing the deleted isRemote(); analyzerPtr +
+  window binding stay in the embedder shim); the remote client family +
+  FakeHost live in the framework (public/qtWasabi/remote + src/remote,
+  static lib `qtwasabi_remote`, wasm glue symbols `qtwasabi_es_*`);
+  their unit tests run under qtWasabi's ctest. The embedder's legacy
+  pylon/ dir is gone; PROTOCOL.md sits in the embedder's docs/ with a
+  legacy note until the V9 tombstone.
+- **Completion**: real EQ preamp end-to-end (the DSP always had the
+  axis; channel op + /state + RemoteHost preamp param); EQ auto as
+  stored player state; rich track metadata as an additive channel
+  `track.meta` object mapped onto the schema's Track fields and served
+  through RemoteHost::playItemMetaData; bearer gate on TCP serving
+  (loopback open, non-loopback needs PYLON_BEARER_TOKEN, refused
+  without one configured); uiExtensions/capabilities/artToken/pledit
+  mutations unchanged since V0 (contract-complete).
+- 🔑 **EQ scale fix**: the channel wire carries the classic slider
+  POSITION scale (0 = top = +12 dB); the old channel↔Maki conversion
+  was sign-inverted (boost read as cut) and additionally swallowed
+  slider 0 through a `|| 31` falsy default. Both fixed and pinned by
+  vitest + the e2e preamp round trip (GraphQL +127 ⇒ channel slider 0).
+- Gates: pylon vitest (channelmap + auth) green; e2e-channel (TCP +
+  unix, incl. preamp/auto round trip) green; graphql_sync (both
+  GraphQL transports) green; e2e-remote (schema v2, random ports)
+  green; six-skin pixel suite byte-identical on both lanes; ctest
+  family green. **Open**: the wasm head rebuild + cdp gate runs on the
+  build server (local x86 builder fails under 16K-page emulation) —
+  pending the user-gated server leg.
+
 # V2 gate record (2026-07-12)
 
 The Host vtable is a real seam — the framework gates itself without any
