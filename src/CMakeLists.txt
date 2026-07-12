@@ -145,6 +145,51 @@ target_compile_features(qtwasabi_remote PUBLIC cxx_std_20)
 set_target_properties(qtwasabi_remote PROPERTIES
     POSITION_INDEPENDENT_CODE ON)
 
+# ── qtwasabi_serve — the framework's stock player-protocol server
+# (api/player.proto v1 over gRPC on a unix socket, backed by a
+# PlayerHost).  Built only where grpc++ exists; the wasm/head-only
+# builds never need it.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(GRPCPP IMPORTED_TARGET grpc++)
+    pkg_check_modules(SERVE_PROTOBUF IMPORTED_TARGET protobuf)
+endif()
+find_program(GRPC_CPP_PLUGIN grpc_cpp_plugin)
+if(GRPCPP_FOUND AND SERVE_PROTOBUF_FOUND AND GRPC_CPP_PLUGIN)
+    set(PLAYER_PROTO ${PROJECT_SOURCE_DIR}/api/player.proto)
+    set(PLAYER_PROTO_GEN ${CMAKE_CURRENT_BINARY_DIR}/player-proto)
+    file(MAKE_DIRECTORY ${PLAYER_PROTO_GEN})
+    add_custom_command(
+        OUTPUT ${PLAYER_PROTO_GEN}/player.pb.cc ${PLAYER_PROTO_GEN}/player.pb.h
+               ${PLAYER_PROTO_GEN}/player.grpc.pb.cc ${PLAYER_PROTO_GEN}/player.grpc.pb.h
+        COMMAND protoc --proto_path=${PROJECT_SOURCE_DIR}/api
+                --cpp_out=${PLAYER_PROTO_GEN} --grpc_out=${PLAYER_PROTO_GEN}
+                --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN}
+                ${PLAYER_PROTO}
+        DEPENDS ${PLAYER_PROTO}
+        VERBATIM)
+    add_library(qtwasabi_serve STATIC
+        serve/SidecarService.cpp
+        ${PLAYER_PROTO_GEN}/player.pb.cc
+        ${PLAYER_PROTO_GEN}/player.grpc.pb.cc)
+    add_library(qtWasabi::Serve ALIAS qtwasabi_serve)
+    target_include_directories(qtwasabi_serve
+        PUBLIC
+            $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/public>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE ${PLAYER_PROTO_GEN})
+    target_link_libraries(qtwasabi_serve
+        PUBLIC Qt6::Core Qt6::Gui
+        PRIVATE PkgConfig::GRPCPP PkgConfig::SERVE_PROTOBUF)
+    target_compile_features(qtwasabi_serve PUBLIC cxx_std_20)
+    set_target_properties(qtwasabi_serve PROPERTIES
+        POSITION_INDEPENDENT_CODE ON)
+    # Generated protobuf code under -Wall is noisy; keep it quiet.
+    target_compile_options(qtwasabi_serve PRIVATE -Wno-unused-parameter)
+else()
+    message(STATUS "grpc++/protobuf/grpc_cpp_plugin not found — qtwasabi_serve (player protocol) disabled")
+endif()
+
 # ── shared library ─────────────────────────────────────────────
 # QTWASABI_PORT_OBJECTS is a $<TARGET_OBJECTS:qtwasabi_port> generator
 # expression — each .o is embedded directly without an intermediate
