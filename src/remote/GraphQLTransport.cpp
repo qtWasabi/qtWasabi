@@ -28,8 +28,12 @@ const char *GraphQLTransportBase::kPlayerEventsSub =
     "eq{on auto preamp bands}}}";
 
 namespace {
-int eq63ToMaki(int v) { return qRound(v / 63.0 * 254.0) - 127; }
-int eqMakiTo63(int v) { return qRound((v + 127) / 254.0 * 63.0); }
+// The channel doc carries the classic slider POSITION scale (0 = top
+// = +12 dB boost); GraphQL carries Maki GAIN (-127..127, +127 boost).
+// Opposite directions — the mapping inverts (matches api/pylon vitest
+// and the reference player's slider store).
+int eq63ToMaki(int v) { return qBound(-127, qRound((31 - v) * 127.0 / 31.0), 127); }
+int eqMakiTo63(int v) { return qBound(0, qRound(31.0 - v * 31.0 / 127.0), 63); }
 
 QJsonObject eqToChannel(const QJsonObject &eq) {
     QJsonArray bands63;
@@ -77,12 +81,12 @@ QJsonObject GraphQLTransportBase::requestForCommand(const QJsonObject &cmd) {
                          : QStringLiteral("false"));
     } else if (op == QLatin1String("setEqPreamp")) {
         q = QStringLiteral("mutation{setEqPreamp(value:%1){ok error revision}}")
-                .arg(eq63ToMaki(args.value(QStringLiteral("v")).toInt()));
+                .arg(eq63ToMaki(args.value(QStringLiteral("value")).toInt()));
     } else if (op == QLatin1String("setEqBand")) {
         q = QStringLiteral(
                 "mutation{setEqBand(band:%1,value:%2){ok error revision}}")
                 .arg(args.value(QStringLiteral("band")).toInt())
-                .arg(eq63ToMaki(args.value(QStringLiteral("v")).toInt()));
+                .arg(eq63ToMaki(args.value(QStringLiteral("value")).toInt()));
     } else if (op == QLatin1String("playlistPlayRow") ||
                op == QLatin1String("playlistSetCurrentRow")) {
         const QString field = op == QLatin1String("playlistPlayRow")

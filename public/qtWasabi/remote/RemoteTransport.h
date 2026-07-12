@@ -63,40 +63,6 @@ void wasmEsOpen(RemoteTransport *t, const QUrl &url);
 void wasmEsClose(RemoteTransport *t);
 #endif
 
-// The real thing: QNetworkAccessManager for requests, a streaming GET
-// feeding SseReader for events, capped-backoff reconnect. Extra headers
-// (CF Access service tokens) ride on every request.
-class HttpTransport : public RemoteTransport {
-    Q_OBJECT
-public:
-    explicit HttpTransport(QObject *parent = nullptr);
-    ~HttpTransport() override;
-
-    // e.g. {"CF-Access-Client-Id", "..."}; applied to every request.
-    void setExtraHeaders(const QList<QPair<QByteArray, QByteArray>> &h) {
-        m_headers = h;
-    }
-
-    void postJson(const QUrl &url, const QJsonObject &body,
-                  JsonCallback cb) override;
-    void getJson(const QUrl &url, JsonCallback cb) override;
-    void getBytes(const QUrl &url, BytesCallback cb) override;
-    void openEventStream(const QUrl &url) override;
-    void closeEventStream() override;
-
-private:
-    void scheduleReconnect();
-    QNetworkRequest makeRequest(const QUrl &url) const;
-
-    QNetworkAccessManager *m_nam;
-    QList<QPair<QByteArray, QByteArray>> m_headers;
-    QNetworkReply *m_stream = nullptr;
-    SseReader m_sse;
-    QUrl m_streamUrl;
-    int m_backoffMs = 500;
-    bool m_closing = false;
-};
-
 // Test double: scripted replies, manual event injection, an op log.
 class InjectedTransport : public RemoteTransport {
     Q_OBJECT
