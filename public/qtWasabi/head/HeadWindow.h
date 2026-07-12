@@ -18,6 +18,8 @@
 #pragma once
 
 #include <QHash>
+#include <QPoint>
+#include <QRect>
 #include <QString>
 
 #include <qtWasabi/PlayerHost.h>
@@ -27,6 +29,10 @@
 
 class QFileSystemWatcher;
 class QMenu;
+class QMouseEvent;
+class QKeyEvent;
+class QWheelEvent;
+class QPainter;
 class QTimer;
 
 namespace qtWasabi {
@@ -34,6 +40,11 @@ class SkinView;
 }
 
 namespace qtWasabi::head {
+
+// Image-size callback for Layout::hitTest / alphaHitTestList
+// (`userdata` = a BitmapRegistry*).  Handles the NStatesButton `<id>0`
+// naming fallback so state buttons without explicit w/h stay hittable.
+QSize imageSizeForHitTest(const QString &bitmapId, void *userdata);
 
 class HeadWindow : public SkinQuickItem {
     Q_OBJECT
@@ -120,6 +131,47 @@ public:
     // prev/next ring and the menu/dialog re-tint.  Prints PASS/FAIL.
     void runChromeSelfTest(const QString &themeName);
 
+    // ── Visualisation mode (head-local) ───────────────────────────────
+    //    0=Off, 1=Spectrum (default), 2=Oscilloscope, 3=VU meter.
+    int  visMode() const { return m_visMode; }
+    void setVisMode(int m);
+
+    // ── Time-display mode (skin-level) ────────────────────────────────
+    //    1 = elapsed, 2 = remaining (countdown).  One state shared
+    //    with the skin scripts through the per-skin
+    //    TimerElapsedRemaining slot, nudged via onTitleChange.
+    int  timeDisplayMode() const;
+    void setTimeDisplayMode(int mode);
+
+    // ── Colour-themes list state (head-local) ─────────────────────────
+    int     colorThemesSelectedRow() const { return m_ctSelectedRow; }
+    void    setColorThemesSelectedRow(int row) {
+        m_ctSelectedRow = row;
+        update();
+    }
+    int     colorThemesTopRow() const { return m_ctTopRow; }
+    void    setColorThemesTopRow(int row) {
+        m_ctTopRow = row;
+        update();
+    }
+    QRect   colorThemesListRect() const { return m_ctListRect; }
+
+    // Perform a widget's `action=` exactly as a real click would — the
+    // engine calls this (registerSkinWidgetClickCallback) from Maki's
+    // GuiObject.leftClick()/rightClick() delegation.
+    bool triggerWidgetActionById(const QString &id, bool right);
+
+    // Drawer machinery (canonical Wasabi drawer/config-tab ids) —
+    // engine-interim fixups that mirror configtabs.m / videoavs.m
+    // until the Maki Timer chain drives them end to end.
+    void mousePressEventForTab(int tab) {
+        switchDrawerTab(tab);
+        update();
+    }
+    void setDrawerOpen(bool open);
+    void switchDrawerTab(int tab);
+    void applyDrawerModeFixup(const QString &clickedId);
+
 protected:
     // A new skin document was adopted (initial load or reload).
     virtual void skinDocumentChanged() {}
@@ -131,12 +183,79 @@ protected:
     virtual QString subwindowTitle(const QString &containerId) const {
         return containerId;
     }
+    // The head's context menu (right-click fallback + SYSMENU).
+    virtual void showContextMenu(QPoint globalPos) { Q_UNUSED(globalPos); }
+    // Embedder-owned actions get first refusal before the generic
+    // dispatch (vis-overlay prev/next, ...).  Return true = consumed.
+    virtual bool interceptAction(const QString &action,
+                                 const QString &param) {
+        Q_UNUSED(action);
+        Q_UNUSED(param);
+        return false;
+    }
+    // Open the popup for a skin menu-bar button (`<Menu menu="WA5:X">`).
+    // Returns the SIBLING menu widget to chain to when the cursor swept
+    // onto it (the menu-bar sweep), or nullptr when the popup closed
+    // normally.  Default: no menu content, close immediately.
+    virtual const Widget *openMenuBarMenu(const QString &menuId,
+                                          QPoint anchor,
+                                          const Widget *source) {
+        Q_UNUSED(menuId);
+        Q_UNUSED(anchor);
+        Q_UNUSED(source);
+        return nullptr;
+    }
+
+    // Engine paint hook: threads the colour-themes list state and the
+    // vis mode into TreePainter (the engine stays a pure renderer).
+    void paintInto(QPainter *p, const QSize &canvas) override;
+
+    // Input dispatch: full Wasabi click protocol (script first refusal,
+    // action dispatch, alpha hit-list bubbling, drawer tabs, colour-
+    // themes list, window drag/edge-resize fallback).
+    void mousePressEvent(QMouseEvent *e) override;
+    void mouseMoveEvent(QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
+    void wheelEvent(QWheelEvent *e) override;
+
+    // Widget currently holding the left mouse button — receives
+    // onLeftButtonUp / onMouseMove until release; id-checked against
+    // the live registry so a press→rebuild→release never derefs a
+    // freed widget.
+    void setActiveWidget(Widget *w);
+    bool activeWidgetStale() const;
 
     PlayerHost *m_host = nullptr;
     SkinXml::Document m_doc;
     QHash<QString, SkinView *> m_subwindows;
     QString m_rootContainerId = QStringLiteral("main");
     SkinRuntime *m_runtime = nullptr;
+
+    // Visualisation mode (context menu → Visualization submenu).
+    int  m_visMode    = 1;
+
+    QPoint     m_dragOrigin;
+    bool       m_dragging = false;
+    // Script receiver whose onLeftButtonDown claimed the press —
+    // mouseReleaseEvent routes the matching onLeftButtonUp to it.
+    QString    m_makiPressId;
+    const Widget *m_makiPressWidget = nullptr;
+    Widget *m_activeWidget = nullptr;
+    QString m_activeWidgetId;
+    bool m_drawerOpen = true;
+    // Colour-themes list state — threaded through TreePainter on each
+    // paint; the engine itself stays application-state-free.
+    int          m_ctSelectedRow = -1;   // -1 = use active gammaset
+    mutable int  m_ctTopRow      = 0;
+    mutable QRect m_ctListRect;
+    // Scrollbar drag state for the colour-themes list.
+    bool m_ctDragging  = false;
+    int  m_ctDragOffset = 0;
+    int  m_ctTrackTop  = 0;
+    int  m_ctTrackBot  = 0;
+    int  m_ctThumbH    = 31;
+    int  m_ctMaxTop    = 0;
 
 private:
     QString m_settingsFile;
