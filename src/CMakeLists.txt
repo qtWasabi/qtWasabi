@@ -88,6 +88,7 @@ set(QTWASABI_SOURCES
     # moc_*.cpp files inside this target (otherwise downstream link
     # complains about missing vtables for Skin etc.)
     ${PROJECT_SOURCE_DIR}/public/qtWasabi/Skin.h
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/PlayerHost.h
     ${QTWASABI_QT6_SOURCES}
 )
 
