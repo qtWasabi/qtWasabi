@@ -77,17 +77,21 @@ public:
     // Default routes through the EQ_BAND slider axis already on the Host
     // vtable, so a RemoteHost gets working EQ callbacks for free; a
     // local player host overrides these with its direct DSP store.
+    //
+    // The axis is a slider POSITION (0 = top = +12 dB boost, 1 = bottom
+    // = -12 dB cut, 31/63 flat — Winamp's classic EQ slider), so the
+    // Maki gain scale maps INVERTED onto it.
     virtual void setEqBandValue(int band, int val) {
-        // Winamp band scale is -127..127; the slider axis is 0..1.
-        setSliderPosition(QStringLiteral("EQ_BAND"),
-                          qBound(0.0, (val + 127) / 254.0, 1.0),
+        const int slider = qBound(0, qRound(31.0 - val * 31.0 / 127.0), 63);
+        setSliderPosition(QStringLiteral("EQ_BAND"), slider / 63.0,
                           QString::number(band));
     }
     virtual int eqBandValue(int band) const {
         const double p = sliderPosition(QStringLiteral("EQ_BAND"),
                                         QString::number(band));
         if (p < 0.0) return 0;
-        return qRound(p * 254.0) - 127;
+        const int slider = qRound(p * 63.0);
+        return qBound(-127, qRound((31 - slider) * 127.0 / 31.0), 127);
     }
 
     // Opens the Preferences dialog (wired by the head that owns it).

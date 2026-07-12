@@ -6,7 +6,7 @@
 // SSE events keep the cache fresh and drive the PlayerHost change
 // signals, so the window's existing repaint machinery works unchanged.
 //
-// Speaks the control-channel protocol of pylon/PROTOCOL.md directly —
+// Speaks the control-channel protocol of docs/PROTOCOL.md directly —
 // against `qtamp --backend` on loopback or through any pass-through
 // proxy (the qtamp-pylon, the ts4.party chain). See docs/OKF-remote.md.
 #pragma once

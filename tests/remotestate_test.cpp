@@ -36,6 +36,9 @@ RemoteSnapshot sampleSnapshot() {
     s.playlist.currentIndex = 1;
     s.playlist.rows = {{QStringLiteral("One"), 100000},
                        {QStringLiteral("Two"), 214000}};
+    s.track.meta = {{QStringLiteral("genre"), QStringLiteral("Jungle")},
+                    {QStringLiteral("year"), QStringLiteral("1996")},
+                    {QStringLiteral("albumartist"), QStringLiteral("VA")}};
     s.eq.on = true;
     s.eq.preamp = 40;
     s.eq.bands[3] = 55;

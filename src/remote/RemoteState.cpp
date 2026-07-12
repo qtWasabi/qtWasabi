@@ -38,7 +38,13 @@ QJsonObject trackToJson(const RemoteTrack &t) {
             {QStringLiteral("decoder"), t.decoder},
             {QStringLiteral("bitrate"), t.bitrate},
             {QStringLiteral("sampleRate"), t.sampleRate},
-            {QStringLiteral("channels"), t.channels}};
+            {QStringLiteral("channels"), t.channels},
+            {QStringLiteral("meta"), [&t] {
+                 QJsonObject m;
+                 for (auto it = t.meta.cbegin(); it != t.meta.cend(); ++it)
+                     m.insert(it.key(), it.value());
+                 return m;
+             }()}};
 }
 
 void trackFromJson(const QJsonObject &o, RemoteTrack *t) {
@@ -52,6 +58,12 @@ void trackFromJson(const QJsonObject &o, RemoteTrack *t) {
     t->bitrate = o.value(QLatin1String("bitrate")).toInt(t->bitrate);
     t->sampleRate = o.value(QLatin1String("sampleRate")).toInt(t->sampleRate);
     t->channels = o.value(QLatin1String("channels")).toInt(t->channels);
+    if (o.value(QLatin1String("meta")).isObject()) {
+        t->meta.clear();
+        const QJsonObject m = o.value(QLatin1String("meta")).toObject();
+        for (auto it = m.constBegin(); it != m.constEnd(); ++it)
+            t->meta.insert(it.key(), it.value().toString());
+    }
 }
 
 QJsonObject playlistToJson(const RemotePlaylist &p) {

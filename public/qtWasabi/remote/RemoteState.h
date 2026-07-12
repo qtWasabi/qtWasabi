@@ -4,11 +4,12 @@
 // server emit are the same tested code), revision-checked event
 // application, and the interpolated position clock.
 //
-// The wire vocabulary is documented in pylon/PROTOCOL.md and
+// The wire vocabulary is documented in docs/PROTOCOL.md and
 // docs/OKF-remote.md. Everything here is network-free and GUI-free by
 // design: it unit-tests headlessly (tests/remotestate_test.cpp).
 #pragma once
 
+#include <QHash>
 #include <QJsonObject>
 #include <QString>
 #include <QVector>
@@ -35,12 +36,17 @@ struct TransportState {
 struct RemoteTrack {
     QString title, artist, album, filename, displayTitle, decoder;
     int bitrate = 0, sampleRate = 0, channels = 0;
+    // Rich metadata by canonical lower-case field name (albumartist,
+    // genre, year, track, disc, composer, publisher, comment, ...) —
+    // additive on the wire, absent keys read as empty.
+    QHash<QString, QString> meta;
 
     bool operator==(const RemoteTrack &o) const {
         return title == o.title && artist == o.artist && album == o.album &&
                filename == o.filename && displayTitle == o.displayTitle &&
                decoder == o.decoder && bitrate == o.bitrate &&
-               sampleRate == o.sampleRate && channels == o.channels;
+               sampleRate == o.sampleRate && channels == o.channels &&
+               meta == o.meta;
     }
 };
 

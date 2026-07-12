@@ -135,12 +135,14 @@ QString RemoteHost::playItemMetaData(const QString &field) const {
                    ? QString::number(m_snap.transport.durationMs)
                    : QString();
     }
-    return QString();
+    return m_snap.track.meta.value(f);
 }
 
 double RemoteHost::sliderPosition(const QString &action,
                                   const QString &param) const {
     if (action.compare(QLatin1String("EQ_BAND"), Qt::CaseInsensitive) == 0) {
+        if (param.compare(QLatin1String("preamp"), Qt::CaseInsensitive) == 0)
+            return double(m_snap.eq.preamp) / 63.0;
         const int band = param.toInt();
         if (band >= 0 && band < m_snap.eq.bands.size())
             return double(m_snap.eq.bands[band]) / 63.0;
@@ -162,8 +164,14 @@ void RemoteHost::setSliderPosition(const QString &action, double v,
     // Optimistic echo first (the server event confirms or corrects),
     // then the command.
     if (action.compare(QLatin1String("EQ_BAND"), Qt::CaseInsensitive) == 0) {
-        const int band = param.toInt();
         const int value = qBound(0, qRound(v * 63.0), 63);
+        if (param.compare(QLatin1String("preamp"), Qt::CaseInsensitive) == 0) {
+            m_snap.eq.preamp = value;
+            sendCmd(QStringLiteral("setEqPreamp"),
+                    {{QStringLiteral("value"), value}});
+            return;
+        }
+        const int band = param.toInt();
         if (band >= 0 && band < m_snap.eq.bands.size())
             m_snap.eq.bands[band] = value;
         sendCmd(QStringLiteral("setEqBand"),
