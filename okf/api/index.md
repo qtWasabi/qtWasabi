@@ -107,6 +107,42 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V4 gate record (2026-07-12)
+
+The gRPC player protocol is live; the swap was consumer-invisible:
+- **qtWasabi::serve::SidecarService** (static lib `qtwasabi_serve`,
+  built where grpc++ exists): api/player.proto v1 over `unix:`, backed
+  by any PlayerHost. The reference embedder's control-channel server
+  logic ported 1:1 (epoch/revision, per-section fingerprints with
+  position excluded, apply-time push, playlist revision guard,
+  music-root confinement, 5 s ping); Qt-thread marshalling per the V0
+  spike patterns. EQ is Maki end to end; GetArt streams chunks;
+  Spectrum/Pcm/Library/Ml answer UNIMPLEMENTED until V7/V8.
+- **qtamp --serve-player <sock>** replaces `--backend <port>`; the
+  hand-rolled backendserver and the legacy HTTP control channel client
+  (HttpTransport) are DELETED, along with sync_test/backend_test and
+  the legacy wasm mock/cdp lanes. `--connect` accepts
+  graphql+http(s)/graphql+unix and plain http(s)/unix — GraphQL is the
+  only head data path.
+- **Pylon BackendLink is a grpc-js client** (QTAMP_PLAYER_SOCKET;
+  proto vendored at api/player.proto, loaded via @grpc/proto-loader):
+  GetState sections + Events stream keep the snapshot, commands map
+  the historic op vocabulary onto proto Commands, /art/current serves
+  from GetArt with ETag == artToken. Track rich fields and Maki EQ
+  come typed off the proto (the 0..63 channel conversion died with the
+  channel; the C++ GraphQL transport keeps the slider↔Maki edge —
+  formula fixed to the inverted mapping, arg key `value`).
+- **Gates**: conformance suite (fake-sidecar = FakeHost behind
+  SidecarService + probe.mjs over grpc-js: sectioned state, echo
+  masks, cold-start play, exact seek, guard, unsupported ops,
+  monotonic event revisions, UNIMPLEMENTED streams) — ctest
+  `conformance` PASS; grpc==GraphQL equivalence asserted in
+  e2e-channel (Maki preamp both sides); e2e-channel (TCP+unix),
+  graphql_sync (both GraphQL transports, now a ctest), e2e-remote all
+  green on the new stack; six-skin pixel suite byte-identical on both
+  lanes; pylon vitest green. wasm rebuild remains bundled with the V3
+  server leg (user-gated).
+
 # V3 gate record (2026-07-12)
 
 Moves + schema completion, behavior-neutral + additive:
