@@ -16,6 +16,7 @@
 #include <functional>
 
 #include <qtWasabi/Layout.h>
+#include <qtWasabi/SkinView.h>
 #include <qtWasabi/Widget.h>
 #include <qtWasabi/head/HeadChrome.h>
 
@@ -154,7 +155,9 @@ void HeadWindow::reloadSkin(const QString &skinXmlPath) {
             setSize(QSizeF(ns));
         }
     }
-    // Any previously-open resources belong to the old skin doc.
+    // Any previously-open subwindows belong to the old skin doc.
+    for (auto *w : std::as_const(m_subwindows)) if (w) w->deleteLater();
+    m_subwindows.clear();
     aboutToReloadSkin();
     auto &mutableTree = const_cast<Layout::ResolvedWidget &>(tree());
     Layout::runKnownScripts(mutableTree, layoutNativeSize().width());
@@ -193,6 +196,73 @@ void HeadWindow::reloadSkin(const QString &skinXmlPath) {
     // hit-test see the settled geometry.
     mutableTree.cacheResolvedRects(QPoint(0, 0), layoutNativeSize());
     update();
+}
+
+void HeadWindow::toggleSubwindow(const QString &containerRef) {
+    if (!isMainRoot()) return;
+    // `containerRef` is the skin's TOGGLE param — either a literal
+    // container id, a component GUID, or one of Winamp's short
+    // component aliases (`pl`, `ml`, `vid`, `vis`, …).  Resolve it
+    // to the actual <container id="…"> via the engine so e.g.
+    // `guid:pl` opens <container id="Pledit"> and `guid:ml` opens
+    // <container id="MLibrary"> (Winamp Modern names its windows by
+    // component GUID, not by the `pl`/`ml` strings the buttons fire).
+    QString containerId =
+        SkinXml::resolveContainerId(m_doc, containerRef);
+    if (containerId.isEmpty()) {
+        // Fall back to the raw reference so a direct-id skin (or a
+        // future container we don't alias) still gets a chance, and
+        // the load() failure path below logs a useful message.
+        containerId = containerRef;
+    }
+    SkinView *slot = ensureSubwindow(containerRef);
+    if (!slot) return;
+    if (slot->isVisible()) slot->hide();
+    else                   slot->show();
+}
+
+SkinView *HeadWindow::ensureSubwindow(const QString &containerRef) {
+    // A single-container head renders exactly one window; TOGGLE
+    // actions and Maki showWindow must not spawn siblings there.
+    if (!isMainRoot()) return nullptr;
+    QString containerId =
+        SkinXml::resolveContainerId(m_doc, containerRef);
+    if (containerId.isEmpty()) containerId = containerRef;
+    SkinView *&slot = m_subwindows[containerId.toLower()];
+    if (!slot) {
+        slot = new SkinView();
+        slot->setWindowTitle(subwindowTitle(containerId));
+        slot->setWindowFlags(slot->windowFlags() | Qt::FramelessWindowHint);
+        slot->setAttribute(Qt::WA_TranslucentBackground);
+        slot->setHost(m_host);
+        QString err;
+        if (!slot->load(m_doc, containerId, QStringLiteral("normal"),
+                        &err)) {
+            fprintf(stderr,
+                "[qtwasabi-head] failed to open container %s: %s\n",
+                containerId.toLocal8Bit().constData(),
+                err.toLocal8Bit().constData());
+            slot->deleteLater();
+            slot = nullptr;
+            return nullptr;
+        }
+        // Tint the subwindow's chrome with the SAME active colour theme
+        // as the main window — otherwise its titlebar/frame greyscale
+        // bitmaps render untinted (the Winamp Modern titlebar gradient
+        // is a tinted base, so no active gammaset = a blank/transparent
+        // titlebar).
+        if (const Gammaset *g = gammasets().active())
+            slot->setActiveGammaset(g->name);
+        slot->resize(slot->layoutNativeSize());
+    }
+    return slot;
+}
+
+SkinView *HeadWindow::peekSubwindow(const QString &containerRef) const {
+    QString containerId =
+        SkinXml::resolveContainerId(m_doc, containerRef);
+    if (containerId.isEmpty()) containerId = containerRef;
+    return m_subwindows.value(containerId.toLower(), nullptr);
 }
 
 void HeadWindow::installHotReloadWatcher(const QString &rootXmlPath) {

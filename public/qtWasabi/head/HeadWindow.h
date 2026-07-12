@@ -17,6 +17,7 @@
 // reference head.  (V5b step 1 of 3.)
 #pragma once
 
+#include <QHash>
 #include <QString>
 
 #include <qtWasabi/PlayerHost.h>
@@ -27,6 +28,10 @@
 class QFileSystemWatcher;
 class QMenu;
 class QTimer;
+
+namespace qtWasabi {
+class SkinView;
+}
 
 namespace qtWasabi::head {
 
@@ -63,8 +68,27 @@ public:
                                          Qt::CaseInsensitive) == 0;
     }
 
+    // Toggle a secondary container window (EQ / Playlist / etc.).
+    // Creates the SkinView lazily on first call.  Layout id matches
+    // the skin XML convention — modern skins almost always use
+    // "normal" as the default layout name.
+    void toggleSubwindow(const QString &containerRef);
+
+    // Lazily create + load a container's SkinView WITHOUT changing its
+    // visibility (toggleSubwindow owns show/hide).  Returns the slot,
+    // or nullptr if the container failed to load.  Also used by
+    // offscreen container-capture paths.
+    SkinView *ensureSubwindow(const QString &containerRef);
+
+    // Like ensureSubwindow but never creates — for visibility queries
+    // (Maki isNamedWindowVisible at script init must not instantiate
+    // every queried window).
+    SkinView *peekSubwindow(const QString &containerRef) const;
+
     // Full skin swap: parse, expand, adopt, re-theme, resize the OS
     // window to the new native size, reset + reload the Maki VM.
+    // Subwindows of the old document are torn down (they are
+    // base-owned); embedder extras die in aboutToReloadSkin().
     void reloadSkin(const QString &skinXmlPath);
 
     // Hot-reload: watch every XML/script file under the skin directory
@@ -99,12 +123,18 @@ public:
 protected:
     // A new skin document was adopted (initial load or reload).
     virtual void skinDocumentChanged() {}
-    // The old document's dependent resources must die (fires at the
-    // start of reloadSkin, before the new document is adopted).
+    // The old document's dependent resources must die (fires during
+    // reloadSkin, after the new document is adopted and base-owned
+    // subwindows are gone).
     virtual void aboutToReloadSkin() {}
+    // Window title for a secondary container window.
+    virtual QString subwindowTitle(const QString &containerId) const {
+        return containerId;
+    }
 
     PlayerHost *m_host = nullptr;
     SkinXml::Document m_doc;
+    QHash<QString, SkinView *> m_subwindows;
     QString m_rootContainerId = QStringLiteral("main");
     SkinRuntime *m_runtime = nullptr;
 
