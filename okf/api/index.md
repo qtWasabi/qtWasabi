@@ -107,6 +107,50 @@ Packaged-app smoke on both platforms is a V6 gate.
 | spectrum event ("phase 2", unbuilt) | `spectrumFrames` subscription / SpectrumFrames stream |
 | — (new) | capabilities, library, mediaLibrary, uiExtensions, pcmFrames, apiInfo.schemaVersion check |
 
+# V6 gate record (2026-07-13 — step 1)
+
+qtamp goes orchestrated by default: the launcher spawns the player
+(`qtamp --serve-player`) and the framework pylon on per-instance unix
+sockets, and connects the head over graphql+unix.
+- **Orchestrator** (qtWasabi::head, static lib qtwasabi_head): spawns
+  player → waits connectability → spawns pylon (player socket via env)
+  → waits connectability; children die with the launcher
+  (PR_SET_PDEATHSIG); pylon respawns with capped backoff (audio
+  survives a pylon crash, the head reconnects on the fresh process);
+  a player death is fatal; teardown head→pylon→player. Sockets in
+  `$XDG_RUNTIME_DIR/qtwasabi` (0700), pid-suffixed; readiness is
+  connectability, never bare existence.
+- **Mode selection**: orchestrated is the default for interactive
+  launches; `--embedded` restores the in-process player (KEPT until a
+  soak passes — V6 step 2 deletes it); `--orchestrated` forces the
+  trio even under `--screenshot` (the live-stack gate) and exits 7 on
+  failure. All headless test lanes (`--fakehost`, `--connect`,
+  `--serve-player`, `--screenshot`, `--probe`, `--list-actions`) keep
+  their explicit modes — the six-skin suite still renders embedded and
+  fast. **Startup-failure fallback**: if the trio can't start (no
+  pylon build, node missing), a default launch falls back to the
+  embedded player and keeps running — only `--orchestrated` dies.
+- **Single instance**: a QLockFile + a published gsock file; a second
+  `qtamp file.mp3` finds the running trio and enqueues (playlistAdd
+  over the GraphQL socket) instead of spawning another.
+- **Companion RemoteHost**: `setLocalCompanion(true)` advertises
+  localFiles and routes openPath/enqueueAndPlay through the protocol
+  (`open` / `playlistAddPaths`); the trusted-local musicRoot policy is
+  `/` (the launcher-spawned player, same user + machine, accepts any
+  local path — the CLI/EJECT/folder/removable-media flows). A
+  remote-exposed `--serve-player` still confines to its real
+  QTAMP_MUSIC_ROOT. 🔑 pathAllowed had a root=="/" bug (`//` prefix
+  rejected every path) — fixed with an unrestricted special case.
+- **Gate — the permanent live-stack MAE gate (kept forever)**:
+  `tests/remote/orchestrated_test.sh` (ctest `orchestrated`): the
+  orchestrated head renders **MAE 0.000 (<3)** vs the baseline over
+  the real player→pylon→head trio; single-instance enqueue (1→2 rows,
+  no second trio); pylon respawn (head recovers); trio reaped with the
+  launcher (PR_SET_PDEATHSIG); startup-failure fallback to embedded
+  (stays alive) and `--orchestrated` hard-fail (exit 7). `--embedded`
+  byte-identical to the pre-V6 binary; full ctest family green.
+- **Step 2 (after soak)**: delete the embedded direct-Host head path.
+
 # V5 gate record (2026-07-12 — complete)
 
 The head framework exists as `qtwasabi_head` (namespace
