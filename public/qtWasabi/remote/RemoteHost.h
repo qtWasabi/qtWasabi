@@ -86,14 +86,23 @@ public:
     void setVolume(int v) override;
 
     // ── PlayerHost surface ────────────────────────────────────────────
-    void openPath(const QUrl &) override {}       // no local files remotely
-    void enqueueAndPlay(const QUrl &, bool) override {}
+    // A REMOTE player never receives local paths.  A COMPANION player
+    // (the launcher-spawned trio, same machine + user) does: openPath
+    // routes through the protocol's `open`, enqueue through
+    // playlistAdd — the trusted-local musicRoot policy applies on the
+    // player side.
+    void setLocalCompanion(bool on) { m_companion = on; }
+    void openPath(const QUrl &u) override;
+    void enqueueAndPlay(const QUrl &u, bool enqueueOnly) override;
     QString songPath() const override { return m_snap.track.filename; }
     QUrl currentSourceUrl() const override {
         return QUrl::fromLocalFile(m_snap.track.filename);
     }
     qtWasabi::HostCapabilities hostCapabilities() const override {
-        return {/*localFiles=*/false, /*localAnalyzer=*/false};
+        // Companion heads pick files locally (the head's dialog); the
+        // player still has no picker of its own.
+        return {/*localFiles=*/m_companion, /*localAnalyzer=*/false,
+                /*providesFilePicker=*/false};
     }
 
 private:
@@ -111,6 +120,7 @@ private:
     PositionClock m_clock;
     QImage m_art;
     QString m_artForFile;  // which track the cached art belongs to
+    bool m_companion = false;
 };
 
 }  // namespace qtWasabi::remote

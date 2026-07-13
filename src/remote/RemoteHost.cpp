@@ -1,6 +1,7 @@
 #include <qtWasabi/remote/RemoteHost.h>
 
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonDocument>
 
 namespace qtWasabi::remote {
@@ -247,6 +248,29 @@ void RemoteHost::playlistPlayRow(int row) {
             {{QStringLiteral("row"), row},
              {QStringLiteral("expectPlaylistRevision"),
               double(m_snap.playlist.revision)}});
+}
+
+void RemoteHost::enqueueAndPlay(const QUrl &u, bool enqueueOnly) {
+    if (!m_companion) return;
+    if (u.isLocalFile()) {
+        // Append a real playlist row (open just plays, without a row).
+        sendCmd(QStringLiteral("playlistAddPaths"),
+                {{QStringLiteral("paths"), QJsonArray{u.toLocalFile()}}});
+        // Not enqueue-only: cold-start play picks up the current row
+        // (SidecarService's play handler plays the playlist's current
+        // row when nothing is playing).
+        if (!enqueueOnly) sendCmd(QStringLiteral("play"), {});
+        return;
+    }
+    // A network stream (Play location) has no playlist row — open it
+    // directly, mirroring the embedded QtampHost path.
+    if (!u.scheme().isEmpty())
+        sendCmd(QStringLiteral("open"),
+                {{QStringLiteral("url"), u.toString()}});
+}
+
+void RemoteHost::openPath(const QUrl &u) {
+    enqueueAndPlay(u, /*enqueueOnly=*/false);
 }
 
 }  // namespace qtWasabi::remote

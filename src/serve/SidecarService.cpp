@@ -338,8 +338,15 @@ public:
             case wp::Command::kOpen: {
                 const QUrl u(
                     QString::fromStdString(cmd.open().url()));
-                if (!u.isLocalFile() || !pathAllowed(u.toLocalFile()))
-                    return fail("path outside music root");
+                if (u.isLocalFile()) {
+                    if (!pathAllowed(u.toLocalFile()))
+                        return fail("path outside music root");
+                } else if (u.scheme() != QLatin1String("http") &&
+                           u.scheme() != QLatin1String("https")) {
+                    // Network streams (Play location) are fine; anything
+                    // else is neither a confined local file nor a stream.
+                    return fail("unsupported url scheme");
+                }
                 m_host->openPath(u);
                 break;
             }
@@ -399,6 +406,11 @@ private:
         const QString root =
             QFileInfo(m_hooks.musicRoot).canonicalFilePath();
         if (canonical.isEmpty() || root.isEmpty()) return false;
+        // A root of "/" is the trusted-local (unrestricted) policy —
+        // the launcher-spawned companion trio uses it.  Without this
+        // special case the prefix check builds "//" and rejects every
+        // absolute path.
+        if (root == QLatin1String("/")) return true;
         return canonical == root ||
                canonical.startsWith(root + QLatin1Char('/'));
     }
