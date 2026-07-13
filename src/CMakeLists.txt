@@ -153,6 +153,8 @@ add_library(qtwasabi_head STATIC
     head/HeadMenu.cpp
     head/HeadPreferences.cpp
     head/HeadTransport.cpp
+    head/Orchestrator.cpp
+    ${PROJECT_SOURCE_DIR}/public/qtWasabi/head/Orchestrator.h
     ${PROJECT_SOURCE_DIR}/public/qtWasabi/head/HeadPreferences.h
     head/HeadWindow.cpp
     head/HeadWiring.cpp
