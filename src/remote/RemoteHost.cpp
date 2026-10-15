@@ -253,13 +253,18 @@ void RemoteHost::playlistPlayRow(int row) {
 void RemoteHost::enqueueAndPlay(const QUrl &u, bool enqueueOnly) {
     if (!m_companion) return;
     if (u.isLocalFile()) {
-        // Append a real playlist row (open just plays, without a row).
+        // Append a real playlist row (open plays but adds no row).  The
+        // row lands at the current end of the playlist.
+        const int newRow = m_snap.playlist.count();
         sendCmd(QStringLiteral("playlistAddPaths"),
                 {{QStringLiteral("paths"), QJsonArray{u.toLocalFile()}}});
-        // Not enqueue-only: cold-start play picks up the current row
-        // (SidecarService's play handler plays the playlist's current
-        // row when nothing is playing).
-        if (!enqueueOnly) sendCmd(QStringLiteral("play"), {});
+        // Play now (not enqueue-only): explicitly play the appended
+        // row.  Cold-start `play` only plays the CURRENT row and only
+        // when stopped — it would play the wrong track (or nothing)
+        // when the player is mid-playlist or already playing.
+        if (!enqueueOnly)
+            sendCmd(QStringLiteral("playlistPlayRow"),
+                    {{QStringLiteral("row"), newRow}});
         return;
     }
     // A network stream (Play location) has no playlist row — open it
