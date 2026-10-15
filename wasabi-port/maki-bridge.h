@@ -47,6 +47,13 @@ void setPlayItemMetaResolver(
 // if a handler was found.
 bool fireOnTitleChange(int scriptId, const wchar_t *newTitle);
 
+// Fire a one-string System.<eventName>(arg) callback on `scriptId`'s
+// SystemObject, only if the script hooks it.  Backs System.onInfoChange,
+// which the song-info scripts use to refresh their kbps/kHz fields.
+// Returns true if a handler was found and run.
+bool fireSystemStringEvent(int scriptId, const wchar_t *eventName,
+                           const wchar_t *arg);
+
 // Fire a zero-argument System.<eventName>() callback on `scriptId`'s
 // SystemObject, only if the script hooks it.  Backs the playback-state
 // notifications (System.onPlay/onResume/onPause/onStop) the Maki VM

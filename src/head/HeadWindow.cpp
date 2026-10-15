@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QMessageBox>
+#include <QPointer>
 #include <QQuickWindow>
 #include <QSettings>
 #include <QTimer>
@@ -72,6 +73,44 @@ HeadWindow::HeadWindow(PlayerHost *host, QQuickItem *parent)
     // Hand the Host to SkinQuickItem so paintInto pulls live display
     // strings AND <slider> thumb positions from it.
     setHost(host);
+    m_infoPoll = new QTimer(this);
+    m_infoPoll->setInterval(500);
+    connect(m_infoPoll, &QTimer::timeout, this,
+            &HeadWindow::fireInfoChangeIfNeeded);
+    m_infoPoll->start();
+}
+
+QString HeadWindow::songInfoText() const {
+    if (!m_host) return QString();
+    const int kbps = m_host->bitrate();
+    const int rate = m_host->sampleRate();
+    const int ch   = m_host->channelCount();
+    if (kbps <= 0 && rate <= 0) return QString();
+    QStringList parts;
+    if (kbps > 0) parts << QString::number(kbps) + QLatin1String("kbps");
+    if (ch == 1)      parts << QStringLiteral("mono");
+    else if (ch == 2) parts << QStringLiteral("stereo");
+    else if (ch > 2)  parts << QString::number(ch) + QLatin1String(" channels");
+    if (rate > 0) {
+        // 44100 -> "44.1kHz", 48000 -> "48kHz"; the scripts cut at the dot.
+        const QString khz = (rate % 1000 == 0)
+            ? QString::number(rate / 1000)
+            : QString::number(rate / 1000.0, 'f', 1);
+        parts << khz + QLatin1String("kHz");
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+void HeadWindow::fireInfoChangeIfNeeded() {
+    if (!m_runtime || !m_host) return;
+    const QString info = songInfoText();
+    if (info == m_lastSongInfo) return;
+    m_lastSongInfo = info;
+    const int fired = m_runtime->dispatchInfoChange(info);
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1)
+        std::fprintf(stderr, "[meta] onInfoChange('%s') -> %d scripts\n",
+                     info.toLocal8Bit().constData(), fired);
+    update();
 }
 
 void HeadWindow::setSkinDocument(SkinXml::Document doc) {
@@ -330,13 +369,17 @@ void HeadWindow::installHotReloadWatcher(const QString &rootXmlPath) {
 
 void HeadWindow::setSkinRuntime(SkinRuntime *r) {
     m_runtime = r;
+    // A fresh runtime has seen no song-info yet: the next poll hands it
+    // the current line.
+    m_lastSongInfo.clear();
     if (!r || !m_host) return;
     // Pipe the host's real track metadata into the skin's Maki
     // file-info scripts.  Keys are lower-case: "playitem:string",
     // "playitem:displaytitle", "decoder", "meta:<field>".
     PlayerHost *h = m_host;
+    const QPointer<HeadWindow> self(this);
     r->setPlayItemMetadataResolver(
-        [h](const QString &key) -> QString {
+        [h, self](const QString &key) -> QString {
             if (key == QLatin1String("playitem:string"))       return h->songPath();
             if (key == QLatin1String("playitem:displaytitle")) return h->playItemDisplayTitle();
             if (key == QLatin1String("decoder"))               return h->decoderName();
@@ -353,10 +396,9 @@ void HeadWindow::setSkinRuntime(SkinRuntime *r) {
             if (key == QLatin1String("playlist:index"))
                 return QString::number(h->playlistCurrentRow());
             if (key == QLatin1String("songinfo"))
-                // No live multi-line song-info blob; empty is the
-                // correct neutral (vs an int-0→"0" that would leak the
-                // channel/bitrate guards).
-                return QString();
+                // Empty while nothing decodes is the correct neutral
+                // (an int 0 would leak the channel/bitrate guards).
+                return self ? self->songInfoText() : QString();
             if (key.startsWith(QLatin1String("meta:")))
                 return h->playItemMetaData(key.mid(5));
             return QString();

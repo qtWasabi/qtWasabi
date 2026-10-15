@@ -373,15 +373,21 @@ bool fireFourIntEvent(int scriptId, void *recv,
 }
 
 bool fireOnTitleChange(int scriptId, const wchar_t *newTitle) {
-    // Find the System.onTitleChange(String) DLF entry on this script —
-    // fileinfo.maki hooks it to (re)load + show the track-info lines.
+    // fileinfo.maki hooks System.onTitleChange(String) to (re)load and
+    // show the track-info lines.
+    return fireSystemStringEvent(scriptId, L"onTitleChange", newTitle);
+}
+
+bool fireSystemStringEvent(int scriptId, const wchar_t *eventName,
+                           const wchar_t *arg) {
+    // Find the System.<eventName>(String) DLF entry on this script.
+    if (!eventName) return false;
     int dlfid = -1; int nparams = 1;
     const int base = VCPU::dlfBase(scriptId);
     for (int i = base; i < VCPU::DLFentryTable.getNumItems(); ++i) {
         VCPUdlfEntry *e = VCPU::DLFentryTable.enumItem(i);
         if (!e || e->scriptId != scriptId) continue;
-        if (e->functionName &&
-            wcscmp(e->functionName, L"onTitleChange") == 0) {
+        if (e->functionName && wcscmp(e->functionName, eventName) == 0) {
             dlfid   = e->DLFid;
             nparams = e->nparams;
             break;
@@ -393,7 +399,7 @@ bool fireOnTitleChange(int scriptId, const wchar_t *newTitle) {
     if (!so) return false;
 
     scriptVar t{}; t.type = SCRIPT_STRING;
-    t.data.sdata = newTitle ? newTitle : L"";
+    t.data.sdata = arg ? arg : L"";
     VCPU::push(t);
 
     scriptVar v{};

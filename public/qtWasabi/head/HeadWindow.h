@@ -123,6 +123,12 @@ public:
     // call before a skin/runtime exists (no-op).
     void fireTitleChange();
 
+    // The song-info line the Maki getSongInfoText() returns and
+    // System.onInfoChange carries: "<n>kbps <stereo|mono|n channels>
+    // <f>kHz", space separated, because the stock song-info scripts
+    // tokenize it on spaces.  Empty while nothing decodes.
+    QString songInfoText() const;
+
     // Chrome styling (HeadChrome over this window's registries).
     QString themedMenuStyle();
     QString menuStyleFor(const QString &sel);
@@ -325,6 +331,12 @@ private:
     QString m_settingsFile;
     QFileSystemWatcher *m_skinWatcher = nullptr;
     QTimer *m_reloadDebounce = nullptr;
+    // Polls the song-info line and fires System.onInfoChange when it
+    // changes: the format arrives after the source opens, and a VBR
+    // bitrate keeps moving while playing.
+    QTimer *m_infoPoll = nullptr;
+    QString m_lastSongInfo;
+    void fireInfoChangeIfNeeded();
     QString m_hotReloadRoot;
 };
 

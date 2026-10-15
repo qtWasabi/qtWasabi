@@ -539,6 +539,20 @@ int SkinRuntime::dispatchTitleChange(const QString &title) {
     return fired;
 }
 
+int SkinRuntime::dispatchInfoChange(const QString &info) {
+    const std::wstring w = info.toStdWString();
+    int fired = 0;
+    for (int sid : m_d->loadedScripts) {
+        if (Maki::fireSystemStringEvent(sid, L"onInfoChange", w.c_str()))
+            ++fired;
+    }
+    if (qEnvironmentVariableIntValue("WASABIQT_TRACE_META") == 1)
+        qInfo("[meta] dispatchInfoChange('%s'): %d/%lld scripts handled onInfoChange",
+              info.toLocal8Bit().constData(), fired,
+              (long long)m_d->loadedScripts.size());
+    return fired;
+}
+
 int SkinRuntime::dispatchPlaybackState(PlaybackState state) {
     const wchar_t *ev = nullptr;
     switch (state) {

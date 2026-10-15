@@ -66,6 +66,12 @@ public:
     // number of scripts that handled it.
     int dispatchTitleChange(const QString &title);
 
+    // Fire System.onInfoChange(info) on every loaded script.  `info` is
+    // the song-info line ("853kbps stereo 44.1kHz") the kbps/kHz scripts
+    // tokenize; call when it changes.  Returns the number of scripts that
+    // handled it.
+    int dispatchInfoChange(const QString &info);
+
     // Playback transport state — maps to the Maki System playback
     // callbacks below.  Resumed is distinct from Playing so a skin can
     // tell a fresh start (onPlay) from un-pausing (onResume).
