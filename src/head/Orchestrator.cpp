@@ -1,6 +1,12 @@
 // Orchestrator implementation (V6).
 #include <qtWasabi/head/Orchestrator.h>
 
+// The launcher trio needs QProcess + QLocalSocket, which Qt for
+// WebAssembly does not provide.  A wasm head is always a remote head
+// (page-origin GraphQL), so orchestration is never reached there —
+// stub the class out to keep the build green.
+#ifndef Q_OS_WASM
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
@@ -244,3 +250,18 @@ void Orchestrator::stop() {
 }
 
 }  // namespace qtWasabi::head
+
+#else  // Q_OS_WASM
+
+namespace qtWasabi::head {
+Orchestrator::Orchestrator(QObject *parent) : QObject(parent) {}
+Orchestrator::~Orchestrator() {}
+void Orchestrator::setPlayerCommand(const QString &, const QStringList &) {}
+void Orchestrator::setPlayerEnv(const QString &, const QString &) {}
+void Orchestrator::setPylonDir(const QString &) {}
+QString Orchestrator::defaultPylonDir() { return {}; }
+bool Orchestrator::start() { return false; }
+void Orchestrator::stop() {}
+}  // namespace qtWasabi::head
+
+#endif  // Q_OS_WASM
