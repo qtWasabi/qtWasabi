@@ -20,6 +20,7 @@
 #include <QString>
 #include <QRect>
 #include <functional>
+#include <vector>
 
 namespace qtWasabi {
 
@@ -62,6 +63,12 @@ struct PaintCtx {
     // container subwindows in a multi-window screenshot) so their chrome
     // renders the dim inactive variant.  Default true (the focused player).
     bool                   windowActive = true;
+    // Window holders (media library, AVS, video, the playlist component)
+    // are child windows in Wasabi: they sit above everything the skin
+    // paints, whatever their place in the XML.  WindowHolderWidget queues
+    // its paint here and TreePainter runs the queue after the tree.  Null
+    // paints in place (and is what the queued paints run with).
+    std::vector<std::function<void()>> *deferredHolders = nullptr;
 };
 
 }  // namespace qtWasabi

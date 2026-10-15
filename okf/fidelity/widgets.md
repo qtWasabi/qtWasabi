@@ -83,6 +83,25 @@ skin-generic. The in-player playlist (PleditHostRenderer over the real
 - **SectionFrame dead `color.ml.frame.*` ids** (`SectionFrame.cpp:30`) with
   a fixed grey bevel fallback.
 
+## Window holders are child windows
+
+A `<windowholder>` / `<component>` (media library, AVS, video, the
+playlist component) is a child window in Wasabi. It covers everything its
+parent skin paints, whatever its position in the XML. qtWasabi paints the
+tree into one buffer, so `WindowHolderWidget::paint` queues itself and
+`TreePainter` paints the queue after the tree (`PaintCtx::deferredHolders`).
+
+WinampModernPP needs this: `ml-normal.xml` lays the frame group
+`ml.frame.layout` after the library component, and that group carries a
+full background texture (`wasabi.frame.basetexture`) plus bottom corner
+pieces. Painted in XML order the library window rendered empty, and before
+the group background was honoured it showed grey rectangles over the
+library's bottom corners (left of the Library button, right of the track
+list). `WASABIQT_HOLDERS_IN_PLACE=1` brings the XML order back for
+debugging. Gate: `tests/regression/ml_holder_test.sh` in qtamp compares the
+library renderer's own output (`WASABIQT_DUMP_ML`) with the holder's rect in
+the final grab (2026-10-15).
+
 ## The pattern
 
 Substitute widgets exist where the real behaviour needed either the VM event

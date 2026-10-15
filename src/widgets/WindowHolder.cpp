@@ -153,6 +153,29 @@ void WindowHolderWidget::paint(QPainter *p, PaintCtx &ctx,
         return;
     const QRect r = resolveRect(canvas);
     if (r.width() <= 0 || r.height() <= 0) return;
+    // A holder is a child window: it covers everything the skin paints,
+    // whatever its XML position (ml-normal.xml lays the frame group, its
+    // background texture included, after the media library component).
+    // Queue the paint with this spot's painter state; the tree painter
+    // runs the queue after the tree, with deferredHolders cleared.
+    if (ctx.deferredHolders) {
+        const QTransform t = p->worldTransform();
+        const bool clipped = p->hasClipping();
+        const QRegion clip = clipped ? p->clipRegion() : QRegion();
+        const qreal opacity = p->opacity();
+        PaintCtx *c = &ctx;
+        ctx.deferredHolders->push_back(
+            [this, p, c, canvas, t, clipped, clip, opacity]() {
+                p->save();
+                p->setWorldTransform(t);
+                p->setOpacity(opacity);
+                if (clipped) p->setClipRegion(clip);
+                else         p->setClipping(false);
+                paint(p, *c, canvas);
+                p->restore();
+            });
+        return;
+    }
     if (qEnvironmentVariableIntValue("WASABIQT_TRACE_HOLDER") == 1)
         fprintf(stderr, "[holder] hold=%s canvas=%dx%d r=%dx%d@(%d,%d) "
                 "attrs h=%s relath=%s\n",
