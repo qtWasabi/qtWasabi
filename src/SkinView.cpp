@@ -50,6 +50,11 @@ void SkinView::setActiveGammaset(const QString &name) {
 void SkinView::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);
+    // The paint clip needs the visible silhouette (z-ordered), not the
+    // two-pass input region above: that one subtracts every cutout
+    // globally and eats chrome that re-adds above a mask.
+    m_visualRegion = Layout::computeVisualRegion(
+        m_tree, m_registry, m_nativeSize);
     // On Wayland (Qt 6.x), QWidget::setMask is forwarded to
     // wl_surface.set_input_region, so transparent areas of the chrome
     // become click-through to the desktop / windows behind us.  On
@@ -259,9 +264,9 @@ void SkinView::paintEvent(QPaintEvent *) {
     buf.fill(Qt::transparent);
     {
         QPainter bp(&buf);
-        if (!m_windowRegion.isEmpty() &&
+        if (!m_visualRegion.isEmpty() &&
             !qEnvironmentVariableIsSet("WASABIQT_NO_REGION_CLIP"))
-            bp.setClipRegion(m_windowRegion);
+            bp.setClipRegion(m_visualRegion);
         if (m_host) {
             // Pass the colour + gammaset registries so a container subwindow
             // (Playlist Editor, Media Library, …) themes exactly like the main

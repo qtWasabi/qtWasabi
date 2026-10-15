@@ -190,7 +190,8 @@ private:
     QSize                  m_nativeSize { 354, 280 };
     DisplayResolver        m_resolver;
     Host                  *m_host = nullptr;
-    QRegion                m_windowRegion;
+    QRegion                m_windowRegion;   // input region (setMask)
+    QRegion                m_visualRegion;   // visible silhouette (paint clip)
     // Painted-alpha cache for alpha-aware hit-test.  Captured during
     // paintEvent (the same QImage we render to gets stored alpha-only)
     // and sampled by alphaHitTest().  One image per skin paint —
