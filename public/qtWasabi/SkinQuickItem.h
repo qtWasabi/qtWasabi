@@ -150,7 +150,16 @@ public:
     // collapses a burst to one rebuild, still on the GUI thread and
     // after the script dispatch (so post-script attr values are used).
     void scheduleRegionRebuild();
+    // The INPUT region in display pixels: two passes, every cutout
+    // subtracted after every add.  Right for setMask and click-through,
+    // never for pixels: it eats chrome that legitimately re-adds above
+    // a mask (the CONFIG bevel, the rounded drawer corners, the side
+    // frame next to a closed drawer).
     const QRegion &windowRegion() const { return m_windowRegion; }
+    // The VISIBLE silhouette in display pixels: the z-ordered
+    // composition the paint buffer is clipped to.  Anything that shows
+    // pixels (shaped screenshots, previews, thumbnails) cuts with this.
+    QRegion visualRegion() const;
 
     // Auto-shrink the QQuickWindow to the painted-region's bounding
     // box after every repaint.  Same idea as SkinView — when a Maki
@@ -291,9 +300,9 @@ private:
     int m_wheelAccumY = 0;
     // Cached window region from the last rebuildWindowRegion call.
     QRegion m_windowRegion;
-    // Same region in layout units (pre-renderRatio scale) — the paint
-    // buffer works in layout units, the published m_windowRegion in
-    // display pixels.
+    // The visible silhouette (computeVisualRegion, z-ordered) in layout
+    // units: the paint buffer clips to it, visualRegion() publishes it
+    // in display pixels.  Not the input region above.
     QRegion m_windowRegionLayout;
     // Auto-shrink to painted extent toggle (off by default).
     bool   m_autoShrink = false;

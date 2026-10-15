@@ -297,6 +297,13 @@ void SkinQuickItem::scheduleRegionRebuild() {
     }, Qt::QueuedConnection);
 }
 
+QRegion SkinQuickItem::visualRegion() const {
+    if (m_renderRatio == 1.0) return m_windowRegionLayout;
+    QTransform t;
+    t.scale(m_renderRatio, m_renderRatio);
+    return t.map(m_windowRegionLayout);
+}
+
 void SkinQuickItem::rebuildWindowRegion() {
     m_windowRegion = Layout::computeWindowRegion(
         m_tree, m_registry, m_nativeSize);

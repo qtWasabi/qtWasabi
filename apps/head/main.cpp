@@ -381,12 +381,15 @@ int main(int argc, char **argv) {
         }
         QTimer::singleShot(delayMs, view, [view, qwin, screenshotPath]() {
             QImage shot = qwin->grabWindow();
-            // WASABIQT_SHOT_ALPHA=1 — cut the grab to the skin's
-            // shaped window region (the corpus lane compares against
-            // region-cut author screenshots).
+            // WASABIQT_SHOT_ALPHA=1 cuts the grab to the skin's VISIBLE
+            // silhouette, the z-ordered region the paint buffer is
+            // clipped to.  The corpus lane compares against author
+            // screenshots, and a Win32 window region composes in z order
+            // too.  The input region (windowRegion) would eat the CONFIG
+            // bevel, the drawer corners and the side frame.
             if (qEnvironmentVariableIntValue("WASABIQT_SHOT_ALPHA") == 1) {
                 shot = shot.convertToFormat(QImage::Format_ARGB32);
-                const QRegion reg = view->windowRegion();
+                const QRegion reg = view->visualRegion();
                 if (!reg.isEmpty()) {
                     QImage cut(shot.size(), QImage::Format_ARGB32);
                     cut.fill(Qt::transparent);

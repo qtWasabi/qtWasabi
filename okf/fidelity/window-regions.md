@@ -58,8 +58,8 @@ recurring artifacts:
 
 | Consumer | Composition | Purpose |
 |---|---|---|
-| `Layout::computeWindowRegion` | two-pass (all adds, then all subtracts) | INPUT region / `setMask`, `WASABIQT_SHOT_ALPHA` screenshot cut. Over-subtraction is the safe direction here. |
-| `Layout::computeVisualRegion` | single **ordered** walk (`RegionPass::Ordered`) | the visible silhouette. `SkinQuickItem::updatePaintNode` clips its paint buffer to this region (skipped during tweens; `WASABIQT_NO_REGION_CLIP=1` opts out). `SkinView::paintEvent` carries the same clip idea for subwindows. |
+| `Layout::computeWindowRegion` | two-pass (all adds, then all subtracts) | INPUT region / `setMask`, published as `SkinQuickItem::windowRegion()`. Over-subtraction is the safe direction here, and only here. |
+| `Layout::computeVisualRegion` | single **ordered** walk (`RegionPass::Ordered`) | the visible silhouette. `SkinQuickItem::updatePaintNode` clips its paint buffer to this region (skipped during tweens; `WASABIQT_NO_REGION_CLIP=1` opts out). `SkinView::paintEvent` carries the same clip idea for subwindows. `SkinQuickItem::visualRegion()` publishes it in display pixels, and the `WASABIQT_SHOT_ALPHA` screenshot cut (qtamp and qtwasabi-head) uses it. |
 | `BitmapRegistry::chromeImageFor` pre-bake (`collectChromeCutouts`) | bitmap-level, geometric-overlap pairing, same relat-flags only | bakes cutout alpha into chrome bitmaps so per-bitmap paints carry their shape. Cannot pair a left-anchored fill with a right-anchored (`relatx="1"`) cutout — that gap is why the paint clip is load-bearing. |
 
 Why the paint clip exists at all: `QWindow::setMask` is **input-only on
@@ -82,6 +82,12 @@ carry the silhouette.
   in `SkinQuickItem`. First attempt clipped to the two-pass INPUT
   region and reproduced 81c8ec3's bevel damage — the two-pass region is
   never a visual.
+- 2026-10-15: the `WASABIQT_SHOT_ALPHA` cut still used the input
+  region, so every shaped marketing shot on qtamp.org showed the input
+  silhouette: cut drawer corners with the drawer open, a missing side
+  frame with the drawer closed. The live window was right the whole
+  time. Both screenshot paths now cut with `visualRegion()`, and
+  `tests/regression/shot_alpha_test.sh` (qtamp) guards the cut.
 
 ## Rules
 
@@ -93,7 +99,12 @@ carry the silhouette.
    354 wide: drawer strip rows (y≈200, x 346–353 must be transparent),
    CONFIG bevel (y 151–163, x 346–353 must be opaque with the
    staircase), both drawer bottom corners (rounded).
-3. Baselines encode whatever state they were captured in — the strip
+3. Anything that shows pixels (shaped screenshots, previews,
+   thumbnails) cuts with `visualRegion()`. `windowRegion()` is input
+   only. `tests/regression/shot_alpha_test.sh` asserts that the alpha
+   cut never clears a pixel the raw grab shows, for every reference
+   skin and for WinampModernPP with the drawer closed.
+4. Baselines encode whatever state they were captured in — the strip
    lived in `tests/regression/*.png` through many "green" runs. When a
    region change lands, re-derive the expected diff pixel-exactly
    (restored vs removed counts) before refreshing baselines.
